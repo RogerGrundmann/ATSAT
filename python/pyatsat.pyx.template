@@ -1,0 +1,97 @@
+import sys
+
+from atsat cimport cSaturnModel
+
+from libcpp cimport bool
+from libcpp.string cimport string
+from libcpp.vector cimport vector
+
+class Model:
+    """
+        ATSAT Saturn's cell structure in the atmosphere
+    """
+    def __init__(self):
+        self.saturn = Saturn()
+        self.output_path = ""
+        self.config_xml = ""
+
+    def run_atsat(self, output_path, cfg_xml):
+        self.output_path = output_path
+        self.config_xml = cfg_xml
+
+#        cfg_xml = cfg_xml.str.encode('utf-8')
+
+        print self.output_path 
+        print self.config_xml 
+        self.saturn.load_config(self.config_xml)
+        self.saturn.run()
+
+
+
+
+cdef class Saturn:
+    """ 
+    Cython wrapper class for C++ class Saturn
+    """
+    cdef:
+        cSaturnModel *_thisptr
+
+    def __cinit__(Saturn self):
+        # Initialize the "this pointer" to NULL so __dealloc__
+        # knows if there is something to deallocate. Do not 
+        # call new cSaturnModel() here.
+        self._thisptr = NULL
+        
+    def __init__(Saturn self):
+        # Constructing the C++ object might raise std::bad_alloc
+        # which is automatically converted to a Python MemoryError
+        # by Cython. We therefore need to call "new cSaturnModel()" in
+        # __init__ instead of __cinit__.
+        self._thisptr = new cSaturnModel() 
+
+    def __dealloc__(Saturn self):
+        # Only call del if the C++ object is alive, 
+        # or we will get a segfault.
+        if self._thisptr != NULL:
+            del self._thisptr
+            
+    cdef int _check_alive(Saturn self) except -1:
+        # Because of the context manager protocol, the C++ object
+        # might die before PySaturn self is reclaimed.
+        # We therefore need a small utility to check for the
+        # availability of self._thisptr
+        if self._thisptr == NULL:
+            raise RuntimeError("Wrapped C++ object is deleted")
+        else:
+            return 0
+
+    def load_config(Saturn self, str filename):
+        self._check_alive()
+        self._thisptr.LoadConfig(filename)
+        return None
+
+    def run(Saturn self):
+        self._check_alive()
+        self._thisptr.Run()
+        return None
+
+{{ saturn_params }}
+
+    # The context manager protocol allows us to precisely
+    # control the liftetime of the wrapped C++ object. del
+    # is called deterministically and independently of 
+    # the Python garbage collection.
+
+    def __enter__(Saturn self):
+        self._check_alive()
+        return self
+    
+    def __exit__(Saturn self, exc_tp, exc_val, exc_tb):
+        if self._thisptr != NULL:
+            del self._thisptr 
+            self._thisptr = NULL # inform __dealloc__
+        return False # propagate exceptions
+
+cdef public void PythonPrint(const char *s):
+    print s,
+    sys.stdout.flush()
