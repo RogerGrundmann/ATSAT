@@ -1,35 +1,137 @@
-# ATJUP
+# ATSAT
 
-ATJUP (Jupiter Atmospheric Model) based on the numerical treatment of ATOM climate model.
+Saturn atmospheric general circulation model based on the numerical framework of the ATOM
+climate model. Solves the 3-D Navier-Stokes equations in a spherical shell extending from
+the deep water-cloud level (~10 bar) up through the hydrocarbon haze layers, including full
+cloud microphysics and chemistry for the H₂/He atmosphere of Saturn.
 
-## Concise code description:
+Saturn presents two phenomena that motivated this work. The first is the persistent
+hexagonal polar vortex observed in Saturn's northern hemisphere by Voyager and Cassini —
+a six-sided standing wave pattern surrounding the pole that has remained stable for
+decades. The second is Saturn's super-rotating equatorial jet, which reaches wind speeds
+near 470 m/s at the cloud tops, far exceeding anything observed on Jupiter. Both features
+suggest deep-seated dynamical structures that a 3-D circulation model can illuminate.
 
-Expanding the code in a hydrogene and helium atmosphere for the ammonia transport equation.
+For all relevant data concerning Saturn and its atmosphere the book *Planetary Sciences*
+by Imke de Pater and Jack J. Lissauer was indispensable.
 
-- Atmosphere Jupiter General Circulation Model ( ATJUP ) applied to laminar flow
-- Program for the computation of Jupiter-atmospherical circulating flows in a spherical shell
-- Finite-Difference-Scheme for the solution of the 3D Navier-Stokes equations
-  with 6 transport equations to describe the water vapour, cloud water, cloud ice and NH3 vapour, NH3 cloud and NH3 ice
-- 4th order Runge-Kutta scheme to solve 2nd order differential equations inside an inner iterational loop
-- Poisson equation for the pressure solution in an outer iterational loop
-- Temperature distribution given as a parabolic distribution from pole to pole, zonally constant
-- Water and NH3 vapour distribution given by Clausius-Claperon equation for the partial pressure
-- Water vapour is part of the Boussinesq approximation and the absorptivity in the radiation model
-- Two-Category-Ice-Scheme for cold clouds applying parameterization schemes provided by the COSMO code (German Weather Forecast)
-- Rain and snow precipitation solved by column equilibrium applying the diagnostic equations
-- 2,4 million grid points (360 x 180 x 40)
-- Computer time on a laptop approximately 15 min
+---
 
+## Physics & Numerics
 
-## Work in progress:
+- **Domain:** spherical shell, 41 × 181 × 361 grid points (r × θ × φ), ~2.7 million cells
+- **Vertical extent:** 500 km atmospheric shell
+- **Dynamics:** finite-difference discretisation of the 3-D Navier-Stokes equations in spherical coordinates
+- **Time integration:** 4th-order Runge-Kutta (inner loop) with a Poisson pressure solver (outer loop)
+- **Parallelism:** OpenMP shared-memory threading across the chemistry, diffusion, and saturation-adjustment hot paths
+- **Thermodynamics:**
+  - Temperature initialised as a parabolic pole-to-pole profile (zonally uniform); reference temperature 134 K
+  - Boussinesq buoyancy approximation
+  - Clausius-Clapeyron / Sanchez-Lavega SVP formulation for saturation vapour pressures
+  - Mixed-phase (liquid + ice) saturation adjustment with iterative convergence
+- **Microphysics:** two-category ice scheme adapted from the COSMO weather-forecast model
+- **Boundary conditions:** measured zonal wind profiles from QuikSCAT and OSCAR datasets;
+  temperature/pressure profiles from Voyager (1980/81), Cassini (2004–2017), and Hubble observations
+- **Planetary constants:** g = 10.0 m/s², Ω = 1.63 × 10⁻⁴ rad/s, lapse rate 0.7 K/km
 
-The plot shows a zonal view of the NH3-ice distribution in the background. In the foreground, the horizontal closed white lines surround the water-cloud-ice and the vertical lines show the location of five circulation cells north and south of the equator. The colour of the latter indicate the vertical u-velocity component. Expanding the number of cells is a matter of copying the existing ones according to the measured w-velocity components by the Voyager(1979), Cassini (2000) and HST (Hubble 2015) missions. The measured temperature/pressure distributions by these missions serve as boundary conditions. The vertical extension reaches from
-p = 10e6 Pa (T = 350 K) to p = 10e4 Pa (T = 110 K).
+---
 
-![Jupiter NH3-water-ice-clouds in circulation cells](Jupiter_zonal.png)
+## Chemical Species
 
+| Species | Phases modelled |
+|---------|-----------------|
+| CH₄ | vapour · cloud · ice (added 2026; CH₄ condenses near the tropopause where T ≈ 90 K) |
+| H₂O | vapour · cloud water · cloud ice |
+| NH₃ | vapour · cloud · ice |
+| H₂S | vapour |
+| NH₄SH | vapour (heterogeneous reaction NH₃ + H₂S → NH₄SH at ~230 K) |
+
+Methane condensation, absent from the warmer Jovian troposphere, becomes a first-order
+process at Saturn's lower temperatures and is now a fully transported species through
+the chemistry pipeline (RHS, RK4, saturation adjustment, diffusion mass flux).
+
+---
+
+## Repository Layout
+
+```
+ATSAT/
+├── planet/          # core model (RHS, RK4, thermodynamics, chemistry, I/O)
+├── lib/             # array types, config parser, FFT, utilities
+├── cli/             # command-line driver (sat)
+├── python/          # Cython bindings (pyatsat)
+├── saturn/          # run directory (XML config, observational data, output)
+│   ├── oscar/       # OSCAR ocean-current dataset (used as zonal-wind template)
+│   └── windspeed/   # QuikSCAT surface wind data
+├── tinyxml2/        # vendored XML library
+├── param.py         # code-generation script (auto-generates parameter files)
+└── Makefile
+```
+
+---
+
+## Build
+
+**Dependencies:** C++11 compiler with OpenMP support, Python 3, Cython, NumPy.
+
+```bash
+# Generate parameter files and build CLI + Python extension
+make
+
+# CLI binary only
+make sat
+
+# Python extension only
+make python
+
+# Clean
+make clean
+```
+
+The `param.py` script auto-generates several `.inc` / `.pyx` files that parameterise the
+model; it runs automatically as part of the build whenever `param.py` itself changes.
+
+---
+
+## Usage
+
+### Command-line
+
+```bash
+./cli/sat saturn/config_atsat.xml
+```
+
+### Python
+
+```python
+import sys
+sys.path.insert(0, "saturn")
+import pyatsat
+
+model = pyatsat.SaturnModel()
+model.load_config("saturn/config_atsat.xml")
+model.run()
+```
+
+Output is written as VTK / VTS files for visualisation in ParaView (panorama, sphere,
+radial, zonal, and longitudinal cross-sections).
+
+---
+
+## Performance
+
+For a typical 224-iteration run on Desktop hardware (multi-core x86, OpenMP enabled),
+the per-iteration cost is dominated by:
+
+1. Saturation adjustment (called per species: CH₄, H₂O, NH₃) — parallelised over (θ, φ)
+2. Diffusion mass flux (`DiffMassFluxSat`) — split into two parallel passes
+3. Runge-Kutta 4th-order time stepping
+4. Pressure Poisson solver (every 2nd iteration)
+
+All four of these hot paths use OpenMP parallel-for directives.
+
+---
 
 ## Author
 
-Code developed by Roger Grundmann, Zum Marktsteig 1, D-01728 Bannewitz (roger.grundmann@web.de)
-
+Roger Grundmann — roger.grundmann@web.de
