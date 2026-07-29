@@ -61,6 +61,7 @@ class cSaturnModel{
     friend class RadiationSat;
     friend class ThermalWindDiagSat;
     friend class PrecipitationSat;
+    friend class TurbulenceSat;
 
 public:
 
@@ -609,6 +610,16 @@ private:
     Array_2D precip_srf_nh3;    // surface precipitation, NH3   [kg/m2/s]
     Array_2D precip_srf_nh4sh;  // surface precipitation, NH4SH [kg/m2/s]
     Array_2D precip_srf_total;  // surface precipitation, all species [kg/m2/s]
+    Array_2D vel_star;          // friction velocity u_tau at the first fluid layer [m/s]
+
+    // Closure parameters. ATJUP carries turb_model and coord_stretching in its configuration;
+    // ATSAT's parameter set has neither, so they are members here with the same defaults, and the
+    // model is selected by ATSAT_TURB_MODEL rather than by the XML. coord_stretching is false
+    // because ATSAT's radial coordinate is not stretched (init_layer_heights is linear).
+    double re_turb = 1.0;                       // = vel_star_ref*z_0/nue, set by TurbulenceSat
+    double abl_height = 20000.0;                // boundary-layer height [m]
+    bool   coord_stretching = false;            // ATSAT does not stretch the radial coordinate
+    std::string turb_model = "k_omega_SST";     // none | k_epsilon | k_omega | k_omega_SST
     Array_2D Precipitation;        // areas of higher precipitation
     Array_2D precipitable_water;// areas of precipitable water in the air
     Array_2D nh3_total;            // areas of higher nh3 concentration
@@ -706,6 +717,21 @@ private:
     Array P_nh3_graupel;           // NH3 graupel
     Array P_nh4sh;                 // NH4SH settling flux
     Array Q_precip;                // latent heat released by precipitation [W/m3]
+    // Turbulence closure (TurbulenceSat). k* and dis* are PROGNOSTIC when ATSAT_TURB is set:
+    // RHS_Sat_Turb.cpp assembles rhs_tke/rhs_dis and RungeKutta_Sat_Turb.cpp integrates them.
+    // With the closure off all of these stay identically zero and every run is bit-identical.
+    Array tke;                     // turbulent kinetic energy k*      [dimensionless]
+    Array dis;                     // dissipation eps* or omega*       [dimensionless]
+    Array tken;                    // k* at the start of the RK4 step
+    Array disn;                    // dis* at the start of the RK4 step
+    Array rhs_tke;                 // tendency of k*
+    Array rhs_dis;                 // tendency of dis*
+    Array nue;                     // eddy viscosity nue* (the closure's own name)
+    Array nue_t;                   // eddy viscosity as the RHS reads it [dimensionless]
+    Array prod;                    // shear production P_k
+    Array tke_source;              // P_k - Y_k
+    Array dis_source;              // P_w - Y_w + D_w
+    Array wall_nue;                // wall-adjacent eddy viscosity, filled once from the geometry
     Array Q_Sensible;            // sensible heat
     Array CoriolisForce;        // Coriolis force
     Array CentrifugalForce;             // centrifugal force

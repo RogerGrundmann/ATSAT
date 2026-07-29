@@ -101,6 +101,20 @@ void cSaturnModel::printMinMax(){
     cout << endl << " Energies " << endl;
     searchMinMax_3D(" max 3D sensible heat ", " min 3D sensible heat ", "W/m²", Q_Sensible, 1.0);
     searchMinMax_3D(" max 3D latent heat ", " min 3D latent heat ", "W/m²", Q_Latent, 1.0);
+
+    // Radiation and turbulence diagnostics (ported classes). All identically zero unless the
+    // corresponding knob is set, so this block costs nothing when they are off — but without it
+    // the ported fields are invisible and the ports cannot be judged.
+    searchMinMax_3D(" max 3D net radiation ", " min 3D net radiation ", "W/m2", radiation, 1.0);
+    searchMinMax_3D(" max 3D Q_rad ", " min 3D Q_rad ", "W/m3", Q_rad, 1.0);
+    searchMinMax_3D(" max 3D emissivity ", " min 3D emissivity ", "/", epsilon, 1.0);
+    searchMinMax_3D(" max 3D tke ", " min 3D tke ", "/", tke, 1.0);
+    searchMinMax_3D(" max 3D dis ", " min 3D dis ", "/", dis, 1.0);
+    searchMinMax_3D(" max 3D nue ", " min 3D nue ", "/", nue, 1.0);
+    searchMinMax_3D(" max 3D prod ", " min 3D prod ", "/", prod, 1.0);
+    searchMinMax_3D(" max 3D P_rain ", " min 3D P_rain ", "kg/m2/s", P_rain, 1.0);
+    searchMinMax_3D(" max 3D P_nh3_rain ", " min 3D P_nh3_rain ", "kg/m2/s", P_nh3_rain, 1.0);
+    searchMinMax_3D(" max 3D Q_precip ", " min 3D Q_precip ", "W/m3", Q_precip, 1.0);
     cout << endl << endl;
 }
 /*

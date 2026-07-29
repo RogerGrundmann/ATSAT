@@ -20,6 +20,7 @@
 #include "RadiationSat.h"
 #include "ThermalWindDiagSat.h"
 #include "PrecipitationSat.h"
+#include "TurbulenceSat.h"
 
 using namespace std;
 using namespace tinyxml2;
@@ -138,6 +139,21 @@ static int precip_enabled(){
     return v;
 }
 
+
+// Turbulence closure (TurbulenceSat), ported from ATJUP. Default OFF, bit-identical: with it off
+// tke/dis/nue_t and the rest stay identically zero. Model selected by ATSAT_TURB_MODEL
+// (none | k_epsilon | k_omega | k_omega_SST); ATSAT's configuration has no turb_model entry, so
+// the member default in cSaturnModel.h stands unless the variable is set.
+//
+// STAGE 1: the closure is computed and its fields are filled, but nue_t does NOT reach the
+// momentum or scalar equations — that coupling is ATSAT_TURB_COUPLING and is not wired yet, the
+// same staging ATJUP used. So this run answers "what does the closure produce here", not "what
+// does it do to the solution".
+static int turb_enabled(){
+    static const int v = [](){ const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
+    return v;
+}
+
 #include "cSaturnDefaults.cpp.inc"
 /*
 *
@@ -215,6 +231,7 @@ void cSaturnModel::Run(){
 
     dt = 2.8284 * dr/u_0 * 0.2;
     if(timestep_override() > 0.0) dt = timestep_override();
+    if(const char* tm = getenv("ATSAT_TURB_MODEL")) turb_model = tm;
     printf("      ATSAT: dt = %.6g nondimensional = %.4g s of Saturn time per iteration"
            " (%d iterations = %.4g s = %.3f %% of a rotation)\n",
            dt, dt * L_atm * 1.0e3 / u_0, nm, nm * dt * L_atm * 1.0e3 / u_0,
@@ -341,6 +358,8 @@ void cSaturnModel::Run(){
 
 //    goto Printout;
 
+    if(turb_enabled()) TurbulenceSat(*this).init();
+
     for(iter_n = 1; iter_n <= nm; iter_n++){
 
         auto begin = std::chrono::high_resolution_clock::now();
@@ -419,6 +438,9 @@ void cSaturnModel::Run(){
 
         // After the state has been advanced and the boundaries applied: put any superadiabatic
         // column back on the dry adiabat. Off by default (ATSAT_CONV_ADJ).
+        // Reads the velocity field left by RK4 and the BCs, so it runs after them.
+        if(turb_enabled()) TurbulenceSat(*this).run();
+
         if(conv_adj_enabled()) ConvectiveAdjustmentSat(*this).run();
 
         panorama_cnt++;
@@ -456,6 +478,7 @@ void cSaturnModel::resetArrays(){
     precip_srf_nh3.initArray_2D(jm, km, 0.0);
     precip_srf_nh4sh.initArray_2D(jm, km, 0.0);
     precip_srf_total.initArray_2D(jm, km, 0.0);
+    vel_star.initArray_2D(jm, km, 0.0);
     Precipitation.initArray_2D(jm, km, 0.0);         // areas of higher precipitation
     precipitable_water.initArray_2D(jm, km, 0.0);    // areas of precipitable water in the air
 
@@ -530,6 +553,18 @@ void cSaturnModel::resetArrays(){
     P_nh3_graupel.initArray(im, jm, km, 0.0);
     P_nh4sh.initArray(im, jm, km, 0.0);
     Q_precip.initArray(im, jm, km, 0.0);
+    tke.initArray(im, jm, km, 0.0);
+    dis.initArray(im, jm, km, 0.0);
+    tken.initArray(im, jm, km, 0.0);
+    disn.initArray(im, jm, km, 0.0);
+    rhs_tke.initArray(im, jm, km, 0.0);
+    rhs_dis.initArray(im, jm, km, 0.0);
+    nue.initArray(im, jm, km, 0.0);
+    nue_t.initArray(im, jm, km, 0.0);
+    prod.initArray(im, jm, km, 0.0);
+    tke_source.initArray(im, jm, km, 0.0);
+    dis_source.initArray(im, jm, km, 0.0);
+    wall_nue.initArray(im, jm, km, 0.0);
 //    rho.initArray(im, jm, km, 1.0);                // density
 
     rhs_t.initArray(im, jm, km, 0.0);                // auxilliar field RHS temperature

@@ -8,8 +8,8 @@ CFLAGS = -Wall -fPIC -std=c++11 -Ilib -Iplanet -Itinyxml2 -fopenmp -MMD -MP
 # Common files for the shared lib (libatsat.a)
 LIB_OBJ = lib/Array.o lib/Array_2D.o lib/Array_1D.o lib/Config.o lib/Utils.o lib/FFT.o
 
-ATSAT_OBJ = planet/cSaturnModel.o planet/PrintMsg_Sat.o planet/RungeKutta_Sat.o \
-planet/RHS_Sat.o planet/BC_Sat.o planet/ParaView_Sat.o planet/Thermo_Sat.o \
+ATSAT_OBJ = planet/cSaturnModel.o planet/PrintMsg_Sat.o planet/RungeKutta_Sat_Turb.o \
+planet/RHS_Sat_Turb.o planet/BC_Sat.o planet/ParaView_Sat.o planet/Thermo_Sat.o \
 planet/Pressure_Sat.o planet/InitVelocity_Sat.o planet/InitVariables_Sat.o \
 planet/Weather_Sat.o planet/FileIO_Sat.o planet/ConvectiveAdjustmentSat.o 
 
