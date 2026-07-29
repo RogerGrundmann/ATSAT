@@ -45,13 +45,15 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         &nh3, &nh3_cloud, &nh3_ice,
         &h2s, &nh4sh,
         &j_nh4sh, &j_h2s, &j_nh3,
-        &jT_nh4sh, &jT_h2s, &jT_nh3};
+        &jT_nh4sh, &jT_h2s, &jT_nh3,
+        &tke, &dis};
 
     std::vector<Array*> arrays_2{&u, &v, &w, &t,
         &ch4, &ch4_cloud, &ch4_ice,
         &h2o, &h2o_cloud, &h2o_ice,
         &nh3, &nh3_cloud, &nh3_ice,
-        &h2s, &nh4sh};
+        &h2s, &nh4sh,
+        &tke, &dis};
 
     enum array_index_1{i_u_1, i_v_1, i_w_1, i_t_1, i_p_1,
         i_ch4_1, i_ch4_cloud_1, i_ch4_ice_1,
@@ -60,6 +62,7 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         i_h2s_1, i_nh4sh_1,
         i_j_nh4sh_1, i_j_h2s_1, i_j_nh3_1,
         i_jT_nh4sh_1, i_jT_h2s_1, i_jT_nh3_1,
+        i_tke_1, i_dis_1,
         last_array_index_1};
 
     enum array_index_2{i_u_2, i_v_2, i_w_2, i_t_2,
@@ -67,6 +70,7 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         i_h2o_2, i_h2o_cloud_2, i_h2o_ice_2,
         i_nh3_2, i_nh3_cloud_2, i_nh3_ice_2,
         i_h2s_2, i_nh4sh_2,
+        i_tke_2, i_dis_2,
         last_array_index_2};
 
     std::vector<double> dxdr_vals(last_array_index_1), 
@@ -280,6 +284,58 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         + d2nh4shdphi2/rm2sinthe2;
 
 
+
+// ===== Turbulence transport equations =====
+//
+// dk*/dt   = -v.grad k*   + div((1/re + nue*/sigma_k) grad k*)   + (P_k - Y_k)
+// ddis*/dt = -v.grad dis* + div((1/re + nue*/sigma_w) grad dis*) + (P_w - Y_w + D_w)
+//
+// The source terms are what TurbulenceSat computed and left in tke_source / dis_source; this file
+// only transports and diffuses them, exactly as it does for t and the species. The advection and
+// the Laplacian are built in the same idiom as diffusion_t above, so the metric factors are the
+// model's own and follow ATSAT_METRIC_RADIUS with everything else.
+//
+// With the closure off, nue, tke_source and dis_source are identically zero AND this block is
+// skipped, so rhs_tke/rhs_dis stay zero, RungeKutta leaves k*/dis* untouched, and the run is
+// bit-identical to the model before the closure existed.
+//
+// sigma_k and sigma_w are the standard k-omega constants. TurbulenceSat carries its own sig_w2
+// for the SST cross-diffusion; these two are the transport Prandtl numbers of the closure and are
+// not derived from it.
+    static const int turb_on = [](){
+        const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
+    if(turb_on != 0){
+        constexpr double sig_k = 0.85, sig_w = 0.5;
+        const double nue_here = nue.x[i][j][k];
+
+        const double dtkedr   = dxdr_vals[i_tke_1],   ddisdr   = dxdr_vals[i_dis_1];
+        const double dtkedthe = dxdthe_vals[i_tke_1], ddisdthe = dxdthe_vals[i_dis_1];
+        const double dtkedphi = dxdphi_vals[i_tke_1], ddisdphi = dxdphi_vals[i_dis_1];
+
+        const double transport_tke = u.x[i][j][k] * dtkedr + v.x[i][j][k] * dtkedthe/rm
+                                   + w.x[i][j][k] * dtkedphi/rmsinthe;
+        const double transport_dis = u.x[i][j][k] * ddisdr + v.x[i][j][k] * ddisdthe/rm
+                                   + w.x[i][j][k] * ddisdphi/rmsinthe;
+
+        const double diffusion_tke = d2xdr2_vals[i_tke_2] + dtkedr * 2.0/rm
+                                   + d2xdthe2_vals[i_tke_2]/rm2
+                                   + dtkedthe * costhe/(rm2 * sinthe)
+                                   + d2xdphi2_vals[i_tke_2]/rm2sinthe2;
+        const double diffusion_dis = d2xdr2_vals[i_dis_2] + ddisdr * 2.0/rm
+                                   + d2xdthe2_vals[i_dis_2]/rm2
+                                   + ddisdthe * costhe/(rm2 * sinthe)
+                                   + d2xdphi2_vals[i_dis_2]/rm2sinthe2;
+
+        rhs_tke.x[i][j][k] = - transport_tke
+                           + diffusion_tke * (1.0/re + nue_here/sig_k)
+                           + tke_source.x[i][j][k];
+        rhs_dis.x[i][j][k] = - transport_dis
+                           + diffusion_dis * (1.0/re + nue_here/sig_w)
+                           + dis_source.x[i][j][k];
+    } else {
+        rhs_tke.x[i][j][k] = 0.0;
+        rhs_dis.x[i][j][k] = 0.0;
+    }
 
 // right hand sides of the Navier-Stokes equations
     rhs_t.x[i][j][k] = 

@@ -33,6 +33,19 @@ void cSaturnModel::RungeKuttaSat(){
 
     auto begin = std::chrono::high_resolution_clock::now();
 
+    // Turbulence integration (ATSAT_TURB). k* and dis* become prognostic here: RHS_Sat_Turb.cpp
+    // assembles rhs_tke/rhs_dis and the four RK4 stages below advance them alongside t, u, v, w.
+    // With the closure off the tendencies are identically zero, so this leaves k*/dis* at their
+    // initial values and the run is bit-identical to the model before the closure existed.
+    //
+    // The two clamps are the ones ATJUP uses. k* cannot be negative and cannot exceed a generous
+    // physical ceiling; dis* has a floor because it appears in denominators throughout the
+    // closure (nue = k/dis among them) and a zero there is an infinity one step later.
+    static const int turb_on_rk = [](){
+        const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
+    const double tke_max_nd = 1000.0 / (u_0 * u_0);   // 1000 m2/s2
+    constexpr double dis_min_nd = 1.0e-10;            // matches TurbulenceSat::dis_min
+
     #pragma omp parallel for private(kt1, ku1, kv1, kw1, kc1, kcloud1, kice1, kch41, kch4_cloud1, kch4_ice1, kh2s1, knh31, knh3_cloud1, knh3_ice1, knh4sh1, kt2, ku2, kv2, kw2, kc2, kcloud2, kice2, kch42, kch4_cloud2, kch4_ice2, kh2s2, knh32, knh3_cloud2, knh3_ice2, knh4sh2, kt3, ku3, kv3, kw3, kc3, kcloud3, kice3, kch43, kch4_cloud3, kch4_ice3, kh2s3, knh33, knh3_cloud3, knh3_ice3, knh4sh3, kt4, ku4, kv4, kw4, kc4, kcloud4, kice4, kch44, kch4_cloud4, kch4_ice4, kh2s4, knh34, knh3_cloud4, knh3_ice4, knh4sh4)
 
     for(int i = 1; i < im-1; i++){
@@ -66,6 +79,11 @@ void cSaturnModel::RungeKuttaSat(){
                 knh4sh1 = rhs_nh4sh.x[i][j][k];
 
                 t.x[i][j][k] = tn.x[i][j][k] + kt1 * 0.5 * dt;
+                double ktke1 = rhs_tke.x[i][j][k], kdis1 = rhs_dis.x[i][j][k];
+                if(turb_on_rk){
+                    tke.x[i][j][k] = std::min(std::max(tken.x[i][j][k] + ktke1 * 0.5 * dt, 0.0), tke_max_nd);
+                    dis.x[i][j][k] = std::max(disn.x[i][j][k] + kdis1 * 0.5 * dt, dis_min_nd);
+                }
                 u.x[i][j][k] = un.x[i][j][k] + ku1 * 0.5 * dt;
                 v.x[i][j][k] = vn.x[i][j][k] + kv1 * 0.5 * dt;
                 w.x[i][j][k] = wn.x[i][j][k] + kw1 * 0.5 * dt;
@@ -112,6 +130,11 @@ void cSaturnModel::RungeKuttaSat(){
                 knh4sh2 = rhs_nh4sh.x[i][j][k];
 
                 t.x[i][j][k] = tn.x[i][j][k] + kt2 * 0.5 * dt;
+                double ktke2 = rhs_tke.x[i][j][k], kdis2 = rhs_dis.x[i][j][k];
+                if(turb_on_rk){
+                    tke.x[i][j][k] = std::min(std::max(tken.x[i][j][k] + ktke2 * 0.5 * dt, 0.0), tke_max_nd);
+                    dis.x[i][j][k] = std::max(disn.x[i][j][k] + kdis2 * 0.5 * dt, dis_min_nd);
+                }
                 u.x[i][j][k] = un.x[i][j][k] + ku2 * 0.5 * dt;
                 v.x[i][j][k] = vn.x[i][j][k] + kv2 * 0.5 * dt;
                 w.x[i][j][k] = wn.x[i][j][k] + kw2 * 0.5 * dt;
@@ -158,6 +181,11 @@ void cSaturnModel::RungeKuttaSat(){
                 knh4sh3 = rhs_nh4sh.x[i][j][k];
 
                 t.x[i][j][k] = tn.x[i][j][k] + kt3 * dt;
+                double ktke3 = rhs_tke.x[i][j][k], kdis3 = rhs_dis.x[i][j][k];
+                if(turb_on_rk){
+                    tke.x[i][j][k] = std::min(std::max(tken.x[i][j][k] + ktke3 * dt, 0.0), tke_max_nd);
+                    dis.x[i][j][k] = std::max(disn.x[i][j][k] + kdis3 * dt, dis_min_nd);
+                }
                 u.x[i][j][k] = un.x[i][j][k] + ku3 * dt;
                 v.x[i][j][k] = vn.x[i][j][k] + kv3 * dt;
                 w.x[i][j][k] = wn.x[i][j][k] + kw3 * dt;
@@ -205,6 +233,13 @@ void cSaturnModel::RungeKuttaSat(){
 
                 t.x[i][j][k] = tn.x[i][j][k] + dt * (kt1 + 2.0 * kt2 
                     + 2.0 * kt3 + kt4)/6.0;
+                if(turb_on_rk){
+                    const double ktke4 = rhs_tke.x[i][j][k], kdis4 = rhs_dis.x[i][j][k];
+                    tke.x[i][j][k] = std::min(std::max(tken.x[i][j][k]
+                        + dt * (ktke1 + 2.0*ktke2 + 2.0*ktke3 + ktke4)/6.0, 0.0), tke_max_nd);
+                    dis.x[i][j][k] = std::max(disn.x[i][j][k]
+                        + dt * (kdis1 + 2.0*kdis2 + 2.0*kdis3 + kdis4)/6.0, dis_min_nd);
+                }
                 u.x[i][j][k] = un.x[i][j][k] + dt * (ku1 + 2.0 * ku2 
                     + 2.0 * ku3 + ku4)/6.0;
                 v.x[i][j][k] = vn.x[i][j][k] + dt * (kv1 + 2.0 * kv2 

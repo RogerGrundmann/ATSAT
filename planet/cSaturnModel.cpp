@@ -636,6 +636,11 @@ void cSaturnModel::restoreVar(double coeff){
         for(int j = 0; j < jm; j++){
             for(int k = 0; k < km; k++){
                 tn.x[i][j][k] = coeff * t.x[i][j][k];
+                // k* and dis* keep the same start-of-step copies the other prognostic fields get;
+                // without them the RK4 stages would integrate from a moving base. coeff is the
+                // restore factor the other fields use, so they stay in step with it.
+                tken.x[i][j][k] = coeff * tke.x[i][j][k];
+                disn.x[i][j][k] = coeff * dis.x[i][j][k];
                 un.x[i][j][k] = coeff * u.x[i][j][k];
                 vn.x[i][j][k] = coeff * v.x[i][j][k];
                 wn.x[i][j][k] = coeff * w.x[i][j][k];
