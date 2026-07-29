@@ -102,6 +102,32 @@ static int tw_diag_enabled(){
     return v;
 }
 
+
+// Timestep (ATSAT_DT, nondimensional; unset keeps the formula below unchanged).
+//
+// The default is dt = 2.8284 * dr/u_0 * 0.2, and 2.8284 = 2*sqrt(2) is RK4's stability limit on
+// the imaginary axis with 0.2 as a safety factor — so the intent is a proper CFL condition. The
+// evaluation is not one: dr is DIMENSIONLESS (0.025) while u_0 is in m/s (470), and a
+// dimensionless length divided by a dimensional velocity is not a Courant number. It gives
+// dt = 3.01e-5, and with the time unit L/u_0 = 500 km / 470 m/s = 1064 s that is 0.032 s of
+// Saturn time per iteration: the configured 224 iterations span SEVEN SECONDS. Reaching even a
+// ten-minute window would take ~19700 iterations and one Saturn rotation about 1.2 million, so
+// nothing horizontal can develop in any run of practical length and every measurement made on
+// such a run is a statement about the initial state.
+//
+// Read as an actual CFL condition, with the NONDIMENSIONAL velocity (max|w|/u_0 = 268/470 = 0.57)
+// in place of u_0, the same formula gives
+//     dt = 2.8284 * 0.2 * dr / 0.57 = 0.025,
+// which is 26 s per iteration and makes 224 iterations 1.6 hours — a factor of 825. The identical
+// unit mix was found in ATJUP's dt on 2026-07-29, and there the corresponding value ran cleanly.
+//
+// The default is left alone so every existing run is bit-identical; this knob is how a longer
+// horizon gets measured. Each run prints what it is actually covering.
+static double timestep_override(){
+    static const double v = [](){ const char* e = getenv("ATSAT_DT"); return e ? atof(e) : 0.0; }();
+    return v;
+}
+
 #include "cSaturnDefaults.cpp.inc"
 /*
 *
@@ -178,6 +204,11 @@ void cSaturnModel::Run(){
     resetArrays();
 
     dt = 2.8284 * dr/u_0 * 0.2;
+    if(timestep_override() > 0.0) dt = timestep_override();
+    printf("      ATSAT: dt = %.6g nondimensional = %.4g s of Saturn time per iteration"
+           " (%d iterations = %.4g s = %.3f %% of a rotation)\n",
+           dt, dt * L_atm * 1.0e3 / u_0, nm, nm * dt * L_atm * 1.0e3 / u_0,
+           100.0 * nm * dt * L_atm * 1.0e3 / u_0 / 38018.0);
 
     init_layer_heights();
     TropopauseLocation();
