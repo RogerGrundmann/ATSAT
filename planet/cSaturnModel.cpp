@@ -16,6 +16,7 @@
 #include "SaturationAdjustmentSat.h"
 #include "BC_Sat.h"
 #include "VelocityInitializerSat.h"
+#include "ConvectiveAdjustmentSat.h"
 
 using namespace std;
 using namespace tinyxml2;
@@ -68,6 +69,17 @@ cSaturnModel::~cSaturnModel(){
         std::cout.rdbuf(backup);
     }
     m_model = NULL;
+}
+
+
+// Dry convective adjustment (ConvectiveAdjustmentSat), ported from ATJUP. Default OFF, so every
+// existing ATSAT run stays bit-identical. It restores any superadiabatic column to the dry adiabat
+// while conserving the column's mass-weighted enthalpy; nothing else in the model does that.
+// Whether ATSAT develops such columns at all is unmeasured — switching this on and reading the
+// per-iteration report (columns touched, layers mixed, max dT, enthalpy drift) is how to find out.
+static int conv_adj_enabled(){
+    static const int v = [](){ const char* e = getenv("ATSAT_CONV_ADJ"); return e ? atoi(e) : 0; }();
+    return v;
 }
 
 #include "cSaturnDefaults.cpp.inc"
@@ -336,6 +348,10 @@ void cSaturnModel::Run(){
         BC_Sat(*this).bcRadius();
 
         restoreVar(1.0);
+
+        // After the state has been advanced and the boundaries applied: put any superadiabatic
+        // column back on the dry adiabat. Off by default (ATSAT_CONV_ADJ).
+        if(conv_adj_enabled()) ConvectiveAdjustmentSat(*this).run();
 
         panorama_cnt++;
 
