@@ -59,6 +59,7 @@ class cSaturnModel{
     friend class VelocityInitializerSat;
     friend class ConvectiveAdjustmentSat;
     friend class RadiationSat;
+    friend class ThermalWindDiagSat;
 
 public:
 

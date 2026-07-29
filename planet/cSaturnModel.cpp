@@ -18,6 +18,7 @@
 #include "VelocityInitializerSat.h"
 #include "ConvectiveAdjustmentSat.h"
 #include "RadiationSat.h"
+#include "ThermalWindDiagSat.h"
 
 using namespace std;
 using namespace tinyxml2;
@@ -90,6 +91,14 @@ static int conv_adj_enabled(){
 // iterations, alongside the rest of the physics block.
 static int radiation_enabled(){
     static const int v = [](){ const char* e = getenv("ATSAT_RADIATION"); return e ? atoi(e) : 0; }();
+    return v;
+}
+
+
+// Thermal-wind residual (ThermalWindDiagSat), a MEASUREMENT only — it modifies nothing.
+// ATSAT_TW_DIAG, default 0.
+static int tw_diag_enabled(){
+    static const int v = [](){ const char* e = getenv("ATSAT_TW_DIAG"); return e ? atoi(e) : 0; }();
     return v;
 }
 
@@ -351,6 +360,7 @@ void cSaturnModel::Run(){
             Latent_Heat();
 
             if(radiation_enabled()) RadiationSat(*this).run();
+            if(tw_diag_enabled())   ThermalWindDiagSat(*this).run();
 
         }  // if iter_n % 2
 
