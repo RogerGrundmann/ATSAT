@@ -19,6 +19,7 @@
 #include "ConvectiveAdjustmentSat.h"
 #include "RadiationSat.h"
 #include "ThermalWindDiagSat.h"
+#include "PrecipitationSat.h"
 
 using namespace std;
 using namespace tinyxml2;
@@ -125,6 +126,15 @@ static int tw_diag_enabled(){
 // horizon gets measured. Each run prints what it is actually covering.
 static double timestep_override(){
     static const double v = [](){ const char* e = getenv("ATSAT_DT"); return e ? atof(e) : 0.0; }();
+    return v;
+}
+
+
+// Precipitation microphysics (PrecipitationSat), ported from ATJUP. Default OFF, bit-identical.
+// It DOES feed back: the condensate it converts is removed from the cloud/ice fields in place, so
+// it must run AFTER the SaturationAdjustmentSat calls or the adjustment would simply undo it.
+static int precip_enabled(){
+    static const int v = [](){ const char* e = getenv("ATSAT_PRECIP"); return e ? atoi(e) : 0; }();
     return v;
 }
 
@@ -370,6 +380,10 @@ void cSaturnModel::Run(){
                 C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, m_nh3,
                 nh3, nh3_cloud, nh3_ice);
 
+            // After the saturation adjustments, whose condensate it consumes; before the
+            // chemistry, as in ATJUP.
+            if(precip_enabled()) PrecipitationSat(*this).run();
+
             ChemistrySat(*this).DiffMassFluxSat();
 
             // Smooth difflux and thermalmassflux BEFORE difflux enters massflux assembly.
@@ -438,6 +452,10 @@ void cSaturnModel::resetArrays(){
 
     Topography.initArray_2D(jm, km, 0.0); // topography
     LatentHeat.initArray_2D(jm, km, 0.0);            // areas of higher latent heat
+    precip_srf_h2o.initArray_2D(jm, km, 0.0);
+    precip_srf_nh3.initArray_2D(jm, km, 0.0);
+    precip_srf_nh4sh.initArray_2D(jm, km, 0.0);
+    precip_srf_total.initArray_2D(jm, km, 0.0);
     Precipitation.initArray_2D(jm, km, 0.0);         // areas of higher precipitation
     precipitable_water.initArray_2D(jm, km, 0.0);    // areas of precipitable water in the air
 
@@ -504,6 +522,14 @@ void cSaturnModel::resetArrays(){
     radiation.initArray(im, jm, km, 0.0);             // net thermal radiative flux [W/m2]
     epsilon.initArray(im, jm, km, 0.0);               // layer emissivity
     Q_rad.initArray(im, jm, km, 0.0);                 // radiative heating rate [W/m3]
+    P_rain.initArray(im, jm, km, 0.0);
+    P_snow.initArray(im, jm, km, 0.0);
+    P_graupel.initArray(im, jm, km, 0.0);
+    P_nh3_rain.initArray(im, jm, km, 0.0);
+    P_nh3_snow.initArray(im, jm, km, 0.0);
+    P_nh3_graupel.initArray(im, jm, km, 0.0);
+    P_nh4sh.initArray(im, jm, km, 0.0);
+    Q_precip.initArray(im, jm, km, 0.0);
 //    rho.initArray(im, jm, km, 1.0);                // density
 
     rhs_t.initArray(im, jm, km, 0.0);                // auxilliar field RHS temperature

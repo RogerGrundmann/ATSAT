@@ -60,6 +60,7 @@ class cSaturnModel{
     friend class ConvectiveAdjustmentSat;
     friend class RadiationSat;
     friend class ThermalWindDiagSat;
+    friend class PrecipitationSat;
 
 public:
 
@@ -161,6 +162,19 @@ public:
             const char* e = getenv("ATSAT_METRIC_RADIUS"); return e ? atof(e) : 0.0; }();
         if(!(R_km > 0.0)) return rm;
         return rm + (R_km / L_atm - 1.0);
+    }
+
+    /*
+     * Local mixture density [kg/m3]. ATJUP keeps a rho_mix array filled by
+     * computeMixtureDensity(); ATSAT has none, so the same quantity is formed here from the ideal
+     * gas law with the model's own mixture constant (R_mix is in J/(g K), hence the 1e3, and
+     * p_stat is in bars). Falls back to the scalar r_mix if the state is not usable.
+     */
+    double rho_at(int i, int j, int k){
+        const double T = t.x[i][j][k] * t_ref;
+        if(!(T > 0.0) || !(R_mix > 0.0)) return r_mix;
+        const double rho = (p_stat.x[i][j][k] * 1.0e5) / (R_mix * 1.0e3 * T);
+        return (rho > 0.0 && std::isfinite(rho)) ? rho : r_mix;
     }
 
     double layer_thickness_m(int i){
@@ -591,6 +605,10 @@ private:
 
     Array_2D Topography; // topography
     Array_2D LatentHeat;        // areas of higher latent heat
+    Array_2D precip_srf_h2o;    // surface precipitation, H2O   [kg/m2/s] (PrecipitationSat)
+    Array_2D precip_srf_nh3;    // surface precipitation, NH3   [kg/m2/s]
+    Array_2D precip_srf_nh4sh;  // surface precipitation, NH4SH [kg/m2/s]
+    Array_2D precip_srf_total;  // surface precipitation, all species [kg/m2/s]
     Array_2D Precipitation;        // areas of higher precipitation
     Array_2D precipitable_water;// areas of precipitable water in the air
     Array_2D nh3_total;            // areas of higher nh3 concentration
@@ -679,6 +697,15 @@ private:
     Array radiation;               // net thermal radiative flux [W/m2] (RadiationSat, diagnostic)
     Array epsilon;                 // layer emissivity 1 - exp(-tau) (RadiationSat, diagnostic)
     Array Q_rad;                   // radiative heating rate [W/m3] (RadiationSat, diagnostic)
+    // Precipitation fluxes [kg/m2/s] and the latent heat they release (PrecipitationSat).
+    Array P_rain;                  // H2O rain
+    Array P_snow;                  // H2O snow
+    Array P_graupel;               // H2O graupel
+    Array P_nh3_rain;              // NH3 rain
+    Array P_nh3_snow;              // NH3 snow
+    Array P_nh3_graupel;           // NH3 graupel
+    Array P_nh4sh;                 // NH4SH settling flux
+    Array Q_precip;                // latent heat released by precipitation [W/m3]
     Array Q_Sensible;            // sensible heat
     Array CoriolisForce;        // Coriolis force
     Array CentrifugalForce;             // centrifugal force
