@@ -58,6 +58,7 @@ class cSaturnModel{
     friend class BC_Sat;
     friend class VelocityInitializerSat;
     friend class ConvectiveAdjustmentSat;
+    friend class RadiationSat;
 
 public:
 
@@ -131,6 +132,15 @@ public:
     }
     std::vector<float> get_layer_heights(){
         return m_layer_heights;
+    }
+    /*
+     * Thickness of layer i in METRES. m_layer_heights is built from L_atm, which is specified in
+     * km, so get_layer_height() returns KILOMETRES; anything forming a per-metre physical quantity
+     * (a volumetric heating rate W/m3, say) must use this accessor and not the raw difference.
+     */
+    double layer_thickness_m(int i){
+        if(i < 0 || i > im-2) return 0.0;
+        return (double)(m_layer_heights[i+1] - m_layer_heights[i]) * 1.0e3;
     }   
     /*
     * Given a altitude, return the layer index
@@ -641,6 +651,9 @@ private:
     Array aux_w;                // auxilliar field w-velocity component
 
     Array Q_Latent;                // latent heat
+    Array radiation;               // net thermal radiative flux [W/m2] (RadiationSat, diagnostic)
+    Array epsilon;                 // layer emissivity 1 - exp(-tau) (RadiationSat, diagnostic)
+    Array Q_rad;                   // radiative heating rate [W/m3] (RadiationSat, diagnostic)
     Array Q_Sensible;            // sensible heat
     Array CoriolisForce;        // Coriolis force
     Array CentrifugalForce;             // centrifugal force

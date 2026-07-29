@@ -17,6 +17,7 @@
 #include "BC_Sat.h"
 #include "VelocityInitializerSat.h"
 #include "ConvectiveAdjustmentSat.h"
+#include "RadiationSat.h"
 
 using namespace std;
 using namespace tinyxml2;
@@ -79,6 +80,16 @@ cSaturnModel::~cSaturnModel(){
 // per-iteration report (columns touched, layers mixed, max dT, enthalpy drift) is how to find out.
 static int conv_adj_enabled(){
     static const int v = [](){ const char* e = getenv("ATSAT_CONV_ADJ"); return e ? atoi(e) : 0; }();
+    return v;
+}
+
+
+// Grey multi-layer radiation (RadiationSat), ported from ATJUP. Default OFF, bit-identical when
+// off. It fills the DIAGNOSTIC arrays radiation / epsilon / Q_rad and touches neither t nor any
+// rhs — wiring the heating into the temperature equation is a separate step. Runs on even
+// iterations, alongside the rest of the physics block.
+static int radiation_enabled(){
+    static const int v = [](){ const char* e = getenv("ATSAT_RADIATION"); return e ? atoi(e) : 0; }();
     return v;
 }
 
@@ -339,6 +350,8 @@ void cSaturnModel::Run(){
             Forces();
             Latent_Heat();
 
+            if(radiation_enabled()) RadiationSat(*this).run();
+
         }  // if iter_n % 2
 
         RungeKuttaSat();
@@ -447,6 +460,9 @@ void cSaturnModel::resetArrays(){
 
     p_dyn.initArray(im, jm, km, pa);                // dynamic pressure
     p_stat.initArray(im, jm, km, 1.0);                // static pressure
+    radiation.initArray(im, jm, km, 0.0);             // net thermal radiative flux [W/m2]
+    epsilon.initArray(im, jm, km, 0.0);               // layer emissivity
+    Q_rad.initArray(im, jm, km, 0.0);                 // radiative heating rate [W/m3]
 //    rho.initArray(im, jm, km, 1.0);                // density
 
     rhs_t.initArray(im, jm, km, 0.0);                // auxilliar field RHS temperature

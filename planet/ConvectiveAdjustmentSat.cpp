@@ -60,8 +60,13 @@ void ConvectiveAdjustmentSat::run(){
 
             // ---- The fluid part of this column ----
             // Solid cells hold boundary values, not a fluid state, so the column starts above the
-            // topography and stops at the first solid cell above it (there should be none, but a
-            // column that is walled in higher up must not be mixed across the wall).
+            // topography and stops at the first solid cell above it.
+            //
+            // In ATSAT as it stands this is inert: cSaturnModel::BC_seamount() (BC_Sat.cpp:856)
+            // would build an obstacle but is never called, so SeaMount keeps its initArray value
+            // of 0.0 everywhere and every column is fluid from i=0 to i=im-1. The measurement
+            // below — 97.79 % of columns superadiabatic — is therefore over whole columns and is
+            // unaffected by any topography. The guard is kept for the day one is switched on.
             int i0 = 0;
             while(i0 < m.im && m.SeaMount.x[i0][j][k] == 1.0) i0++;
             int i1 = i0;
