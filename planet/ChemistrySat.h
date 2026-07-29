@@ -99,7 +99,7 @@ public:
                     const double v = m.v.x[i][j][k];
                     const double w = m.w.x[i][j][k];
 
-                    const double rm           = m.rad.z[i];
+                    const double rm           = m.metricRadius(m.rad.z[i]);
                     const double sinthe       = max(sinthe_min, abs(sin(m.the.z[j])));
                     const double inv_rm       = 1.0 / rm;
                     const double inv_rmsinthe = 1.0 / (rm * sinthe);
@@ -184,7 +184,7 @@ public:
         for(int k = 1; k < km-1; k++){
             for(int j = 1; j < jm-1; j++){
                 for(int i = 1; i < im-1; i++){
-                    const double rm       = m.rad.z[i];
+                    const double rm       = m.metricRadius(m.rad.z[i]);
                     const double sinthe   = sin(m.the.z[j]);
                     const double rmsinthe = rm * sinthe;
 
@@ -222,7 +222,7 @@ public:
         for(int k = 1; k < km-1; k++){
             for(int j = 1; j < jm-1; j++){
                 for(int i = 1; i < im-1; i++){
-                    const double rm       = m.rad.z[i];
+                    const double rm       = m.metricRadius(m.rad.z[i]);
                     const double sinthe   = sin(m.the.z[j]);
                     const double rmsinthe = rm * sinthe;
 

@@ -28,7 +28,7 @@ void cSaturnModel::RHSSat(int i, int j, int k){
     dr2 = dr * dr;
     dthe2 = dthe * dthe;
     dphi2 = dphi * dphi;
-    rm = rad.z[i];
+    rm = metricRadius(rad.z[i]);
     rm2 = rm * rm;
     sinthe = sin(the.z[j]);
     sinthe2 = sinthe * sinthe;

@@ -299,12 +299,13 @@ void cSaturnModel::steadyQuery(){
         for(int j = 1; j < jm-1; j++){
             sinthe = sin(the.z[j]);
             costhe = cos(the.z[j]);
-            rmsinthe = rad.z[i] * sinthe;
+            const double rm_met = metricRadius(rad.z[i]);
+            rmsinthe = rm_met * sinthe;
             for(int k = 1; k < km-1; k++){
                 dudr = (u.x[i+1][j][k] - u.x[i-1][j][k])/(2. * dr);
                 dvdthe = (v.x[i][j+1][k] - v.x[i][j-1][k])/(2. * dthe);
                 dwdphi = (w.x[i][j][k+1] - w.x[i][j][k-1])/(2. * dphi);
-                residuum = dudr + 2. * u.x[i][j][k]/rad.z[i] + dvdthe/rad.z[i]
+                residuum = dudr + 2. * u.x[i][j][k]/rm_met + dvdthe/rm_met
                     + costhe/rmsinthe * v.x[i][j][k] + dwdphi/rmsinthe;
                 if(fabs(residuum) >= minimum){
                     minimum = residuum;

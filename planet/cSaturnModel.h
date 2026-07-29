@@ -139,6 +139,30 @@ public:
      * km, so get_layer_height() returns KILOMETRES; anything forming a per-metre physical quantity
      * (a volumetric heating rate W/m3, say) must use this accessor and not the raw difference.
      */
+    /*
+     * Metric radius (ATSAT_METRIC_RADIUS, in km; default 0 = off, every run bit-identical).
+     *
+     * rad.z runs 1..2, so every 1/r factor in the equations works on a sphere of about one length
+     * unit instead of on Saturn — the curvature and divergence terms are then too large by the
+     * ratio of the planetary radius to the shell thickness, here 58232/500 = 116. ATJUP had
+     * exactly this and it mattered: with the radius switched on there, a growing mode that killed
+     * every long run simply stopped growing (2026-07-29, ATJUP_METRIC_RADIUS).
+     *
+     * Only the 1/r FACTORS are shifted. rad.z itself must not be moved: it is also the stretched
+     * radial coordinate that the layer heights and any exp(zeta*(rad.z-1)) stretching sit on, and
+     * shifting it would divide every radial derivative by ~116 and overflow the stretching. This
+     * is the same construction ATOM uses (metricRadius at its five geometry sites) and the reason
+     * is recorded there too.
+     *
+     * Pass the radius in km, e.g. ATSAT_METRIC_RADIUS=58232.
+     */
+    double metricRadius(double rm){
+        static const double R_km = [](){
+            const char* e = getenv("ATSAT_METRIC_RADIUS"); return e ? atof(e) : 0.0; }();
+        if(!(R_km > 0.0)) return rm;
+        return rm + (R_km / L_atm - 1.0);
+    }
+
     double layer_thickness_m(int i){
         if(i < 0 || i > im-2) return 0.0;
         return (double)(m_layer_heights[i+1] - m_layer_heights[i]) * 1.0e3;

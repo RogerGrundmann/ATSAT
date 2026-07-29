@@ -129,7 +129,7 @@ void cSaturnModel::computePressure(){
     double daux_wdphi = 0.0;
 
     for(int i = 1; i < im-1; i++){
-        rm = rad.z[i];
+        rm = metricRadius(rad.z[i]);
 
         for(int j = 1; j < jm-1; j++){
             sinthe = sin(the.z[j]);
