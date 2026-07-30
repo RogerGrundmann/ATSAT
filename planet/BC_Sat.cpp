@@ -3,6 +3,43 @@
 
 using namespace std;
 
+// ===== Boundary treatment of the turbulence fields =====
+// k* and dis* became prognostic variables of the RK4 system in RungeKutta_Sat_Turb.cpp, and
+// nothing here had been told about them: the three BC routines below extrapolate every other
+// transported field to the domain boundaries and left tke, dis and nue frozen at whatever
+// init_fields() had put there. ATJUP records the consequence at BC_Jup.h:190 — the interior
+// evolves away from the frozen faces, the resulting permanent Laplacian at i=im-1, the poles and
+// the phi seam drains dis* to its floor within ~20 iterations, nue* = k*/omega* then saturates
+// its ceiling, and with the coupling on that eddy viscosity destroys the momentum field. So this
+// is a prerequisite for ATSAT_TURB_COUPLING, not an improvement on it.
+//
+// Two departures from the surrounding code, both deliberate:
+//
+// The 2-point Neumann form f[s] = (4/3)f[a] - (1/3)f[b] is used, not the 3-point cubic
+// f[d] - 3f[c] + 3f[b] that ATSAT applies to t and the species. The cubic amplifies an
+// alternating error by 7x per call, which the other fields survive and these two do not: dis*
+// appears in denominators throughout the closure (nue = k/dis among them). ATJUP switched its
+// turbulence fields to the 2-point form for exactly this reason.
+//
+// The extrapolated values are clamped to the same bounds the RK4 stages enforce — k* >= 0 and
+// dis* >= dis_min — because an extrapolation is free to produce a negative where the integration
+// is not, and a negative dis* at one face is an infinite nue* at the next call of the closure.
+//
+// i=0 is also written here, though TurbulenceSat::apply_wall_bc() re-imposes its own zero-gradient
+// condition there later in the same iteration. The duplication is what keeps tken/disn — which
+// restoreVar copies from tke/dis between the two — from carrying a stale deep boundary.
+//
+// Gated by ATSAT_TURB: with the closure off tke, dis and nue are identically zero, so the
+// extrapolation would be a no-op, and skipping it keeps the off path exactly as it was.
+namespace {
+    inline int bc_turb_on(){
+        static const int v = [](){
+            const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
+        return v;
+    }
+    constexpr double bc_dis_min = 1.0e-10;   // matches TurbulenceSat::dis_min and the RK4 floor
+}
+
 void BC_Sat::bcRadius() { m.BC_radius(); }
 void BC_Sat::bcTheta()  { m.BC_theta(); }
 void BC_Sat::bcPhi()    { m.BC_phi(); }
@@ -11,6 +48,8 @@ void cSaturnModel::BC_radius(){
 //    cout << endl << "      ATSAT: BC_radius" << endl;
 
 //    auto begin = std::chrono::high_resolution_clock::now();
+
+    const bool turb_bc = (bc_turb_on() != 0);
 
   #pragma omp parallel for
     for(int j = 1; j < jm-1; j++){
@@ -296,6 +335,24 @@ void cSaturnModel::BC_radius(){
                 - 3.0 * Q_Sensible.x[im-3][j][k] + 3.0 * Q_Sensible.x[im-2][j][k];  // extrapolation
 
 
+            // k*, dis*, nue* at the deep boundary and the model top (see the note at the top
+            // of this file for why the form and the clamps differ from the fields above).
+            if(turb_bc){
+                tke.x[0][j][k] = std::max(0.0,
+                    c43 * tke.x[1][j][k] - c13 * tke.x[2][j][k]);
+                dis.x[0][j][k] = std::max(bc_dis_min,
+                    c43 * dis.x[1][j][k] - c13 * dis.x[2][j][k]);
+                nue.x[0][j][k] = std::max(0.0,
+                    c43 * nue.x[1][j][k] - c13 * nue.x[2][j][k]);
+
+                tke.x[im-1][j][k] = std::max(0.0,
+                    c43 * tke.x[im-2][j][k] - c13 * tke.x[im-3][j][k]);
+                dis.x[im-1][j][k] = std::max(bc_dis_min,
+                    c43 * dis.x[im-2][j][k] - c13 * dis.x[im-3][j][k]);
+                nue.x[im-1][j][k] = std::max(0.0,
+                    c43 * nue.x[im-2][j][k] - c13 * nue.x[im-3][j][k]);
+            }
+
 
 /*
             w_h2s.x[0][j][k] = c43 * w_h2s.x[1][j][k] - c13 * w_h2s.x[2][j][k];
@@ -354,6 +411,8 @@ void cSaturnModel::BC_theta(){
 //    cout << endl << "      ATSAT: BC_theta" << endl;
 
 //    auto begin = std::chrono::high_resolution_clock::now();
+
+    const bool turb_bc = (bc_turb_on() != 0);
 
     #pragma omp parallel for
     for(int k = 1; k < km-1; k++){
@@ -581,6 +640,24 @@ void cSaturnModel::BC_theta(){
                 - 3.0 * Q_Sensible.x[i][jm-3][k] + 3.0 * Q_Sensible.x[i][jm-2][k];  // extrapolation
 
 
+            // k*, dis*, nue* at the two poles (see the note at the top of this file).
+            if(turb_bc){
+                tke.x[i][0][k] = std::max(0.0,
+                    c43 * tke.x[i][1][k] - c13 * tke.x[i][2][k]);
+                dis.x[i][0][k] = std::max(bc_dis_min,
+                    c43 * dis.x[i][1][k] - c13 * dis.x[i][2][k]);
+                nue.x[i][0][k] = std::max(0.0,
+                    c43 * nue.x[i][1][k] - c13 * nue.x[i][2][k]);
+
+                tke.x[i][jm-1][k] = std::max(0.0,
+                    c43 * tke.x[i][jm-2][k] - c13 * tke.x[i][jm-3][k]);
+                dis.x[i][jm-1][k] = std::max(bc_dis_min,
+                    c43 * dis.x[i][jm-2][k] - c13 * dis.x[i][jm-3][k]);
+                nue.x[i][jm-1][k] = std::max(0.0,
+                    c43 * nue.x[i][jm-2][k] - c13 * nue.x[i][jm-3][k]);
+            }
+
+
 
 /*
             h2o.x[i][0][k] = c43 * h2o.x[i][1][k] - c13 * h2o.x[i][2][k];
@@ -684,6 +761,8 @@ void cSaturnModel::BC_phi(){
 //    cout << endl << "      ATSAT: BC_phi" << endl;
 
 //    auto begin = std::chrono::high_resolution_clock::now();
+
+    const bool turb_bc = (bc_turb_on() != 0);
 
     #pragma omp parallel for
     for(int i = 0; i < im; i++){
@@ -839,6 +918,27 @@ void cSaturnModel::BC_phi(){
             Q_Sensible.x[i][j][0] = c43 * Q_Sensible.x[i][j][1] - c13 * Q_Sensible.x[i][j][2];
             Q_Sensible.x[i][j][km-1] = c43 * Q_Sensible.x[i][j][km-2] - c13 * Q_Sensible.x[i][j][km-3];
             Q_Sensible.x[i][j][0] = Q_Sensible.x[i][j][km-1] = (Q_Sensible.x[i][j][0] + Q_Sensible.x[i][j][km-1])/2.0;
+
+            // k*, dis*, nue* across the phi seam (see the note at the top of this file). The two
+            // faces are averaged and set equal, as every other field here is: 0 and km-1 are the
+            // same meridian, so a jump between them is a discontinuity in the middle of the
+            // domain, not a boundary.
+            if(turb_bc){
+                tke.x[i][j][0] = c43 * tke.x[i][j][1] - c13 * tke.x[i][j][2];
+                tke.x[i][j][km-1] = c43 * tke.x[i][j][km-2] - c13 * tke.x[i][j][km-3];
+                tke.x[i][j][0] = tke.x[i][j][km-1] =
+                    std::max(0.0, (tke.x[i][j][0] + tke.x[i][j][km-1])/2.0);
+
+                dis.x[i][j][0] = c43 * dis.x[i][j][1] - c13 * dis.x[i][j][2];
+                dis.x[i][j][km-1] = c43 * dis.x[i][j][km-2] - c13 * dis.x[i][j][km-3];
+                dis.x[i][j][0] = dis.x[i][j][km-1] =
+                    std::max(bc_dis_min, (dis.x[i][j][0] + dis.x[i][j][km-1])/2.0);
+
+                nue.x[i][j][0] = c43 * nue.x[i][j][1] - c13 * nue.x[i][j][2];
+                nue.x[i][j][km-1] = c43 * nue.x[i][j][km-2] - c13 * nue.x[i][j][km-3];
+                nue.x[i][j][0] = nue.x[i][j][km-1] =
+                    std::max(0.0, (nue.x[i][j][0] + nue.x[i][j][km-1])/2.0);
+            }
         }
     }
 
