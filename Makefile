@@ -2,7 +2,20 @@
 # Builds everything: planet, Python interface and CLI interface
 
 CC     = /usr/lib/ggdb
-CFLAGS = -Wall -fPIC -std=c++11 -Ilib -Iplanet -Itinyxml2 -fopenmp -MMD -MP
+CFLAGS = -Wall -fPIC -std=c++11 -Ilib -Iplanet -Itinyxml2 -fopenmp
+
+# Header-dependency tracking. -MMD -MP make the compiler emit, beside each object, the list of
+# headers that object was built from; -include feeds those lists back to make so that touching a
+# header rebuilds everything that reads it. This matters more here than in most projects, because
+# most of ATSAT's physics lives in headers — TurbulenceSat.h, RadiationSat.h, PrecipitationSat.h,
+# PressureSolverSat.h, SaturationAdjustmentSat.h, ChemistrySat.h. Without these lists, editing one
+# of them would leave every .o stale and `make` would report success while linking the old code.
+#
+# They used to be written next to the sources as planet/*.d, lib/*.d and so on, which is 25 files
+# of build bookkeeping mixed in with the code. -MF redirects them under $(DEPDIR) instead; the
+# tracking is unchanged, the source directories stay clean, and `make clean` removes the tree.
+DEPDIR   = build/deps
+DEPFLAGS = -MMD -MP -MF $(DEPDIR)/$(@D)/$(@F:.o=.d)
 
 
 # Common files for the shared lib (libatsat.a)
@@ -55,26 +68,36 @@ $(TARGET_DIR)/pyatsat.so: python/pyatsat.cpython-310-x86_64-linux-gnu.so
 
 
 planet/%.o: planet/%.cpp
-	$(CXX) $(CFLAGS) -c $< -o $@
+	@mkdir -p $(DEPDIR)/planet
+	$(CXX) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 lib/%.o: lib/%.cpp
-	$(CXX) $(CFLAGS) -c $< -o $@
+	@mkdir -p $(DEPDIR)/lib
+	$(CXX) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 cli/%.o: cli/%.cpp
-	$(CXX) $(CFLAGS) -c $< -o $@
+	@mkdir -p $(DEPDIR)/cli
+	$(CXX) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 tinyxml2/%.o: tinyxml2/%.cpp
-	$(CXX) $(CFLAGS) -c $< -o $@
+	@mkdir -p $(DEPDIR)/tinyxml2
+	$(CXX) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 %.o: %.cpp
-	$(CXX) $(CFLAGS) -c $<
+	@mkdir -p $(DEPDIR)/$(@D)
+	$(CXX) $(CFLAGS) $(DEPFLAGS) -c $<
 
-# Auto-generated header dependency files (produced by -MMD -MP)
-ALL_DEPS = $(LIB_OBJ:.o=.d) $(ATSAT_OBJ:.o=.d) $(XML_OBJ:.o=.d) $(ATSAT_CLI_OBJ:.o=.d)
+# Auto-generated header dependency lists (see DEPFLAGS above). Kept under $(DEPDIR), not beside
+# the sources. The leading - on include means "no error if absent", so a clean tree still builds.
+ALL_OBJ  = $(LIB_OBJ) $(ATSAT_OBJ) $(XML_OBJ) $(ATSAT_CLI_OBJ)
+ALL_DEPS = $(addprefix $(DEPDIR)/,$(ALL_OBJ:.o=.d))
 -include $(ALL_DEPS)
 
 .PHONY: clean
 clean:
-	\rm -vf $(LIB_OBJ) $(ATSAT_OBJ) $(XML_OBJ) $(ATSAT_CLI_OBJ) $(PARAM_OUTPUTS) sat libatsat.a $(ALL_DEPS)
+	\rm -vf $(LIB_OBJ) $(ATSAT_OBJ) $(XML_OBJ) $(ATSAT_CLI_OBJ) $(PARAM_OUTPUTS) sat libatsat.a
+	\rm -rf $(DEPDIR)
+	# stray .d files from before the dependency lists moved under $(DEPDIR)
+	\rm -vf planet/*.d lib/*.d cli/*.d tinyxml2/*.d
 	\rm -vf python/*.so python/*.o python/pyatsat.cpp
 	\rm -rf python/build/
