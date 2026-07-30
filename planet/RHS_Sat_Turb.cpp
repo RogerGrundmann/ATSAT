@@ -337,12 +337,56 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         rhs_dis.x[i][j][k] = 0.0;
     }
 
+// ===== Turbulent (eddy) diffusion from the closure (opt-in) =====
+//
+// This is the step the closure was built for. Until now TurbulenceSat filled nue* and nothing
+// read it: k* and dis* were transported, a viscosity was computed from them, and the momentum and
+// scalar equations went on diffusing at their molecular rates. The closure could therefore be
+// measured but not felt.
+//
+// nue is the DIMENSIONLESS eddy viscosity nue* = nue_phys/(u_0*L_atm), the same normalisation as
+// 1/re (re = u_0*L_atm/nue_mol), so the two are directly additive and the effective momentum
+// diffusivity is simply 1/re + nue*. Heat and the species get nue*/Pr_t added to their own
+// 1/(sc*re): Pr_t = 0.9 is the standard turbulent Prandtl (Schmidt) number for shear-driven
+// turbulence, meaning eddies mix a scalar slightly faster than they mix momentum. It is a closure
+// constant, not a Saturn measurement — nothing in this model determines it.
+//
+// Each term below is written as the ORIGINAL molecular term plus a separate eddy term, not as one
+// diffusion_x * (1/(sc*re) + nue*). The two are the same physics but not the same arithmetic:
+// x/(sc*re) and x*(1.0/(sc*re)) differ in the last bit, so the second form would perturb every
+// equation in the model with the coupling switched off. Adding diffusion_x * 0.0 does not.
+//
+// Gated by ATSAT_TURB_COUPLING (default 0 = off, bit-identical). nue is nonzero only when
+// ATSAT_TURB is also set, so this knob alone does nothing.
+//
+// HOW BIG THIS IS, measured rather than assumed: with re = 1000 the molecular background is
+// 1/re = 1.0e-3, and the closure's peak nue* over an 8-iteration run is 1.3e-5. The eddy
+// viscosity is therefore about 77x SMALLER than the laminar one it is being added to, and at
+// full strength this coupling moves the momentum diffusivity by ~1%. That is the opposite of
+// the situation in ATJUP, whose comment at RHS_Jup_Turb.cpp:618 this port otherwise follows —
+// the number belongs to re and to the state the closure is being run on, not to the scheme.
+//
+// So the knob being a double is not, here, a way to creep up on an unstable term. It is a way to
+// scale nue* UP: at 1x this coupling cannot be expected to change the solution visibly, and a
+// deliberate multiplier is the honest way to ask what an eddy viscosity of a believable size
+// would do, rather than adjusting re or the closure constants until the closure looks important.
+//
+// ATSAT has no obstacle and therefore no wall-adjacent eddy viscosity: ATJUP adds a wall_nue term
+// here that its computeWallViscosity() fills around the SeaMount. ATSAT's wall_nue array exists
+// (it came with the port) and is identically zero, so it is not read.
+    static const double turb_coupling = [](){
+        const char* e = getenv("ATSAT_TURB_COUPLING"); return e ? atof(e) : 0.0; }();
+    constexpr double Pr_t = 0.9;
+    const double nue_t   = (turb_coupling != 0.0 && std::isfinite(nue.x[i][j][k]))
+                         ? turb_coupling * std::max(0.0, nue.x[i][j][k]) : 0.0;
+    const double nue_t_s = nue_t / Pr_t;      // scalar (heat / species) eddy diffusivity
+
 // right hand sides of the Navier-Stokes equations
     rhs_t.x[i][j][k] = 
         + pressure_t
         - transport_t 
 //        + diffusion_t/(re * pr);
-        + diffusion_t/(re * pr)
+        + diffusion_t/(re * pr) + diffusion_t * nue_t_s
         - chemical_reaction * thermalmassflux.x[i][j][k];
 
     rhs_u.x[i][j][k] = 
@@ -351,71 +395,71 @@ void cSaturnModel::RHSSat(int i, int j, int k){
                         /(r_mix * R_mix * t.x[i][j][k] * t_ref)
 //        + buoyancy * g * (1.0 - (t.x[i][j][k] - 1.0))          //  rho0 * g - rho0 * (t - t0)/t0 * g    for   del_rho << rho0
         - transport_u 
-        + diffusion_u/re
+        + diffusion_u/re + diffusion_u * nue_t
         - Coriolis * Coriolis_rad
         - centrifugal * centrifugal_rad;
 
     rhs_v.x[i][j][k] = 
         - dpdthe/rm
         - transport_v
-        + diffusion_v/re
+        + diffusion_v/re + diffusion_v * nue_t
         - Coriolis * Coriolis_the
         - centrifugal * centrifugal_the;
 
     rhs_w.x[i][j][k] = 
         - dpdphi/rmsinthe
         - transport_w
-        + diffusion_w/re
+        + diffusion_w/re + diffusion_w * nue_t
         - Coriolis * Coriolis_phi;
 
     rhs_ch4.x[i][j][k] =
         - transport_ch4
-        + diffusion_ch4/(sc_ch4 * re);
+        + diffusion_ch4/(sc_ch4 * re) + diffusion_ch4 * nue_t_s;
 
     rhs_ch4_cloud.x[i][j][k] =
         - transport_ch4_cloud
-        + diffusion_ch4_cloud/(sc_ch4 * re);
+        + diffusion_ch4_cloud/(sc_ch4 * re) + diffusion_ch4_cloud * nue_t_s;
 
     rhs_ch4_ice.x[i][j][k] =
         - transport_ch4_ice
-        + diffusion_ch4_ice/(sc_ch4 * re);
+        + diffusion_ch4_ice/(sc_ch4 * re) + diffusion_ch4_ice * nue_t_s;
 
     rhs_h2o.x[i][j][k] =
         - transport_h2o
-        + diffusion_h2o/(sc_h2o * re);
+        + diffusion_h2o/(sc_h2o * re) + diffusion_h2o * nue_t_s;
 
     rhs_h2o_cloud.x[i][j][k] = 
         - transport_h2o_cloud
-        + diffusion_h2o_cloud/(sc_h2o * re);
+        + diffusion_h2o_cloud/(sc_h2o * re) + diffusion_h2o_cloud * nue_t_s;
 
     rhs_h2o_ice.x[i][j][k] = 
         - transport_h2o_ice
-        + diffusion_h2o_ice/(sc_h2o * re);
+        + diffusion_h2o_ice/(sc_h2o * re) + diffusion_h2o_ice * nue_t_s;
 
     rhs_h2s.x[i][j][k] = 
         - transport_h2s
-        + diffusion_h2s/(sc_h2s * re)
+        + diffusion_h2s/(sc_h2s * re) + diffusion_h2s * nue_t_s
 //        + chemical_reaction * w_h2s.x[i][j][k];
         + chemical_reaction * massflux_h2s.x[i][j][k];
 
     rhs_nh3.x[i][j][k] = 
         - transport_nh3
-        + diffusion_nh3/(sc_nh3 * re)
+        + diffusion_nh3/(sc_nh3 * re) + diffusion_nh3 * nue_t_s
 //        + chemical_reaction * w_nh3.x[i][j][k];
         + chemical_reaction * massflux_nh3.x[i][j][k];
 
     rhs_nh3_cloud.x[i][j][k] = 
         - transport_nh3_cloud
-        + diffusion_nh3_cloud/(sc_nh3 * re);
+        + diffusion_nh3_cloud/(sc_nh3 * re) + diffusion_nh3_cloud * nue_t_s;
 
     rhs_nh3_ice.x[i][j][k] = 
         - transport_nh3_ice
-        + diffusion_nh3_ice/(sc_nh3 * re);
+        + diffusion_nh3_ice/(sc_nh3 * re) + diffusion_nh3_ice * nue_t_s;
 
     rhs_nh4sh.x[i][j][k] =
         - transport_nh4sh
         + fluxlim_nh4sh.x[i][j][k]
-        + diffusion_nh4sh/(sc_nh4sh * re)
+        + diffusion_nh4sh/(sc_nh4sh * re) + diffusion_nh4sh * nue_t_s
 //        + chemical_reaction * w_nh4sh.x[i][j][k];
         + chemical_reaction * massflux_nh4sh.x[i][j][k];
 
