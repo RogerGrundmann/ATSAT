@@ -200,10 +200,32 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     // missing.
 
 
-// influence of the Coriolis force
+// ===== influence of the Coriolis force =====
+//
+// With theta the COLATITUDE and v the theta-component (so +v points south), the rotation vector
+// is Omega*(cos(theta) e_r - sin(theta) e_theta) and the Coriolis acceleration -2*Omega x u is
+//
+//     a_r     = +2*Omega*sin(theta)*w
+//     a_theta = +2*Omega*cos(theta)*w
+//     a_phi   = -2*Omega*(cos(theta)*v + sin(theta)*u)
+//
+// These three are named with the opposite sign because they enter rhs_* through a MINUS below,
+// so each must hold -a. Two of the three did not.
+//
+// Coriolis_the had +2*Omega*cos*w, delivering -a_theta: an eastward wind in the northern
+// hemisphere was turned NORTHWARD, i.e. deflected to the left. Physical check: eastward flow at
+// northern mid-latitudes must go right, which is south, which is +e_theta.
+//
+// Coriolis_phi had +2*Omega*(-cos*v + sin*u). The sin*u part was right; the cos*v part carried
+// the wrong sign, so southward flow in the northern hemisphere was turned EAST instead of west —
+// again to the left. Note this made Coriolis_phi not plus-or-minus any consistent vector
+// component: no single overall sign could repair it, which is how the defect stayed invisible.
+//
+// The radial component was already right, and is unchanged. ATJUP carries the same two errors in
+// the same two lines (RHS_Jup_Turb.cpp) — they are not an ATSAT-only drift.
     double Coriolis_rad = - 2.0 * omega * sinthe * w_ijk;
-    double Coriolis_the = + 2.0 * omega * costhe * w_ijk;
-    double Coriolis_phi = + 2.0 * omega * (- costhe * v_ijk
+    double Coriolis_the = - 2.0 * omega * costhe * w_ijk;
+    double Coriolis_phi = + 2.0 * omega * (+ costhe * v_ijk
         + sinthe * u_ijk);
 
 
@@ -515,6 +537,53 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         }
     }
 
+// ===== Buoyancy: an anomaly, pointing the way Archimedes says =====
+//
+// What was here: + buoyancy * g * (p_stat + p_dyn)/(r_mix*R_mix*t*t_ref). Three things wrong
+// with it, and ATJUP found the same three.
+//
+// (1) THE SIGN, and the fact that it was not an anomaly at all. The expression is g*rho/r_mix,
+// the FULL WEIGHT, entering with a PLUS — an outward acceleration of about g. Only p_dyn is
+// differentiated in rhs_u (p_stat never is), so nothing balances it: -dpdr is outward when
+// pressure falls outward, and this pushed outward too. Hydrostatic balance was not merely
+// broken, it was unrepresentable. The Archimedes force is a = -g*(rho - rho_bar)/rho_ref, so
+// what belongs here is the anomaly against the level mean, NEGATED. With the mean subtracted the
+// term has zero horizontal mean at every height: only density CONTRASTS drive vertical motion,
+// and the mean is left to hydrostatic balance where it belongs.
+//
+// (2) p_dyn HAD NO BUSINESS IN THE DENSITY. It closed a loop with no physics in it: buoyancy
+// drives a divergence, the divergence sets p_dyn, p_dyn changes the density, the density feeds
+// the buoyancy. In a Boussinesq system the density anomaly is a THERMODYNAMIC quantity, built
+// from temperature against a hydrostatic reference pressure, while p_dyn is a Lagrange
+// multiplier enforcing the velocity constraint. ATJUP records that the loop is invisible while
+// p_dyn stays a local smear of the divergence and becomes fatal once the elliptic problem is
+// actually solved — which is exactly what PressureSolverSat.h now makes possible here.
+//
+// (3) THE 1/t WAS UNGUARDED. A cell without a positive temperature has no density and no
+// buoyancy; t = 0 gave +-inf, RK4 turned that into an infinite velocity, and the advection
+// stencil of every neighbour then carried inf - inf = NaN outward.
+//
+// NOT addressed, and worth knowing: the anomaly is divided by the constant r_mix rather than by
+// the level mean density, which weights the anomaly aloft less strongly than proper Boussinesq
+// would. And the scale is untouched — this term is still in the model's inherited unit system,
+// so it is not yet the physical magnitude. That is item 2, and it must stay downstream of this
+// commit: scaling up a buoyancy that convected upside down would have been the worst order.
+//
+// ATSAT_BUOY_LEGACY=1 restores the old expression for A/B work.
+    static const int buoy_legacy = [](){
+        const char* e = getenv("ATSAT_BUOY_LEGACY"); return e ? atoi(e) : 0; }();
+    double buoyancy_u = 0.0;
+    if(t.x[i][j][k] > 0.0){
+        if(buoy_legacy != 0){
+            buoyancy_u = + buoyancy * g * (p_stat.x[i][j][k] + p_dyn.x[i][j][k])
+                         / (r_mix * R_mix * t.x[i][j][k] * t_ref);
+        } else {
+            buoyancy_u = - buoyancy
+                * (g * p_stat.x[i][j][k] / (r_mix * R_mix * t.x[i][j][k] * t_ref)
+                   - buoy_ref_level[i]);
+        }
+    }
+
 // right hand sides of the Navier-Stokes equations
     rhs_t.x[i][j][k] =
         + pressure_t
@@ -526,9 +595,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 
     rhs_u.x[i][j][k] =
         - dpdr
-        + buoyancy * g * (p_stat.x[i][j][k] + p_dyn.x[i][j][k])  //  in kg/m³    (rho * g)
-                        /(r_mix * R_mix * t.x[i][j][k] * t_ref)
-//        + buoyancy * g * (1.0 - (t.x[i][j][k] - 1.0))          //  rho0 * g - rho0 * (t - t0)/t0 * g    for   del_rho << rho0
+        + buoyancy_u
         - transport_u
         + diffusion_u/re + diffusion_u * nue_t
         - Coriolis * Coriolis_rad

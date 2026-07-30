@@ -15,10 +15,44 @@
 
 using namespace std;
 
+/*
+ * Area-weighted horizontal mean, at each level, of the very expression the buoyancy takes the
+ * anomaly of. Mirrors ATJUP's computeBuoyancyRefLevel().
+ *
+ * The mean has to be the mean OF the quantity whose anomaly is taken, or the anomaly no longer
+ * has zero mean at that height — which is the whole point: with it subtracted, only horizontal
+ * density contrasts drive vertical motion and hydrostatic balance is left to carry the mean.
+ * sin(theta) is the spherical area weight; cells with no positive temperature are skipped, which
+ * also catches NaN, and a non-finite contribution is dropped rather than poisoning the level.
+ */
+void cSaturnModel::computeBuoyancyRefLevel(){
+    if((int)buoy_ref_level.size() != im) buoy_ref_level.assign(im, 0.0);
+
+    #pragma omp parallel for schedule(static)
+    for(int i = 0; i < im; i++){
+        double sum = 0.0, wsum = 0.0;
+        for(int j = 0; j < jm; j++){
+            const double wgt = sin(the.z[j]);              // spherical area weight
+            for(int k = 0; k < km; k++){
+                if(!(t.x[i][j][k] > 0.0)) continue;        // also catches NaN
+                const double b = g * p_stat.x[i][j][k]
+                               / (r_mix * R_mix * t.x[i][j][k] * t_ref);
+                if(!std::isfinite(b)) continue;
+                sum  += wgt * b;
+                wsum += wgt;
+            }
+        }
+        buoy_ref_level[i] = (wsum > 0.0) ? sum / wsum : 0.0;
+    }
+}
+
 void cSaturnModel::RungeKuttaSat(){
     cout << endl << "      ATSAT: RungeKuttaSat" << endl;
 
     auto begin = std::chrono::high_resolution_clock::now();
+
+    // The buoyancy reference level, refreshed once per RK4 step, before any stage reads it.
+    computeBuoyancyRefLevel();
 
     // ===== Geometry hoisted out of the cell loop =====
     //

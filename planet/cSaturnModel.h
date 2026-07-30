@@ -194,6 +194,13 @@ public:
     // Fills rho_mix from the ideal gas law with the model's own R_mix (Pressure_Sat.cpp).
     void computeMixtureDensity();
 
+    // Horizontal (area-weighted) mean of the buoyancy expression at each level, recomputed once
+    // per RK4 step by computeBuoyancyRefLevel() in RungeKutta_Sat_Turb.cpp. Subtracting it is
+    // what makes the buoyancy an ANOMALY: zero mean at every height, so only horizontal density
+    // contrasts drive vertical motion and hydrostatic balance carries the mean.
+    std::vector<double> buoy_ref_level;
+    void computeBuoyancyRefLevel();
+
     double layer_thickness_m(int i){
         if(i < 0 || i > im-2) return 0.0;
         return (double)(m_layer_heights[i+1] - m_layer_heights[i]) * 1.0e3;

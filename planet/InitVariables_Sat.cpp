@@ -220,9 +220,13 @@ void cSaturnModel::Forces(){
                 for(int k = 1; k < km-1; k++){
 
 // influence of the Coriolis force
+                    // Same signs as RHS_Sat_Turb.cpp — see the derivation there. This
+                    // diagnostic squares the three components, so its value does not depend on
+                    // them; they are corrected so that the two copies in the source do not
+                    // contradict each other.
                     double Coriolis_rad = - 2.0 * omega * sinthe * w.x[i][j][k];
-                    double Coriolis_the = + 2.0 * omega * costhe * w.x[i][j][k];
-                    double Coriolis_phi = + 2.0 * omega * (- costhe * v.x[i][j][k] 
+                    double Coriolis_the = - 2.0 * omega * costhe * w.x[i][j][k];
+                    double Coriolis_phi = + 2.0 * omega * (+ costhe * v.x[i][j][k]
                         + sinthe * u.x[i][j][k]);
 
 // influence of the centrifugal force
@@ -249,10 +253,20 @@ void cSaturnModel::Forces(){
                     CentrifugalForce.x[i][j][k] = centrifugal * r_mix
                         * omega * omega * rm * sinthe;
 
-                    BuoyancyForce.x[i][j][k] = buoyancy 
-//                        * r_mix * g * (1.0 - (t.x[i][j][k] - 1.0))  //  rho0 * g - rho0 * (t - t0)/t0 * g    for   del_rho << rho0
-                         * r_mix * g * (p_stat.x[i][j][k] + p_dyn.x[i][j][k])  //  rho * g
-                        /(r_mix * R_mix * t.x[i][j][k] * t_ref) * 1e5;  // in N/m³
+                    // The ANOMALY the equation actually applies, as a force density in N/m3,
+                    // not the total weight. RHS_Sat_Turb.cpp uses
+                    // -(g*p_stat/(r_mix*R_mix*t*t_ref) - buoy_ref_level[i]); reporting the
+                    // unsubtracted full weight here would have this diagnostic disagreeing with
+                    // the equation by the whole hydrostatic mean — the same trap the centrifugal
+                    // diagnostic was in. buoy_ref_level is filled by RungeKuttaSat, so before the
+                    // first step it is empty and the anomaly is reported as zero.
+                    const bool ref_ready = ((int)buoy_ref_level.size() == im);
+                    const double b_cell = (t.x[i][j][k] > 0.0)
+                        ? g * p_stat.x[i][j][k] / (r_mix * R_mix * t.x[i][j][k] * t_ref)
+                        : 0.0;
+                    BuoyancyForce.x[i][j][k] = ref_ready
+                        ? - buoyancy * r_mix * (b_cell - buoy_ref_level[i]) * 1e5  // in N/m³
+                        : 0.0;
 
                     PresGradForce.x[i][j][k] = 
                         - sqrt((pow(dpdr, 2) 
