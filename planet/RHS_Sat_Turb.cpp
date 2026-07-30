@@ -411,12 +411,89 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
                          ? turb_coupling * std::max(0.0, nue.x[i][j][k]) : 0.0;
     const double nue_t_s = nue_t / Pr_t;      // scalar (heat / species) eddy diffusivity
 
+// ===== Radiative heating source (opt-in) =====
+//
+// RadiationSat has been filling Q_rad since it was ported and nothing read it: Q_rad appeared
+// only in the module that computes it, in the array allocation, and in printMinMax. The grey
+// radiation scheme could be measured but not felt, exactly as the turbulence closure could not
+// before ATSAT_TURB_COUPLING.
+//
+// Physically dT/dt = Q_rad/(rho*cp). Nondimensionalised by this model's energy scaling — lengths
+// by L_rad, velocity by u_0, temperature by t_ref —
+//
+//     radiation_t = rad_coupling * Q_rad * L_rad / (rho * cp_mix * u_0 * t_ref).
+//
+// The density is the LOCAL one from rho_at(), not the reference r_mix. That is not a detail: the
+// thin, cold upper atmosphere is where Q_rad > 0 does its heating, and it is the small rho there
+// that lets those layers respond quickly and relax toward radiative equilibrium. Using r_mix
+// would flatten exactly the part of the profile the scheme exists to set.
+//
+// rad_coupling = 1.0 IS THE PHYSICALLY CORRECT VALUE, not a tuning starting point — the
+// expression is the exact nondimensional form of dT/dt = Q/(rho*cp) under this scaling. A value
+// above 1 does not repair a scaling error, it is a deliberate ACCELERATION of the radiative
+// timescale against the advective one, and it should be named as such when used. The temptation
+// is real and worth stating: ATSAT's default timestep is 3.01e-5 nondimensional, which is 0.032 s
+// of Saturn time, while radiative relaxation here is of order 1e7 s. At coupling = 1 equilibration
+// would need ~1e9 iterations. Nothing in a run of practical length will show it.
+    static const double rad_coupling = [](){
+        const char* e = getenv("ATSAT_RAD_COUPLING"); return e ? atof(e) : 0.0; }();
+    double radiation_t = 0.0;
+    if(rad_coupling != 0.0){
+        const double rho   = rho_at(i, j, k);                  // [kg/m3], ideal gas with R_mix
+        const double L_rad = L_atm * 1.0e3;                    // shell thickness [m]
+        if(rho > 0.0 && cp_mix > 0.0){
+            radiation_t = rad_coupling * Q_rad.x[i][j][k] * L_rad
+                        / (rho * cp_mix * u_0 * t_ref);
+            // Explicit-scheme guard. The 1/rho factor can make this blow up in a very thin cell
+            // at the top or in the polar corner. Test for non-finite FIRST — both comparisons
+            // below are false for a NaN and would let it through.
+            constexpr double rad_t_max = 0.5;
+            if(!std::isfinite(radiation_t)) radiation_t = 0.0;
+            else if(radiation_t >  rad_t_max) radiation_t =  rad_t_max;
+            else if(radiation_t < -rad_t_max) radiation_t = -rad_t_max;
+        }
+    }
+
+// ===== Latent-heat source from the precipitation microphysics (opt-in) =====
+//
+// Same conversion, and the same standing of Q_precip before this: filled by PrecipitationSat,
+// read by nobody. Positive where riming and freezing release fusion heat, negative where melting
+// or rain evaporation absorb it.
+//
+// THE DENSITY HERE IS r_mix, NOT the local one, and the difference is not a preference. Q_rad
+// comes from real radiative fluxes, so dividing it by the local density is right. Q_precip is
+// built from the condensate fields, and in this model those are mass concentrations defined as
+// r_mix*ep*E/p — a mixing ratio scaled by the REFERENCE density — whose latent heat
+// SaturationAdjustmentSat itself converts with /(cp_mix*r_mix) (Weather_Sat.cpp:163). The r_mix
+// therefore cancels and leaves the true mixing-ratio tendency. Using rho_at() here instead would
+// inflate the heating by r_mix/rho_local, which at Saturn's cloud decks is a large factor in the
+// wrong direction. PrecipitationSat.h states the same convention at its own site.
+    static const double precip_coupling = [](){
+        const char* e = getenv("ATSAT_PRECIP_COUPLING"); return e ? atof(e) : 0.0; }();
+    double precip_t = 0.0;
+    if(precip_coupling != 0.0){
+        const double L_rad = L_atm * 1.0e3;                    // shell thickness [m]
+        if(r_mix > 0.0 && cp_mix > 0.0){
+            precip_t = precip_coupling * Q_precip.x[i][j][k] * L_rad
+                     / (r_mix * cp_mix * u_0 * t_ref);
+            // r_mix is a constant, so there is no 1/rho blow-up to guard against here. The
+            // limiter stays anyway: latent heating is stiff and locally concentrated — it
+            // switches on hard at a phase boundary — and this is an explicit scheme.
+            constexpr double precip_t_max = 0.5;
+            if(!std::isfinite(precip_t)) precip_t = 0.0;
+            else if(precip_t >  precip_t_max) precip_t =  precip_t_max;
+            else if(precip_t < -precip_t_max) precip_t = -precip_t_max;
+        }
+    }
+
 // right hand sides of the Navier-Stokes equations
     rhs_t.x[i][j][k] =
         + pressure_t
         - transport_t
         + diffusion_t/(re * pr) + diffusion_t * nue_t_s
-        - chemical_reaction * thermalmassflux.x[i][j][k];
+        - chemical_reaction * thermalmassflux.x[i][j][k]
+        + radiation_t
+        + precip_t;
 
     rhs_u.x[i][j][k] =
         - dpdr
