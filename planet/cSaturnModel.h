@@ -488,8 +488,23 @@ private:
         return;
     }
 
+    // Everything RHSSat needs to know about where a cell is, computed once per (i,j) column by
+    // RungeKuttaSat instead of four times per cell by RHSSat. Reciprocals are stored, not the
+    // quantities themselves, so the right-hand sides multiply where they used to divide — that
+    // is what makes this worth passing around, and it is also why the change is not
+    // bit-identical. Mirrors cJupiterModel::CellGeometry.
+    struct CellGeometry {
+        double rm, rm2, exp_rm, exp_2_rm;
+        double sinthe, sinthe2, costhe, cotanthe;
+        double inv_rm, inv_rm2;
+        double inv_rmsinthe, inv_rm2sinthe, inv_rm2sinthe2;
+        double costhe_inv_rm2sinthe;
+        double inv_2dr, inv_2dthe, inv_2dphi;
+        double inv_dr2, inv_dthe2, inv_dphi2;
+    };
+
     void SetDefaultConfig();
-    void RHSSat(int i, int j, int k);
+    void RHSSat(int i, int j, int k, const CellGeometry& geo);
     void RungeKuttaSat();
     void SaturnPlotData();
     void paraview_vtk_longal(int n, int j_longal);

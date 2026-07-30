@@ -1,175 +1,210 @@
+/*
+ * Saturn Atmosphere General Circulation Modell(ATSAT) applied to turbulent flow
+ * Program for the computation of geo-atmospherical circulating flows in a spherical shell
+ * Finite difference scheme for the solution of the 3D Navier-Stokes equations
+ * with additional transport equations for the condensable species and for the
+ * turbulent kinetic energy k* and its dissipation dis* (epsilon* or omega*)
+ * 4. order Runge-Kutta scheme to solve 2. order differential equations
+ *
+ * class to combine the right hand sides of the differential equations for the Runge-Kutta scheme
+ *
+ * Restructured to ATJUP's arrangement (RHS_Jup_Turb.cpp): the geometry of the cell arrives
+ * precomputed in a CellGeometry, and the derivatives are named local variables rather than
+ * entries in a parallel pair of std::vector<Array*> indexed by an enum. See the note below.
+*/
+
 #include "cSaturnModel.h"
 
 using namespace std;
 
-#define dxdr_a(X, dx) \
-    ((X->x[i+1][j][k] - X->x[i-1][j][k])/(2.0 * dx))
-#define d2xdr2_a(X, dx2) \
-    ((X->x[i+1][j][k] - 2.0 * X->x[i][j][k] + X->x[i-1][j][k])/dx2)
 
-#define dxdthe_a(X, dx) \
-    ((X->x[i][j+1][k] - X->x[i][j-1][k])/(2.0 * dx))
-#define d2xdthe2_a(X, dx2) \
-    ((X->x[i][j+1][k] - 2.0 * X->x[i][j][k] + X->x[i][j-1][k])/dx2)
+void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 
-#define dxdphi_a(X, dx) \
-    ((X->x[i][j][k+1] - X->x[i][j][k-1])/(2.0 * dx))
-#define d2xdphi2_a(X, dx2) \
-    ((X->x[i][j][k+1] - 2.0 * X->x[i][j][k] + X->x[i][j][k-1])/dx2)
+    // ===== Why this function no longer builds its own geometry or its own array tables =====
+    //
+    // What it used to do, per cell and per RK4 stage: call sin() and cos(), form eight products
+    // and quotients of them, then build two std::vector<Array*> of 24 and 17 entries, allocate
+    // six std::vector<double> to hold the derivatives, and walk them with an enum index. RHSSat
+    // is called four times per cell per iteration, so all of that — six heap allocations and two
+    // transcendental calls per call — happened four times for every cell of the grid, to produce
+    // numbers that depend only on i and j.
+    //
+    // The geometry now arrives in the CellGeometry that RungeKuttaSat builds once per (i,j)
+    // column, reciprocals already taken, and the derivatives are plain named doubles. That is
+    // ATJUP's arrangement and the reason it is worth copying is not only speed: with the values
+    // named, the metric factor in each term is visible at the point of use, which is what one
+    // wants when the question is whether a 1/r belongs where it stands.
+    //
+    // NOT BIT-IDENTICAL, and it cannot be. The whole point of the precomputed struct is that
+    // x/rm becomes x*inv_rm, and a division and a multiplication by the reciprocal do not round
+    // the same way. Every term in the model moves in the last bits. The measurement is in the
+    // commit message; nothing here changes any formula.
+
+    // All geometric quantities come from the precomputed struct —
+    // NO sin(), cos(), division, or reciprocal computation here.
+    const double rm                   = geo.rm;
+    const double sinthe               = geo.sinthe;
+    const double costhe               = geo.costhe;
+    const double cotanthe             = geo.cotanthe;
+    const double inv_rm               = geo.inv_rm;
+    const double inv_rm2              = geo.inv_rm2;
+    const double inv_rmsinthe         = geo.inv_rmsinthe;
+    const double inv_rm2sinthe        = geo.inv_rm2sinthe;
+    const double inv_rm2sinthe2       = geo.inv_rm2sinthe2;
+    const double costhe_inv_rm2sinthe = geo.costhe_inv_rm2sinthe;
+
+    const double inv_2dr   = geo.inv_2dr;
+    const double inv_2dthe = geo.inv_2dthe;
+    const double inv_2dphi = geo.inv_2dphi;
+    const double inv_dr2   = geo.inv_dr2;
+    const double inv_dthe2 = geo.inv_dthe2;
+    const double inv_dphi2 = geo.inv_dphi2;
+    const double exp_rm    = geo.exp_rm;
+    const double exp_2_rm  = geo.exp_2_rm;
+
+    // Cache local cell values
+    const double u_ijk = u.x[i][j][k];
+    const double v_ijk = v.x[i][j][k];
+    const double w_ijk = w.x[i][j][k];
+
+    // ---- First-order derivative storage ----
+    double dudr, dvdr, dwdr, dtdr, dpdr;
+    double dh2odr, dh2ocdr, dh2oidr;
+    double dh2sdr;
+    double dnh3dr, dnh3cdr, dnh3idr, dnh4shdr;
+    double dch4dr, dch4cdr, dch4idr;
+    double dtkedr, ddisdr;
+
+    double dudthe, dvdthe, dwdthe, dtdthe, dpdthe;
+    double dh2odthe, dh2ocdthe, dh2oidthe;
+    double dh2sdthe;
+    double dnh3dthe, dnh3cdthe, dnh3idthe, dnh4shdthe;
+    double dch4dthe, dch4cdthe, dch4idthe;
+    double dtkedthe, ddisdthe;
+
+    double dudphi, dvdphi, dwdphi, dtdphi, dpdphi;
+    double dh2odphi, dh2ocdphi, dh2oidphi;
+    double dh2sdphi;
+    double dnh3dphi, dnh3cdphi, dnh3idphi, dnh4shdphi;
+    double dch4dphi, dch4cdphi, dch4idphi;
+    double dtkedphi, ddisdphi;
+
+    // ---- Second-order derivative storage ----
+    double d2udr2, d2vdr2, d2wdr2, d2tdr2;
+    double d2h2odr2, d2h2ocdr2, d2h2oidr2;
+    double d2h2sdr2;
+    double d2nh3dr2, d2nh3cdr2, d2nh3idr2, d2nh4shdr2;
+    double d2ch4dr2, d2ch4cdr2, d2ch4idr2;
+    double d2tkedr2, d2disdr2;
+
+    double d2udthe2, d2vdthe2, d2wdthe2, d2tdthe2;
+    double d2h2odthe2, d2h2ocdthe2, d2h2oidthe2;
+    double d2h2sdthe2;
+    double d2nh3dthe2, d2nh3cdthe2, d2nh3idthe2, d2nh4shdthe2;
+    double d2ch4dthe2, d2ch4cdthe2, d2ch4idthe2;
+    double d2tkedthe2, d2disdthe2;
+
+    double d2udphi2, d2vdphi2, d2wdphi2, d2tdphi2;
+    double d2h2odphi2, d2h2ocdphi2, d2h2oidphi2;
+    double d2h2sdphi2;
+    double d2nh3dphi2, d2nh3cdphi2, d2nh3idphi2, d2nh4shdphi2;
+    double d2ch4dphi2, d2ch4cdphi2, d2ch4idphi2;
+    double d2tkedphi2, d2disdphi2;
 
 
-void cSaturnModel::RHSSat(int i, int j, int k){
-    double dr2, dthe2, dphi2, rm2;
-    double rm;
-    double sinthe, sinthe2;
-    double costhe, rmsinthe, rm2sinthe, rm2sinthe2;
-    double cotanthe;
+    // ===== R-direction derivatives (central differences) =====
+    // exp_rm and exp_2_rm are the coordinate-stretching factors. ATSAT does not stretch its
+    // radial coordinate (coord_stretching is false, init_layer_heights is linear), so both are
+    // exactly 1.0 and the multiplications below are exact. They are carried anyway, in ATJUP's
+    // form, so that switching the stretching on is a change to one place and not to this file.
+    #define COMPUTE_DR(FIELD, d1, d2) \
+        d1 = (FIELD.x[i+1][j][k] - FIELD.x[i-1][j][k]) * inv_2dr * exp_rm; \
+        d2 = (FIELD.x[i+1][j][k] - 2.0*FIELD.x[i][j][k] + FIELD.x[i-1][j][k]) * inv_dr2 * exp_2_rm;
 
-    dr2 = dr * dr;
-    dthe2 = dthe * dthe;
-    dphi2 = dphi * dphi;
-    rm = metricRadius(rad.z[i]);
-    rm2 = rm * rm;
-    sinthe = sin(the.z[j]);
-    sinthe2 = sinthe * sinthe;
-    costhe = cos(the.z[j]);
-    cotanthe = costhe/sinthe;
-    rmsinthe = rm * sinthe;
-    rm2sinthe = rm2 * sinthe;
-    rm2sinthe2 = rm2 * sinthe2;
+    COMPUTE_DR(u,         dudr,     d2udr2)
+    COMPUTE_DR(v,         dvdr,     d2vdr2)
+    COMPUTE_DR(w,         dwdr,     d2wdr2)
+    COMPUTE_DR(t,         dtdr,     d2tdr2)
+    COMPUTE_DR(h2o,       dh2odr,   d2h2odr2)
+    COMPUTE_DR(h2o_cloud, dh2ocdr,  d2h2ocdr2)
+    COMPUTE_DR(h2o_ice,   dh2oidr,  d2h2oidr2)
+    COMPUTE_DR(h2s,       dh2sdr,   d2h2sdr2)
+    COMPUTE_DR(nh3,       dnh3dr,   d2nh3dr2)
+    COMPUTE_DR(nh3_cloud, dnh3cdr,  d2nh3cdr2)
+    COMPUTE_DR(nh3_ice,   dnh3idr,  d2nh3idr2)
+    COMPUTE_DR(ch4,       dch4dr,   d2ch4dr2)
+    COMPUTE_DR(ch4_cloud, dch4cdr,  d2ch4cdr2)
+    COMPUTE_DR(ch4_ice,   dch4idr,  d2ch4idr2)
+    COMPUTE_DR(nh4sh,     dnh4shdr, d2nh4shdr2)
+    COMPUTE_DR(tke,       dtkedr,   d2tkedr2)
+    COMPUTE_DR(dis,       ddisdr,   d2disdr2)
+    dpdr = (p_dyn.x[i+1][j][k] - p_dyn.x[i-1][j][k]) * inv_2dr * exp_rm;
+    #undef COMPUTE_DR
 
 
-    std::vector<Array*> arrays_1{&u, &v, &w, &t, &p_dyn,
-        &ch4, &ch4_cloud, &ch4_ice,
-        &h2o, &h2o_cloud, &h2o_ice,
-        &nh3, &nh3_cloud, &nh3_ice,
-        &h2s, &nh4sh,
-        &j_nh4sh, &j_h2s, &j_nh3,
-        &jT_nh4sh, &jT_h2s, &jT_nh3,
-        &tke, &dis};
+    // ===== Theta-direction derivatives (central differences) =====
+    #define COMPUTE_DTHE(FIELD, d1, d2) \
+        d1 = (FIELD.x[i][j+1][k] - FIELD.x[i][j-1][k]) * inv_2dthe; \
+        d2 = (FIELD.x[i][j+1][k] - 2.0*FIELD.x[i][j][k] + FIELD.x[i][j-1][k]) * inv_dthe2;
 
-    std::vector<Array*> arrays_2{&u, &v, &w, &t,
-        &ch4, &ch4_cloud, &ch4_ice,
-        &h2o, &h2o_cloud, &h2o_ice,
-        &nh3, &nh3_cloud, &nh3_ice,
-        &h2s, &nh4sh,
-        &tke, &dis};
+    COMPUTE_DTHE(u,         dudthe,     d2udthe2)
+    COMPUTE_DTHE(v,         dvdthe,     d2vdthe2)
+    COMPUTE_DTHE(w,         dwdthe,     d2wdthe2)
+    COMPUTE_DTHE(t,         dtdthe,     d2tdthe2)
+    COMPUTE_DTHE(h2o,       dh2odthe,   d2h2odthe2)
+    COMPUTE_DTHE(h2o_cloud, dh2ocdthe,  d2h2ocdthe2)
+    COMPUTE_DTHE(h2o_ice,   dh2oidthe,  d2h2oidthe2)
+    COMPUTE_DTHE(h2s,       dh2sdthe,   d2h2sdthe2)
+    COMPUTE_DTHE(nh3,       dnh3dthe,   d2nh3dthe2)
+    COMPUTE_DTHE(nh3_cloud, dnh3cdthe,  d2nh3cdthe2)
+    COMPUTE_DTHE(nh3_ice,   dnh3idthe,  d2nh3idthe2)
+    COMPUTE_DTHE(ch4,       dch4dthe,   d2ch4dthe2)
+    COMPUTE_DTHE(ch4_cloud, dch4cdthe,  d2ch4cdthe2)
+    COMPUTE_DTHE(ch4_ice,   dch4idthe,  d2ch4idthe2)
+    COMPUTE_DTHE(nh4sh,     dnh4shdthe, d2nh4shdthe2)
+    COMPUTE_DTHE(tke,       dtkedthe,   d2tkedthe2)
+    COMPUTE_DTHE(dis,       ddisdthe,   d2disdthe2)
+    dpdthe = (p_dyn.x[i][j+1][k] - p_dyn.x[i][j-1][k]) * inv_2dthe;
+    #undef COMPUTE_DTHE
 
-    enum array_index_1{i_u_1, i_v_1, i_w_1, i_t_1, i_p_1,
-        i_ch4_1, i_ch4_cloud_1, i_ch4_ice_1,
-        i_h2o_1, i_h2o_cloud_1, i_h2o_ice_1,
-        i_nh3_1, i_nh3_cloud_1, i_nh3_ice_1,
-        i_h2s_1, i_nh4sh_1,
-        i_j_nh4sh_1, i_j_h2s_1, i_j_nh3_1,
-        i_jT_nh4sh_1, i_jT_h2s_1, i_jT_nh3_1,
-        i_tke_1, i_dis_1,
-        last_array_index_1};
 
-    enum array_index_2{i_u_2, i_v_2, i_w_2, i_t_2,
-        i_ch4_2, i_ch4_cloud_2, i_ch4_ice_2,
-        i_h2o_2, i_h2o_cloud_2, i_h2o_ice_2,
-        i_nh3_2, i_nh3_cloud_2, i_nh3_ice_2,
-        i_h2s_2, i_nh4sh_2,
-        i_tke_2, i_dis_2,
-        last_array_index_2};
+    // ===== Phi-direction derivatives (central differences) =====
+    #define COMPUTE_DPHI(FIELD, d1, d2) \
+        d1 = (FIELD.x[i][j][k+1] - FIELD.x[i][j][k-1]) * inv_2dphi; \
+        d2 = (FIELD.x[i][j][k+1] - 2.0*FIELD.x[i][j][k] + FIELD.x[i][j][k-1]) * inv_dphi2;
 
-    std::vector<double> dxdr_vals(last_array_index_1), 
-                        dxdthe_vals(last_array_index_1), 
-                        dxdphi_vals(last_array_index_1),
-                        d2xdr2_vals(last_array_index_2),
-                        d2xdthe2_vals(last_array_index_2),
-                        d2xdphi2_vals(last_array_index_2);
+    COMPUTE_DPHI(u,         dudphi,     d2udphi2)
+    COMPUTE_DPHI(v,         dvdphi,     d2vdphi2)
+    COMPUTE_DPHI(w,         dwdphi,     d2wdphi2)
+    COMPUTE_DPHI(t,         dtdphi,     d2tdphi2)
+    COMPUTE_DPHI(h2o,       dh2odphi,   d2h2odphi2)
+    COMPUTE_DPHI(h2o_cloud, dh2ocdphi,  d2h2ocdphi2)
+    COMPUTE_DPHI(h2o_ice,   dh2oidphi,  d2h2oidphi2)
+    COMPUTE_DPHI(h2s,       dh2sdphi,   d2h2sdphi2)
+    COMPUTE_DPHI(nh3,       dnh3dphi,   d2nh3dphi2)
+    COMPUTE_DPHI(nh3_cloud, dnh3cdphi,  d2nh3cdphi2)
+    COMPUTE_DPHI(nh3_ice,   dnh3idphi,  d2nh3idphi2)
+    COMPUTE_DPHI(ch4,       dch4dphi,   d2ch4dphi2)
+    COMPUTE_DPHI(ch4_cloud, dch4cdphi,  d2ch4cdphi2)
+    COMPUTE_DPHI(ch4_ice,   dch4idphi,  d2ch4idphi2)
+    COMPUTE_DPHI(nh4sh,     dnh4shdphi, d2nh4shdphi2)
+    COMPUTE_DPHI(tke,       dtkedphi,   d2tkedphi2)
+    COMPUTE_DPHI(dis,       ddisdphi,   d2disdphi2)
+    dpdphi = (p_dyn.x[i][j][k+1] - p_dyn.x[i][j][k-1]) * inv_2dphi;
+    #undef COMPUTE_DPHI
 
-// field gradients
-    for(int n=0; n<last_array_index_1; n++){
-        dxdr_vals[n] = dxdr_a(arrays_1[n], dr); // 1. order accurate
-        dxdthe_vals[n] = dxdthe_a(arrays_1[n], dthe); // 1. order accurate
-        dxdphi_vals[n] = dxdphi_a(arrays_1[n], dphi); // 1. order accurate
-    }
-    for(int n=0; n<last_array_index_2; n++){
-        d2xdr2_vals[n] = d2xdr2_a(arrays_2[n], dr2); // 2. order accurate
-        d2xdthe2_vals[n] = d2xdthe2_a(arrays_2[n], dthe2); // 2. order accurate
-        d2xdphi2_vals[n] = d2xdphi2_a(arrays_2[n], dphi2); // 2. order accurate
-    }
-
-// 1. order derivatives
-    double dudr = dxdr_vals[i_u_1], dvdr = dxdr_vals[i_v_1],
-           dwdr = dxdr_vals[i_w_1], dtdr = dxdr_vals[i_t_1],
-           dpdr = dxdr_vals[i_p_1],
-           dch4dr = dxdr_vals[i_ch4_1], dch4cdr = dxdr_vals[i_ch4_cloud_1],
-           dch4idr = dxdr_vals[i_ch4_ice_1],
-           dh2odr = dxdr_vals[i_h2o_1], dh2ocdr = dxdr_vals[i_h2o_cloud_1],
-           dh2oidr = dxdr_vals[i_h2o_ice_1],
-           dh2sdr = dxdr_vals[i_h2s_1],
-           dnh3dr = dxdr_vals[i_nh3_1], dnh3cdr = dxdr_vals[i_nh3_cloud_1],
-           dnh3idr = dxdr_vals[i_nh3_ice_1],
-           dnh4shdr = dxdr_vals[i_nh4sh_1];
-
-    double dudthe = dxdthe_vals[i_u_1], dvdthe = dxdthe_vals[i_v_1],
-           dwdthe = dxdthe_vals[i_w_1], dtdthe = dxdthe_vals[i_t_1],
-           dpdthe = dxdthe_vals[i_p_1],
-           dch4dthe = dxdthe_vals[i_ch4_1], dch4cdthe = dxdthe_vals[i_ch4_cloud_1],
-           dch4idthe = dxdthe_vals[i_ch4_ice_1],
-           dh2odthe = dxdthe_vals[i_h2o_1], dh2ocdthe = dxdthe_vals[i_h2o_cloud_1],
-           dh2oidthe = dxdthe_vals[i_h2o_ice_1],
-           dh2sdthe = dxdthe_vals[i_h2s_1],
-           dnh3dthe = dxdthe_vals[i_nh3_1], dnh3cdthe = dxdthe_vals[i_nh3_cloud_1],
-           dnh4shdthe = dxdthe_vals[i_nh4sh_1],
-           dnh3idthe = dxdthe_vals[i_nh3_ice_1];
-
-    double dudphi = dxdphi_vals[i_u_1], dvdphi = dxdphi_vals[i_v_1],
-           dwdphi = dxdphi_vals[i_w_1], dtdphi = dxdphi_vals[i_t_1],
-           dpdphi = dxdphi_vals[i_p_1],
-           dch4dphi = dxdphi_vals[i_ch4_1], dch4cdphi = dxdphi_vals[i_ch4_cloud_1],
-           dch4idphi = dxdphi_vals[i_ch4_ice_1],
-           dh2odphi = dxdphi_vals[i_h2o_1], dh2ocdphi = dxdphi_vals[i_h2o_cloud_1],
-           dh2oidphi = dxdphi_vals[i_h2o_ice_1],
-           dh2sdphi = dxdphi_vals[i_h2s_1],
-           dnh3dphi = dxdphi_vals[i_nh3_1], dnh3cdphi = dxdphi_vals[i_nh3_cloud_1],
-           dnh3idphi = dxdphi_vals[i_nh3_ice_1],
-           dnh4shdphi = dxdphi_vals[i_nh4sh_1];
-           
-
-// 2. order derivatives
-    double d2udr2 = d2xdr2_vals[i_u_2], d2vdr2 = d2xdr2_vals[i_v_2],
-           d2wdr2 = d2xdr2_vals[i_w_2], d2tdr2 = d2xdr2_vals[i_t_2],
-           d2ch4dr2 = d2xdr2_vals[i_ch4_2], d2ch4cdr2 = d2xdr2_vals[i_ch4_cloud_2],
-           d2ch4idr2 = d2xdr2_vals[i_ch4_ice_2],
-           d2h2odr2 = d2xdr2_vals[i_h2o_2], d2h2ocdr2 = d2xdr2_vals[i_h2o_cloud_2],
-           d2h2oidr2 = d2xdr2_vals[i_h2o_ice_2],
-           d2h2sdr2 = d2xdr2_vals[i_h2s_2],
-           d2nh3dr2 = d2xdr2_vals[i_nh3_2], d2nh3cdr2 = d2xdr2_vals[i_nh3_cloud_2],
-           d2nh3idr2 = d2xdr2_vals[i_nh3_ice_2],
-           d2nh4shdr2 = d2xdr2_vals[i_nh4sh_2];
-
-    double d2udthe2 = d2xdthe2_vals[i_u_2], d2vdthe2 = d2xdthe2_vals[i_v_2],
-           d2wdthe2 = d2xdthe2_vals[i_w_2], d2tdthe2 = d2xdthe2_vals[i_t_2],
-           d2ch4dthe2 = d2xdthe2_vals[i_ch4_2], d2ch4cdthe2 = d2xdthe2_vals[i_ch4_cloud_2],
-           d2ch4idthe2 = d2xdthe2_vals[i_ch4_ice_2],
-           d2h2odthe2 = d2xdthe2_vals[i_h2o_2], d2h2ocdthe2 = d2xdthe2_vals[i_h2o_cloud_2],
-           d2h2oidthe2 = d2xdthe2_vals[i_h2o_ice_2],
-           d2h2sdthe2 = d2xdthe2_vals[i_h2s_2],
-           d2nh3dthe2 = d2xdthe2_vals[i_nh3_2], d2nh3cdthe2 = d2xdthe2_vals[i_nh3_cloud_2],
-           d2nh3idthe2 = d2xdthe2_vals[i_nh3_ice_2],
-           d2nh4shdthe2 = d2xdthe2_vals[i_nh4sh_2];
-
-    double d2udphi2 = d2xdphi2_vals[i_u_2], d2vdphi2 = d2xdphi2_vals[i_v_2],
-           d2wdphi2 = d2xdphi2_vals[i_w_2], d2tdphi2 = d2xdphi2_vals[i_t_2],
-           d2ch4dphi2 = d2xdphi2_vals[i_ch4_2], d2ch4cdphi2 = d2xdphi2_vals[i_ch4_cloud_2],
-           d2ch4idphi2 = d2xdphi2_vals[i_ch4_ice_2],
-           d2h2odphi2 = d2xdphi2_vals[i_h2o_2], d2h2ocdphi2 = d2xdphi2_vals[i_h2o_cloud_2],
-           d2h2oidphi2 = d2xdphi2_vals[i_h2o_ice_2],
-           d2h2sdphi2 = d2xdphi2_vals[i_h2s_2],
-           d2nh3dphi2 = d2xdphi2_vals[i_nh3_2], d2nh3cdphi2 = d2xdphi2_vals[i_nh3_cloud_2],
-           d2nh3idphi2 = d2xdphi2_vals[i_nh3_ice_2],
-           d2nh4shdphi2 = d2xdphi2_vals[i_nh4sh_2];
+    // ATJUP follows the derivatives with two obstacle corrections — a mirrored pressure gradient
+    // and a Neumann condition on k*/dis* — at the faces of its SeaMount. ATSAT has no solid body
+    // (BC_seamount is never called, is_land returns false outright), so neither has anything to
+    // act on and neither is carried over. If an obstacle is ever built, they are what this file is
+    // missing.
 
 
 // influence of the Coriolis force
-    double Coriolis_rad = - 2.0 * omega * sinthe * w.x[i][j][k];
-    double Coriolis_the = + 2.0 * omega * costhe * w.x[i][j][k];
-    double Coriolis_phi = + 2.0 * omega * (- costhe * v.x[i][j][k] 
-        + sinthe * u.x[i][j][k]);
+    double Coriolis_rad = - 2.0 * omega * sinthe * w_ijk;
+    double Coriolis_the = + 2.0 * omega * costhe * w_ijk;
+    double Coriolis_phi = + 2.0 * omega * (- costhe * v_ijk
+        + sinthe * u_ijk);
 
 
 // influence of the centrifugal force
@@ -180,108 +215,111 @@ void cSaturnModel::RHSSat(int i, int j, int k){
 
 
 // transport terms in the Navier-Stokes-equations
-    double pressure_t = coeff_energy_p * (u.x[i][j][k] * dpdr
-        + v.x[i][j][k] * dpdthe/rm 
-        + w.x[i][j][k] * dpdphi/rmsinthe);
+    double pressure_t = coeff_energy_p * (u_ijk * dpdr
+        + v_ijk * dpdthe * inv_rm
+        + w_ijk * dpdphi * inv_rmsinthe);
 
-    double transport_t = u.x[i][j][k] * dtdr + v.x[i][j][k] * dtdthe/rm
-        + w.x[i][j][k] * dtdphi/rmsinthe; 
+    double transport_t = u_ijk * dtdr + v_ijk * dtdthe * inv_rm
+        + w_ijk * dtdphi * inv_rmsinthe;
 
-    double transport_u = u.x[i][j][k] * dudr + v.x[i][j][k] * dudthe/rm 
-        + w.x[i][j][k] * dudphi/rmsinthe
-        - (v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k])/rm;
-    double transport_v = u.x[i][j][k] * dvdr + v.x[i][j][k] * dvdthe/rm
-        + w.x[i][j][k] * dvdphi/rmsinthe 
-        + (u.x[i][j][k] * v.x[i][j][k] 
-        - w.x[i][j][k] * w.x[i][j][k] * cotanthe)/rm;
-    double transport_w = u.x[i][j][k] * dwdr + v.x[i][j][k] * dwdthe/rm
-        + w.x[i][j][k] * dwdphi/rmsinthe 
-        + (w.x[i][j][k] * u.x[i][j][k]
-        + v.x[i][j][k] * w.x[i][j][k] * cotanthe)/rm;
+    double transport_u = u_ijk * dudr + v_ijk * dudthe * inv_rm
+        + w_ijk * dudphi * inv_rmsinthe
+        - (v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm;
+    double transport_v = u_ijk * dvdr + v_ijk * dvdthe * inv_rm
+        + w_ijk * dvdphi * inv_rmsinthe
+        + (u_ijk * v_ijk
+        - w_ijk * w_ijk * cotanthe) * inv_rm;
+    double transport_w = u_ijk * dwdr + v_ijk * dwdthe * inv_rm
+        + w_ijk * dwdphi * inv_rmsinthe
+        + (w_ijk * u_ijk
+        + v_ijk * w_ijk * cotanthe) * inv_rm;
 
-    double transport_ch4 = u.x[i][j][k] * dch4dr + v.x[i][j][k] * dch4dthe/rm
-        + w.x[i][j][k] * dch4dphi/rmsinthe;
-    double transport_ch4_cloud = u.x[i][j][k] * dch4cdr + v.x[i][j][k] * dch4cdthe/rm
-        + w.x[i][j][k] * dch4cdphi/rmsinthe;
-    double transport_ch4_ice = u.x[i][j][k] * dch4idr + v.x[i][j][k] * dch4idthe/rm
-        + w.x[i][j][k] * dch4idphi/rmsinthe;
+    double transport_ch4 = u_ijk * dch4dr + v_ijk * dch4dthe * inv_rm
+        + w_ijk * dch4dphi * inv_rmsinthe;
+    double transport_ch4_cloud = u_ijk * dch4cdr + v_ijk * dch4cdthe * inv_rm
+        + w_ijk * dch4cdphi * inv_rmsinthe;
+    double transport_ch4_ice = u_ijk * dch4idr + v_ijk * dch4idthe * inv_rm
+        + w_ijk * dch4idphi * inv_rmsinthe;
 
-    double transport_h2o = u.x[i][j][k] * dh2odr + v.x[i][j][k] * dh2odthe/rm
-        + w.x[i][j][k] * dh2odphi/rmsinthe;
-    double transport_h2o_cloud = u.x[i][j][k] * dh2ocdr + v.x[i][j][k] * dh2ocdthe/rm
-        + w.x[i][j][k] * dh2ocdphi/rmsinthe;
-    double transport_h2o_ice = u.x[i][j][k] * dh2oidr + v.x[i][j][k] * dh2oidthe/rm
-        + w.x[i][j][k] * dh2oidphi/rmsinthe;
+    double transport_h2o = u_ijk * dh2odr + v_ijk * dh2odthe * inv_rm
+        + w_ijk * dh2odphi * inv_rmsinthe;
+    double transport_h2o_cloud = u_ijk * dh2ocdr + v_ijk * dh2ocdthe * inv_rm
+        + w_ijk * dh2ocdphi * inv_rmsinthe;
+    double transport_h2o_ice = u_ijk * dh2oidr + v_ijk * dh2oidthe * inv_rm
+        + w_ijk * dh2oidphi * inv_rmsinthe;
 
-    double transport_h2s = u.x[i][j][k] * dh2sdr + v.x[i][j][k] * dh2sdthe/rm
-        + w.x[i][j][k] * dh2sdphi/rmsinthe;
+    double transport_h2s = u_ijk * dh2sdr + v_ijk * dh2sdthe * inv_rm
+        + w_ijk * dh2sdphi * inv_rmsinthe;
 
-    double transport_nh3 = u.x[i][j][k] * dnh3dr + v.x[i][j][k] * dnh3dthe/rm
-        + w.x[i][j][k] * dnh3dphi/rmsinthe;
-    double transport_nh3_cloud = u.x[i][j][k] * dnh3cdr + v.x[i][j][k] * dnh3cdthe/rm
-        + w.x[i][j][k] * dnh3cdphi/rmsinthe;
-    double transport_nh3_ice = u.x[i][j][k] * dnh3idr + v.x[i][j][k] * dnh3idthe/rm
-        + w.x[i][j][k] * dnh3idphi/rmsinthe;
+    double transport_nh3 = u_ijk * dnh3dr + v_ijk * dnh3dthe * inv_rm
+        + w_ijk * dnh3dphi * inv_rmsinthe;
+    double transport_nh3_cloud = u_ijk * dnh3cdr + v_ijk * dnh3cdthe * inv_rm
+        + w_ijk * dnh3cdphi * inv_rmsinthe;
+    double transport_nh3_ice = u_ijk * dnh3idr + v_ijk * dnh3idthe * inv_rm
+        + w_ijk * dnh3idphi * inv_rmsinthe;
 
-    double transport_nh4sh = u.x[i][j][k] * dnh4shdr + v.x[i][j][k] * dnh4shdthe/rm
-        + w.x[i][j][k] * dnh4shdphi/rmsinthe;
+    double transport_nh4sh = u_ijk * dnh4shdr + v_ijk * dnh4shdthe * inv_rm
+        + w_ijk * dnh4shdphi * inv_rmsinthe;
 
 
 // diffusion terms in the Navier-Stokes-equations
-    double diffusion_t = (d2tdr2 + dtdr * 2.0/rm + d2tdthe2/rm2
-        + dtdthe * costhe/rm2sinthe + d2tdphi2/rm2sinthe2);
+    double two_inv_rm = 2.0 * inv_rm;
+    double v_metric   = (1.0 + costhe / geo.sinthe2) * inv_rm2;
 
-    double diffusion_u = d2udr2 + 2.0 * u.x[i][j][k]/rm2 + d2udthe2/rm2
-        + 4.0 * dudr/rm + dudthe * costhe/rm2sinthe 
-        + d2udphi2/rm2sinthe2;
-    double diffusion_v = d2vdr2 + dvdr * 2.0/rm + d2vdthe2/rm2 
-        + dvdthe/rm2sinthe * costhe
-        - (1.0 + costhe/sinthe2)/rm2 * v.x[i][j][k] 
-        + d2vdphi2/rm2sinthe2 + 2.0 * dudthe/rm2 
-        - dwdphi * 2.0 * costhe/rm2sinthe2;
-    double diffusion_w = d2wdr2 + dwdr * 2.0/rm + d2wdthe2/rm2
-        + dwdthe/rm2sinthe * costhe 
-        - (1.0 + costhe/sinthe2)/rm2 * w.x[i][j][k]
-        + d2wdphi2/rm2sinthe2 + 2.0 * dudphi/rm2sinthe 
-        + dvdphi * 2.0 * costhe/rm2sinthe2;
+    double diffusion_t = (d2tdr2 + dtdr * two_inv_rm + d2tdthe2 * inv_rm2
+        + dtdthe * costhe_inv_rm2sinthe + d2tdphi2 * inv_rm2sinthe2);
 
-    double diffusion_ch4 = d2ch4dr2 + dch4dr * 2.0/rm + d2ch4dthe2/rm2
-        + dch4dthe * costhe/rm2sinthe
-        + d2ch4dphi2/rm2sinthe2;
-    double diffusion_ch4_cloud = d2ch4cdr2 + dch4cdr * 2.0/rm + d2ch4cdthe2/rm2
-        + dch4cdthe * costhe/rm2sinthe
-        + d2ch4cdphi2/rm2sinthe2;
-    double diffusion_ch4_ice = d2ch4idr2 + dch4idr * 2.0/rm + d2ch4idthe2/rm2
-        + dch4idthe * costhe/rm2sinthe
-        + d2ch4idphi2/rm2sinthe2;
+    double diffusion_u = d2udr2 + 2.0 * u_ijk * inv_rm2 + d2udthe2 * inv_rm2
+        + 4.0 * dudr * inv_rm + dudthe * costhe_inv_rm2sinthe
+        + d2udphi2 * inv_rm2sinthe2;
+    double diffusion_v = d2vdr2 + dvdr * two_inv_rm + d2vdthe2 * inv_rm2
+        + dvdthe * costhe_inv_rm2sinthe
+        - v_metric * v_ijk
+        + d2vdphi2 * inv_rm2sinthe2 + 2.0 * dudthe * inv_rm2
+        - dwdphi * 2.0 * costhe * inv_rm2sinthe2;
+    double diffusion_w = d2wdr2 + dwdr * two_inv_rm + d2wdthe2 * inv_rm2
+        + dwdthe * costhe_inv_rm2sinthe
+        - v_metric * w_ijk
+        + d2wdphi2 * inv_rm2sinthe2 + 2.0 * dudphi * inv_rm2sinthe
+        + dvdphi * 2.0 * costhe * inv_rm2sinthe2;
 
-    double diffusion_h2o = d2h2odr2 + dh2odr * 2.0/rm + d2h2odthe2/rm2
-        + dh2odthe * costhe/rm2sinthe
-        + d2h2odphi2/rm2sinthe2;
-    double diffusion_h2o_cloud = d2h2ocdr2 + dh2ocdr * 2.0/rm + d2h2ocdthe2/rm2
-        + dh2ocdthe * costhe/rm2sinthe 
-        + d2h2ocdphi2/rm2sinthe2;
-    double diffusion_h2o_ice = d2h2oidr2 + dh2oidr * 2.0/rm + d2h2oidthe2/rm2
-        + dh2oidthe * costhe/rm2sinthe 
-        + d2h2oidphi2/rm2sinthe2;
+    double diffusion_ch4 = d2ch4dr2 + dch4dr * two_inv_rm + d2ch4dthe2 * inv_rm2
+        + dch4dthe * costhe_inv_rm2sinthe
+        + d2ch4dphi2 * inv_rm2sinthe2;
+    double diffusion_ch4_cloud = d2ch4cdr2 + dch4cdr * two_inv_rm + d2ch4cdthe2 * inv_rm2
+        + dch4cdthe * costhe_inv_rm2sinthe
+        + d2ch4cdphi2 * inv_rm2sinthe2;
+    double diffusion_ch4_ice = d2ch4idr2 + dch4idr * two_inv_rm + d2ch4idthe2 * inv_rm2
+        + dch4idthe * costhe_inv_rm2sinthe
+        + d2ch4idphi2 * inv_rm2sinthe2;
 
-    double diffusion_h2s = d2h2sdr2 + dh2sdr * 2.0/rm + d2h2sdthe2/rm2
-        + dh2sdthe * costhe/rm2sinthe 
-        + d2h2sdphi2/rm2sinthe2;
+    double diffusion_h2o = d2h2odr2 + dh2odr * two_inv_rm + d2h2odthe2 * inv_rm2
+        + dh2odthe * costhe_inv_rm2sinthe
+        + d2h2odphi2 * inv_rm2sinthe2;
+    double diffusion_h2o_cloud = d2h2ocdr2 + dh2ocdr * two_inv_rm + d2h2ocdthe2 * inv_rm2
+        + dh2ocdthe * costhe_inv_rm2sinthe
+        + d2h2ocdphi2 * inv_rm2sinthe2;
+    double diffusion_h2o_ice = d2h2oidr2 + dh2oidr * two_inv_rm + d2h2oidthe2 * inv_rm2
+        + dh2oidthe * costhe_inv_rm2sinthe
+        + d2h2oidphi2 * inv_rm2sinthe2;
 
-    double diffusion_nh3 = d2nh3dr2 + dnh3dr * 2.0/rm + d2nh3dthe2/rm2
-        + dnh3dthe * costhe/rm2sinthe 
-        + d2nh3dphi2/rm2sinthe2;
-    double diffusion_nh3_cloud = d2nh3cdr2 + dnh3cdr * 2.0/rm + d2nh3cdthe2/rm2
-        + dnh3cdthe * costhe/rm2sinthe 
-        + d2nh3cdphi2/rm2sinthe2;
-    double diffusion_nh3_ice = d2nh3idr2 + dnh3idr * 2.0/rm + d2nh3idthe2/rm2
-        + dnh3idthe * costhe/rm2sinthe 
-        + d2nh3idphi2/rm2sinthe2;
+    double diffusion_h2s = d2h2sdr2 + dh2sdr * two_inv_rm + d2h2sdthe2 * inv_rm2
+        + dh2sdthe * costhe_inv_rm2sinthe
+        + d2h2sdphi2 * inv_rm2sinthe2;
 
-    double diffusion_nh4sh = d2nh4shdr2 + dnh4shdr * 2.0/rm + d2nh4shdthe2/rm2
-        + dnh4shdthe * costhe/rm2sinthe 
-        + d2nh4shdphi2/rm2sinthe2;
+    double diffusion_nh3 = d2nh3dr2 + dnh3dr * two_inv_rm + d2nh3dthe2 * inv_rm2
+        + dnh3dthe * costhe_inv_rm2sinthe
+        + d2nh3dphi2 * inv_rm2sinthe2;
+    double diffusion_nh3_cloud = d2nh3cdr2 + dnh3cdr * two_inv_rm + d2nh3cdthe2 * inv_rm2
+        + dnh3cdthe * costhe_inv_rm2sinthe
+        + d2nh3cdphi2 * inv_rm2sinthe2;
+    double diffusion_nh3_ice = d2nh3idr2 + dnh3idr * two_inv_rm + d2nh3idthe2 * inv_rm2
+        + dnh3idthe * costhe_inv_rm2sinthe
+        + d2nh3idphi2 * inv_rm2sinthe2;
+
+    double diffusion_nh4sh = d2nh4shdr2 + dnh4shdr * two_inv_rm + d2nh4shdthe2 * inv_rm2
+        + dnh4shdthe * costhe_inv_rm2sinthe
+        + d2nh4shdphi2 * inv_rm2sinthe2;
 
 
 
@@ -296,8 +334,7 @@ void cSaturnModel::RHSSat(int i, int j, int k){
 // model's own and follow ATSAT_METRIC_RADIUS with everything else.
 //
 // With the closure off, nue, tke_source and dis_source are identically zero AND this block is
-// skipped, so rhs_tke/rhs_dis stay zero, RungeKutta leaves k*/dis* untouched, and the run is
-// bit-identical to the model before the closure existed.
+// skipped, so rhs_tke/rhs_dis stay zero and RungeKutta leaves k*/dis* untouched.
 //
 // sigma_k and sigma_w are the standard k-omega constants. TurbulenceSat carries its own sig_w2
 // for the SST cross-diffusion; these two are the transport Prandtl numbers of the closure and are
@@ -306,23 +343,19 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         constexpr double sig_k = 0.85, sig_w = 0.5;
         const double nue_here = nue.x[i][j][k];
 
-        const double dtkedr   = dxdr_vals[i_tke_1],   ddisdr   = dxdr_vals[i_dis_1];
-        const double dtkedthe = dxdthe_vals[i_tke_1], ddisdthe = dxdthe_vals[i_dis_1];
-        const double dtkedphi = dxdphi_vals[i_tke_1], ddisdphi = dxdphi_vals[i_dis_1];
+        const double transport_tke = u_ijk * dtkedr + v_ijk * dtkedthe * inv_rm
+                                   + w_ijk * dtkedphi * inv_rmsinthe;
+        const double transport_dis = u_ijk * ddisdr + v_ijk * ddisdthe * inv_rm
+                                   + w_ijk * ddisdphi * inv_rmsinthe;
 
-        const double transport_tke = u.x[i][j][k] * dtkedr + v.x[i][j][k] * dtkedthe/rm
-                                   + w.x[i][j][k] * dtkedphi/rmsinthe;
-        const double transport_dis = u.x[i][j][k] * ddisdr + v.x[i][j][k] * ddisdthe/rm
-                                   + w.x[i][j][k] * ddisdphi/rmsinthe;
-
-        const double diffusion_tke = d2xdr2_vals[i_tke_2] + dtkedr * 2.0/rm
-                                   + d2xdthe2_vals[i_tke_2]/rm2
-                                   + dtkedthe * costhe/(rm2 * sinthe)
-                                   + d2xdphi2_vals[i_tke_2]/rm2sinthe2;
-        const double diffusion_dis = d2xdr2_vals[i_dis_2] + ddisdr * 2.0/rm
-                                   + d2xdthe2_vals[i_dis_2]/rm2
-                                   + ddisdthe * costhe/(rm2 * sinthe)
-                                   + d2xdphi2_vals[i_dis_2]/rm2sinthe2;
+        const double diffusion_tke = d2tkedr2 + dtkedr * two_inv_rm
+                                   + d2tkedthe2 * inv_rm2
+                                   + dtkedthe * costhe_inv_rm2sinthe
+                                   + d2tkedphi2 * inv_rm2sinthe2;
+        const double diffusion_dis = d2disdr2 + ddisdr * two_inv_rm
+                                   + d2disdthe2 * inv_rm2
+                                   + ddisdthe * costhe_inv_rm2sinthe
+                                   + d2disdphi2 * inv_rm2sinthe2;
 
         rhs_tke.x[i][j][k] = - transport_tke
                            + diffusion_tke * (1.0/re + nue_here/sig_k)
@@ -337,10 +370,10 @@ void cSaturnModel::RHSSat(int i, int j, int k){
 
 // ===== Turbulent (eddy) diffusion from the closure (opt-in) =====
 //
-// This is the step the closure was built for. Until now TurbulenceSat filled nue* and nothing
-// read it: k* and dis* were transported, a viscosity was computed from them, and the momentum and
-// scalar equations went on diffusing at their molecular rates. The closure could therefore be
-// measured but not felt.
+// This is the step the closure was built for. Until it was wired, TurbulenceSat filled nue* and
+// nothing read it: k* and dis* were transported, a viscosity was computed from them, and the
+// momentum and scalar equations went on diffusing at their molecular rates. The closure could
+// therefore be measured but not felt.
 //
 // nue is the DIMENSIONLESS eddy viscosity nue* = nue_phys/(u_0*L_atm), the same normalisation as
 // 1/re (re = u_0*L_atm/nue_mol), so the two are directly additive and the effective momentum
@@ -349,13 +382,12 @@ void cSaturnModel::RHSSat(int i, int j, int k){
 // turbulence, meaning eddies mix a scalar slightly faster than they mix momentum. It is a closure
 // constant, not a Saturn measurement — nothing in this model determines it.
 //
-// Each term below is written as the ORIGINAL molecular term plus a separate eddy term, not as one
-// diffusion_x * (1/(sc*re) + nue*). The two are the same physics but not the same arithmetic:
-// x/(sc*re) and x*(1.0/(sc*re)) differ in the last bit, so the second form would perturb every
-// equation in the model with the coupling switched off. Adding diffusion_x * 0.0 does not.
+// Each term below is written as the molecular term plus a separate eddy term rather than as one
+// diffusion_x * (1/(sc*re) + nue*). Same physics, and it keeps the coupling-off path an exact
+// addition of zero rather than a re-rounding of the molecular coefficient.
 //
-// Gated by ATSAT_TURB_COUPLING (default 0 = off, bit-identical). nue is nonzero only when
-// ATSAT_TURB is also set, so this knob alone does nothing.
+// Gated by ATSAT_TURB_COUPLING (default 0 = off). nue is nonzero only when the closure is active,
+// so this knob alone does nothing.
 //
 // HOW BIG THIS IS, measured rather than assumed: with re = 1000 the molecular background is
 // 1/re = 1.0e-3, and the closure's peak nue* over an 8-iteration run is 1.3e-5. The eddy
@@ -380,32 +412,31 @@ void cSaturnModel::RHSSat(int i, int j, int k){
     const double nue_t_s = nue_t / Pr_t;      // scalar (heat / species) eddy diffusivity
 
 // right hand sides of the Navier-Stokes equations
-    rhs_t.x[i][j][k] = 
+    rhs_t.x[i][j][k] =
         + pressure_t
-        - transport_t 
-//        + diffusion_t/(re * pr);
+        - transport_t
         + diffusion_t/(re * pr) + diffusion_t * nue_t_s
         - chemical_reaction * thermalmassflux.x[i][j][k];
 
-    rhs_u.x[i][j][k] = 
+    rhs_u.x[i][j][k] =
         - dpdr
         + buoyancy * g * (p_stat.x[i][j][k] + p_dyn.x[i][j][k])  //  in kg/m³    (rho * g)
                         /(r_mix * R_mix * t.x[i][j][k] * t_ref)
 //        + buoyancy * g * (1.0 - (t.x[i][j][k] - 1.0))          //  rho0 * g - rho0 * (t - t0)/t0 * g    for   del_rho << rho0
-        - transport_u 
+        - transport_u
         + diffusion_u/re + diffusion_u * nue_t
         - Coriolis * Coriolis_rad
         - centrifugal * centrifugal_rad;
 
-    rhs_v.x[i][j][k] = 
-        - dpdthe/rm
+    rhs_v.x[i][j][k] =
+        - dpdthe * inv_rm
         - transport_v
         + diffusion_v/re + diffusion_v * nue_t
         - Coriolis * Coriolis_the
         - centrifugal * centrifugal_the;
 
-    rhs_w.x[i][j][k] = 
-        - dpdphi/rmsinthe
+    rhs_w.x[i][j][k] =
+        - dpdphi * inv_rmsinthe
         - transport_w
         + diffusion_w/re + diffusion_w * nue_t
         - Coriolis * Coriolis_phi;
@@ -426,31 +457,31 @@ void cSaturnModel::RHSSat(int i, int j, int k){
         - transport_h2o
         + diffusion_h2o/(sc_h2o * re) + diffusion_h2o * nue_t_s;
 
-    rhs_h2o_cloud.x[i][j][k] = 
+    rhs_h2o_cloud.x[i][j][k] =
         - transport_h2o_cloud
         + diffusion_h2o_cloud/(sc_h2o * re) + diffusion_h2o_cloud * nue_t_s;
 
-    rhs_h2o_ice.x[i][j][k] = 
+    rhs_h2o_ice.x[i][j][k] =
         - transport_h2o_ice
         + diffusion_h2o_ice/(sc_h2o * re) + diffusion_h2o_ice * nue_t_s;
 
-    rhs_h2s.x[i][j][k] = 
+    rhs_h2s.x[i][j][k] =
         - transport_h2s
         + diffusion_h2s/(sc_h2s * re) + diffusion_h2s * nue_t_s
 //        + chemical_reaction * w_h2s.x[i][j][k];
         + chemical_reaction * massflux_h2s.x[i][j][k];
 
-    rhs_nh3.x[i][j][k] = 
+    rhs_nh3.x[i][j][k] =
         - transport_nh3
         + diffusion_nh3/(sc_nh3 * re) + diffusion_nh3 * nue_t_s
 //        + chemical_reaction * w_nh3.x[i][j][k];
         + chemical_reaction * massflux_nh3.x[i][j][k];
 
-    rhs_nh3_cloud.x[i][j][k] = 
+    rhs_nh3_cloud.x[i][j][k] =
         - transport_nh3_cloud
         + diffusion_nh3_cloud/(sc_nh3 * re) + diffusion_nh3_cloud * nue_t_s;
 
-    rhs_nh3_ice.x[i][j][k] = 
+    rhs_nh3_ice.x[i][j][k] =
         - transport_nh3_ice
         + diffusion_nh3_ice/(sc_nh3 * re) + diffusion_nh3_ice * nue_t_s;
 
@@ -463,12 +494,11 @@ void cSaturnModel::RHSSat(int i, int j, int k){
 
 
     aux_u.x[i][j][k] = rhs_u.x[i][j][k] + dpdr;
-    aux_v.x[i][j][k] = rhs_v.x[i][j][k] + dpdthe/rm;
-    aux_w.x[i][j][k] = rhs_w.x[i][j][k] + dpdphi/rmsinthe;
+    aux_v.x[i][j][k] = rhs_v.x[i][j][k] + dpdthe * inv_rm;
+    aux_w.x[i][j][k] = rhs_w.x[i][j][k] + dpdphi * inv_rmsinthe;
 
     return;
 }
 /*
 *
 */
-
