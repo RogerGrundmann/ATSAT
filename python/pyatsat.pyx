@@ -197,6 +197,15 @@ cdef class Saturn:
             self._check_alive()
             self._thisptr.epsres = <double> value
     
+    property turb_model:
+        def __get__(Saturn self):
+            self._check_alive()
+            return self._thisptr.turb_model
+    
+        def __set__(Saturn self, value):
+            self._check_alive()
+            self._thisptr.turb_model = <string> value
+    
     property L_atm:
         def __get__(Saturn self):
             self._check_alive()

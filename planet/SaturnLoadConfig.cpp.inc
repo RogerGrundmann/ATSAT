@@ -24,6 +24,7 @@
     Config::FillDoubleWithElement(elem_saturn, "buoyancy", buoyancy);
     Config::FillDoubleWithElement(elem_saturn, "chemical_reaction", chemical_reaction);
     Config::FillDoubleWithElement(elem_saturn, "epsres", epsres);
+    Config::FillStringWithElement(elem_saturn, "turb_model", turb_model);
     Config::FillDoubleWithElement(elem_saturn, "L_atm", L_atm);
     Config::FillDoubleWithElement(elem_saturn, "tropopause_pole", tropopause_pole);
     Config::FillDoubleWithElement(elem_saturn, "tropopause_equator", tropopause_equator);

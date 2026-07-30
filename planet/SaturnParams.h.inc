@@ -19,6 +19,7 @@ double centrifugal;
 double buoyancy;
 double chemical_reaction;
 double epsres;
+string turb_model;
 double L_atm;
 double tropopause_pole;
 double tropopause_equator;

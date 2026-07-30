@@ -612,14 +612,23 @@ private:
     Array_2D precip_srf_total;  // surface precipitation, all species [kg/m2/s]
     Array_2D vel_star;          // friction velocity u_tau at the first fluid layer [m/s]
 
-    // Closure parameters. ATJUP carries turb_model and coord_stretching in its configuration;
-    // ATSAT's parameter set has neither, so they are members here with the same defaults, and the
-    // model is selected by ATSAT_TURB_MODEL rather than by the XML. coord_stretching is false
-    // because ATSAT's radial coordinate is not stretched (init_layer_heights is linear).
+    // Closure parameters. turb_model is now a configuration parameter like ATJUP's — declared in
+    // param.py, so it appears in config_atsat.xml and is generated into SaturnParams.h.inc; it is
+    // NOT declared here. ATSAT_TURB_MODEL still overrides it at runtime. coord_stretching stays a
+    // member because ATSAT's radial coordinate is not stretched (init_layer_heights is linear) and
+    // there is nothing to choose.
     double re_turb = 1.0;                       // = vel_star_ref*z_0/nue, set by TurbulenceSat
     double abl_height = 20000.0;                // boundary-layer height [m]
     bool   coord_stretching = false;            // ATSAT does not stretch the radial coordinate
-    std::string turb_model = "k_omega_SST";     // none | k_epsilon | k_omega | k_omega_SST
+
+    // THE turbulence gate. ATSAT_TURB and turb_model were two independent switches and only the
+    // first of them decided anything: turb_model = "none" fell through parse_model's default and
+    // silently ran k-omega SST. Both are folded into this one flag, set once in run_3D_loop_atm()
+    // after the configuration and the ATSAT_TURB_MODEL override are both final, and read by
+    // RHSSat, RungeKuttaSat, the three BC routines and the TurbulenceSat call sites. It is a plain
+    // bool and not a predicate because RHSSat consults it once per cell per RK4 stage, where a
+    // string comparison has no business being.
+    bool   turb_active = false;
     Array_2D Precipitation;        // areas of higher precipitation
     Array_2D precipitable_water;// areas of precipitable water in the air
     Array_2D nh3_total;            // areas of higher nh3 concentration

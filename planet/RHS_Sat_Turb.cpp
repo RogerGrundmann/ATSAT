@@ -302,9 +302,7 @@ void cSaturnModel::RHSSat(int i, int j, int k){
 // sigma_k and sigma_w are the standard k-omega constants. TurbulenceSat carries its own sig_w2
 // for the SST cross-diffusion; these two are the transport Prandtl numbers of the closure and are
 // not derived from it.
-    static const int turb_on = [](){
-        const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
-    if(turb_on != 0){
+    if(turb_active){
         constexpr double sig_k = 0.85, sig_w = 0.5;
         const double nue_here = nue.x[i][j][k];
 

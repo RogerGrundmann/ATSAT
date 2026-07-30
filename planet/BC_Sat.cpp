@@ -29,14 +29,10 @@ using namespace std;
 // condition there later in the same iteration. The duplication is what keeps tken/disn — which
 // restoreVar copies from tke/dis between the two — from carrying a stale deep boundary.
 //
-// Gated by ATSAT_TURB: with the closure off tke, dis and nue are identically zero, so the
-// extrapolation would be a no-op, and skipping it keeps the off path exactly as it was.
+// Gated by cSaturnModel::turb_active — ATSAT_TURB and the configured turb_model resolved into one
+// flag. With the closure off tke, dis and nue are identically zero, so the extrapolation would be
+// a no-op, and skipping it keeps the off path exactly as it was.
 namespace {
-    inline int bc_turb_on(){
-        static const int v = [](){
-            const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
-        return v;
-    }
     constexpr double bc_dis_min = 1.0e-10;   // matches TurbulenceSat::dis_min and the RK4 floor
 }
 
@@ -49,7 +45,7 @@ void cSaturnModel::BC_radius(){
 
 //    auto begin = std::chrono::high_resolution_clock::now();
 
-    const bool turb_bc = (bc_turb_on() != 0);
+    const bool turb_bc = turb_active;
 
   #pragma omp parallel for
     for(int j = 1; j < jm-1; j++){
@@ -412,7 +408,7 @@ void cSaturnModel::BC_theta(){
 
 //    auto begin = std::chrono::high_resolution_clock::now();
 
-    const bool turb_bc = (bc_turb_on() != 0);
+    const bool turb_bc = turb_active;
 
     #pragma omp parallel for
     for(int k = 1; k < km-1; k++){
@@ -762,7 +758,7 @@ void cSaturnModel::BC_phi(){
 
 //    auto begin = std::chrono::high_resolution_clock::now();
 
-    const bool turb_bc = (bc_turb_on() != 0);
+    const bool turb_bc = turb_active;
 
     #pragma omp parallel for
     for(int i = 0; i < im; i++){

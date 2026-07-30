@@ -33,16 +33,16 @@ void cSaturnModel::RungeKuttaSat(){
 
     auto begin = std::chrono::high_resolution_clock::now();
 
-    // Turbulence integration (ATSAT_TURB). k* and dis* become prognostic here: RHS_Sat_Turb.cpp
-    // assembles rhs_tke/rhs_dis and the four RK4 stages below advance them alongside t, u, v, w.
-    // With the closure off the tendencies are identically zero, so this leaves k*/dis* at their
-    // initial values and the run is bit-identical to the model before the closure existed.
+    // Turbulence integration. k* and dis* become prognostic here: RHS_Sat_Turb.cpp assembles
+    // rhs_tke/rhs_dis and the four RK4 stages below advance them alongside t, u, v, w. Gated by
+    // cSaturnModel::turb_active, which is ATSAT_TURB and the configured turb_model resolved into
+    // one flag. With the closure off the tendencies are identically zero, so this leaves k*/dis*
+    // at their initial values and the run is bit-identical to the model before the closure existed.
     //
     // The two clamps are the ones ATJUP uses. k* cannot be negative and cannot exceed a generous
     // physical ceiling; dis* has a floor because it appears in denominators throughout the
     // closure (nue = k/dis among them) and a zero there is an infinity one step later.
-    static const int turb_on_rk = [](){
-        const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
+    const bool turb_on_rk = turb_active;
     const double tke_max_nd = 1000.0 / (u_0 * u_0);   // 1000 m2/s2
     constexpr double dis_min_nd = 1.0e-10;            // matches TurbulenceSat::dis_min
 

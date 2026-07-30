@@ -141,15 +141,16 @@ static int precip_enabled(){
 
 
 // Turbulence closure (TurbulenceSat), ported from ATJUP. Default OFF, bit-identical: with it off
-// tke/dis/nue_t and the rest stay identically zero. Model selected by ATSAT_TURB_MODEL
-// (none | k_epsilon | k_omega | k_omega_SST); ATSAT's configuration has no turb_model entry, so
-// the member default in cSaturnModel.h stands unless the variable is set.
+// tke/dis/nue and the rest stay identically zero.
 //
-// STAGE 1: the closure is computed and its fields are filled, but nue_t does NOT reach the
-// momentum or scalar equations — that coupling is ATSAT_TURB_COUPLING and is not wired yet, the
-// same staging ATJUP used. So this run answers "what does the closure produce here", not "what
-// does it do to the solution".
-static int turb_enabled(){
+// Which model runs is now a CONFIGURATION choice, turb_model in config_atsat.xml
+// (none | k_epsilon | k_omega | k_omega_SST, declared in param.py, default k_omega_SST), with
+// ATSAT_TURB_MODEL overriding it at runtime. Both are folded into cSaturnModel::turb_active where
+// the override is applied, and that flag is the only gate the rest of the model reads.
+//
+// nue* reaches the momentum and scalar equations when ATSAT_TURB_COUPLING is also set
+// (RHS_Sat_Turb.cpp). The closure remains UNVALIDATED against anything observed on Saturn.
+static int turb_env_enabled(){
     static const int v = [](){ const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
     return v;
 }
@@ -231,7 +232,15 @@ void cSaturnModel::Run(){
 
     dt = 2.8284 * dr/u_0 * 0.2;
     if(timestep_override() > 0.0) dt = timestep_override();
+    // Resolve the turbulence switch. Order matters: the configuration value is already loaded,
+    // ATSAT_TURB_MODEL overrides it here, and only then is turb_active fixed — everything
+    // downstream (TurbulenceSat, RHSSat, RungeKuttaSat, the BC routines) reads that flag and never
+    // the string. "none" now means what it says; before, it fell through to k-omega SST.
     if(const char* tm = getenv("ATSAT_TURB_MODEL")) turb_model = tm;
+    turb_active = (turb_env_enabled() != 0) && (turb_model != "none");
+    if(turb_env_enabled() != 0 && !turb_active)
+        cout << "      ATSAT: turbulence requested but turb_model = \"none\" — closure off"
+             << endl;
     printf("      ATSAT: dt = %.6g nondimensional = %.4g s of Saturn time per iteration"
            " (%d iterations = %.4g s = %.3f %% of a rotation)\n",
            dt, dt * L_atm * 1.0e3 / u_0, nm, nm * dt * L_atm * 1.0e3 / u_0,
@@ -358,7 +367,7 @@ void cSaturnModel::Run(){
 
 //    goto Printout;
 
-    if(turb_enabled()) TurbulenceSat(*this).init();
+    if(turb_active) TurbulenceSat(*this).init();
 
     for(iter_n = 1; iter_n <= nm; iter_n++){
 
@@ -439,7 +448,7 @@ void cSaturnModel::Run(){
         // After the state has been advanced and the boundaries applied: put any superadiabatic
         // column back on the dry adiabat. Off by default (ATSAT_CONV_ADJ).
         // Reads the velocity field left by RK4 and the BCs, so it runs after them.
-        if(turb_enabled()) TurbulenceSat(*this).run();
+        if(turb_active) TurbulenceSat(*this).run();
 
         if(conv_adj_enabled()) ConvectiveAdjustmentSat(*this).run();
 
