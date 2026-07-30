@@ -207,9 +207,34 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         + sinthe * u_ijk);
 
 
-// influence of the centrifugal force
-    double centrifugal_rad = omega * omega * rm;
-    double centrifugal_the = omega * omega * rm * fabs(sinthe);
+// ===== influence of the centrifugal force =====
+//
+// Centrifugal acceleration = Omega^2 * s * s_hat, with s = r*sin(theta) the distance from the
+// ROTATION AXIS and s_hat = sin(theta)*e_r + cos(theta)*e_theta the unit vector pointing AWAY
+// from it:
+//     a_r     = +Omega^2 * r * sin^2(theta)
+//     a_theta = +Omega^2 * r * sin(theta) * cos(theta)
+//
+// All three parts of this were wrong, and ATJUP found the same three in the same lines
+// (RHS_Jup_Turb.cpp). ATSAT had Omega^2*r and Omega^2*r*|sin(theta)| entering rhs_u and rhs_v
+// with a MINUS, so:
+//   - the force pointed TOWARD the axis instead of away from it;
+//   - the radial part had no sin^2 at all, i.e. full strength at the poles, where the
+//     centrifugal force must vanish because there is no distance from the axis there;
+//   - the meridional part had |sin| where sin*cos belongs, which is neither the right
+//     magnitude nor equator-directed — and being an absolute value it could not change sign
+//     at the equator, while the true term must, since it points toward the equator in BOTH
+//     hemispheres.
+//
+// The true sine is reconstructed from the cosine rather than taken from geo.sinthe. In ATSAT
+// the two are equal today, because RungeKuttaSat builds its sine table with no polar floor.
+// ATJUP's table IS floored for the 1/sin^2 metric divisions, and such a floor has no business
+// in a body force; writing it this way means that if ATSAT ever floors its metric sine the
+// force does not silently inherit it. theta runs 0..pi so sin(theta) >= 0 and the positive
+// root is the right one.
+    const double sinthe_true = std::sqrt(std::max(0.0, 1.0 - costhe * costhe));
+    double centrifugal_rad = omega * omega * rm * sinthe_true * sinthe_true;
+    double centrifugal_the = omega * omega * rm * sinthe_true * costhe;
 
     double coeff_energy_p = u_0 * u_0/(cp_mix * t_ref); // coefficient for the source terms = 2.33e-4 (Eckert-number)
 
@@ -507,14 +532,14 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         - transport_u
         + diffusion_u/re + diffusion_u * nue_t
         - Coriolis * Coriolis_rad
-        - centrifugal * centrifugal_rad;
+        + centrifugal * centrifugal_rad;
 
     rhs_v.x[i][j][k] =
         - dpdthe * inv_rm
         - transport_v
         + diffusion_v/re + diffusion_v * nue_t
         - Coriolis * Coriolis_the
-        - centrifugal * centrifugal_the;
+        + centrifugal * centrifugal_the;
 
     rhs_w.x[i][j][k] =
         - dpdphi * inv_rmsinthe

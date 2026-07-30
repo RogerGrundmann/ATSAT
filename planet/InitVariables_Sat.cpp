@@ -236,8 +236,18 @@ void cSaturnModel::Forces(){
                         + pow(Coriolis_the, 2) 
                         + pow(Coriolis_phi, 2))/3.0);
 
-                    CentrifugalForce.x[i][j][k] = centrifugal * r_mix 
-                        * omega * omega * rm * (1.0 + fabs(sinthe));
+                    // Magnitude of the centrifugal acceleration, times the density.
+                    // With a_r = Omega^2*r*sin^2 and a_theta = Omega^2*r*sin*cos (see the
+                    // derivation in RHS_Sat_Turb.cpp), the magnitude is
+                    //     |a| = Omega^2*r*sin(theta)*sqrt(sin^2 + cos^2) = Omega^2*r*sin(theta),
+                    // which is just Omega^2 times the distance from the rotation axis.
+                    //
+                    // This line used to read Omega^2*r*(1 + |sin(theta)|), a THIRD formula —
+                    // neither a component of the force nor its magnitude, and largest nowhere in
+                    // particular: it stayed at full strength Omega^2*r at the pole, where the
+                    // centrifugal force is zero. The diagnostic and the equation now agree.
+                    CentrifugalForce.x[i][j][k] = centrifugal * r_mix
+                        * omega * omega * rm * sinthe;
 
                     BuoyancyForce.x[i][j][k] = buoyancy 
 //                        * r_mix * g * (1.0 - (t.x[i][j][k] - 1.0))  //  rho0 * g - rho0 * (t - t0)/t0 * g    for   del_rho << rho0
