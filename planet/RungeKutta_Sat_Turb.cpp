@@ -65,8 +65,10 @@ void cSaturnModel::RungeKuttaSat(){
     // the 1/sin terms overflow there; ATSAT has never done so and this restructure is not the
     // place to start. If ATSAT's polar metric is ever revisited, this is the line that decides it.
     std::vector<double> sinthe_tbl(jm), costhe_tbl(jm);
+    const double s_min = sinthe_min();          // 0.0 by default: no floor, as ATSAT always had
     for(int j = 0; j < jm; j++){
         sinthe_tbl[j] = sin(the.z[j]);
+        if(sinthe_tbl[j] < s_min) sinthe_tbl[j] = s_min;
         costhe_tbl[j] = cos(the.z[j]);
     }
 

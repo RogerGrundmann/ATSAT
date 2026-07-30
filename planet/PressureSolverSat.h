@@ -125,6 +125,11 @@ private:
         std::vector<double> sinthe_table(m.jm);
         for(int j = 0; j < m.jm; j++){
             sinthe_table[j] = sin(m.the.z[j]);
+            // Same floor the momentum equations use (ATSAT_SINTHE_MIN, 0 by default), so the
+            // two halves of the projection cannot disagree about the polar metric — which is a
+            // split ATJUP had to find and fix in its own pair of files.
+            if(sinthe_table[j] < cSaturnModel::sinthe_min())
+                sinthe_table[j] = cSaturnModel::sinthe_min();
             if(sinthe_table[j] == 0.0) sinthe_table[j] = 1.0e-5;
         }
 
@@ -154,13 +159,29 @@ private:
         // are ATSAT's conditions on aux/rhs and the divergence stencil below reads them. rhs_*
         // is prepared too: with ATSAT_PRESS_SRC=0 the legacy source needs it, and nothing else
         // in the model writes rhs_* at the boundaries.
+        // Rigid radial walls (ATSAT_BC_RIGID_LID, default 0 = off, as ATSAT has always run).
+        // aux_u is the wall-NORMAL intermediate velocity and it feeds du_dr in the divergence
+        // source below, so it carries whatever condition the radial walls are meant to impose.
+        // Extrapolating it re-injects a wall-normal flux into the projection and leaves the
+        // column mass budget open; setting it to zero closes it, which is what a rigid lid and
+        // a rigid deep boundary mean. ATJUP defaults this ON; ATSAT does not, because ATSAT's
+        // i=0 is the deep interior of a gas giant rather than a floor and whether a lid belongs
+        // there at all is a modelling question this port does not get to settle.
+        static const int rigid_lid = [](){
+            const char* e = getenv("ATSAT_BC_RIGID_LID"); return e ? atoi(e) : 0; }();
+
         #pragma omp parallel for
         for(int j = 1; j < m.jm-1; j++){          // r-direction
             for(int k = 1; k < m.km-1; k++){
+                if(rigid_lid){
+                    m.aux_u.x[0][j][k]      = 0.0;
+                    m.aux_u.x[m.im-1][j][k] = 0.0;
+                } else {
                 m.aux_u.x[0][j][k] = m.aux_u.x[3][j][k]
                     - 3.0 * m.aux_u.x[2][j][k] + 3.0 * m.aux_u.x[1][j][k];
                 m.aux_u.x[m.im-1][j][k] = m.aux_u.x[m.im-4][j][k]
                     - 3.0 * m.aux_u.x[m.im-3][j][k] + 3.0 * m.aux_u.x[m.im-2][j][k];
+                }
 
                 m.aux_v.x[0][j][k] = m.aux_v.x[3][j][k]
                     - 3.0 * m.aux_v.x[2][j][k] + 3.0 * m.aux_v.x[1][j][k];

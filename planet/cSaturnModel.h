@@ -171,6 +171,31 @@ public:
      * reason it is the default is that the local density is a strong feedback in the schemes
      * that saturate on it. Set ATSAT_LOCAL_RHO=1 to move every gated caller at once.
      */
+    /*
+     * Polar metric floor. sin(theta) is held at this value instead of going to zero, so that the
+     * 1/sin(theta) and 1/sin^2(theta) metric terms stay bounded near the poles.
+     *
+     * ATSAT HAS NEVER HAD ONE, and that is the difference from ATJUP worth knowing here rather
+     * than the knob itself. ATJUP floors at 0.55 — theta = 33.4 deg, i.e. active poleward of
+     * 56.6 degrees latitude, 16.5% of the sphere — and its comment records that the value was
+     * RAISED from 0.4 to stop a long-run polar blow-up, so it is a deliberate stability trade
+     * and not an oversight. ATSAT instead relies on its Runge-Kutta loop stopping two rows short
+     * of each pole: the innermost integrated row is j=2, where sin(theta) = 0.035 and 1/sin^2 is
+     * 820. Bounded, but three orders of magnitude above what ATJUP allows itself.
+     *
+     * Default 0.0 = no floor, i.e. exactly what ATSAT does today and every run bit-identical.
+     * Set ATSAT_SINTHE_MIN=0.55 to run ATJUP's polar metric and find out whether ATSAT's polar
+     * behaviour is the same problem.
+     */
+    static double sinthe_min(){
+        static const double v = [](){
+            const char* e = getenv("ATSAT_SINTHE_MIN");
+            const double x = e ? atof(e) : 0.0;
+            return (x >= 0.0 && x < 1.0) ? x : 0.0;
+        }();
+        return v;
+    }
+
     static bool local_rho(){
         static const bool v = [](){
             const char* e = getenv("ATSAT_LOCAL_RHO"); return e && atoi(e) != 0; }();

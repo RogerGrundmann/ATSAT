@@ -288,6 +288,59 @@ void cSaturnModel::Run(){
     init_tropopause_layers();
     VelocityInitializerSat(*this).compute();
 
+    // ===== The two latitude bands the integrator never reaches (ATSAT_GHOST_BANDS) =====
+    //
+    // RungeKuttaSat runs j = 2 .. jm-3, and BC_theta writes only j = 0 and j = jm-1. So j = 1
+    // and j = jm-2 are advanced by nothing and constrained by nothing: whatever the velocity
+    // initialiser leaves there stays, bit for bit, to the end of the run. They are not initial
+    // data — they are a permanent prescribed forcing on the edge of the computed domain, and no
+    // amount of iterating can relax them.
+    //
+    // ATJUP has the same defect with six bands rather than two (its loop runs j = 3 .. jm-4) and
+    // measured, at iteration 450, that its frozen rows held radial velocities five times larger
+    // than anything in the integrated range. The report below is so that ATSAT's version of that
+    // number is visible rather than inferred.
+    //
+    //   ATSAT_GHOST_BANDS=1   report what the frozen bands hold, change nothing
+    //   ATSAT_GHOST_BANDS=2   report, then zero u,v,w there
+    //
+    // Zeroing is a DIAGNOSTIC, not a repair. The honest repair is to integrate the rows or to
+    // give them a real polar boundary condition; this only measures what the prescribed forcing
+    // is worth. Default 0 = every existing run bit-identical.
+    {
+        static const int ghost = [](){
+            const char* e = getenv("ATSAT_GHOST_BANDS"); return e ? atoi(e) : 0; }();
+        if(ghost > 0){
+            const int rows[2] = {1, jm-2};
+            double band_max = 0.0, inner_max = 0.0;
+            for(int r = 0; r < 2; r++)
+                for(int i = 0; i < im; i++)
+                    for(int k = 0; k < km; k++){
+                        band_max = std::max(band_max, std::fabs(u.x[i][rows[r]][k]));
+                        band_max = std::max(band_max, std::fabs(v.x[i][rows[r]][k]));
+                        band_max = std::max(band_max, std::fabs(w.x[i][rows[r]][k]));
+                    }
+            for(int i = 0; i < im; i++)
+                for(int j = 2; j < jm-2; j++)
+                    for(int k = 0; k < km; k++){
+                        inner_max = std::max(inner_max, std::fabs(u.x[i][j][k]));
+                        inner_max = std::max(inner_max, std::fabs(v.x[i][j][k]));
+                        inner_max = std::max(inner_max, std::fabs(w.x[i][j][k]));
+                    }
+            printf("      ATSAT: GHOST BANDS j=1 and j=%d are never integrated."
+                   " max|vel| there = %.6g m/s, against %.6g m/s in the integrated range"
+                   " (j=2..%d)\n",
+                   jm-2, band_max * u_0, inner_max * u_0, jm-3);
+            if(ghost >= 2){
+                printf("      ATSAT: ATSAT_GHOST_BANDS=2 - zeroing u,v,w in j=1 and j=%d\n", jm-2);
+                for(int r = 0; r < 2; r++)
+                    for(int i = 0; i < im; i++)
+                        for(int k = 0; k < km; k++)
+                            u.x[i][rows[r]][k] = v.x[i][rows[r]][k] = w.x[i][rows[r]][k] = 0.0;
+            }
+        }
+    }
+
     AtomUtils::damp_wiggles(u, nullptr, true, true, true);
     AtomUtils::damp_wiggles(v, nullptr, true, true, true);
     AtomUtils::damp_wiggles(w, nullptr, true, true, true);
