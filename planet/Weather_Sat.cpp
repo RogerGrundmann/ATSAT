@@ -14,20 +14,10 @@
 using namespace std;
 using namespace AtomUtils;
 
-void SaturationAdjustmentSat::run(std::string gas,
-    double &coeff_A,   double &coeff_B,
-    double &coeff_A_i, double &coeff_B_i,
-    double &t_0,       double &t_00,
-    double &ep,        double &lv,  double &ls,
-    double &cp,        double &r,
-    double &C,         double &L0,  double &R,
-    double &del_alf,   double &del_bet,  double &m_mol,
-    Array &c, Array &cloud, Array &ice)
-{
-    m.Saturation_Adjustment(gas, coeff_A, coeff_B, coeff_A_i, coeff_B_i,
-        t_0, t_00, ep, lv, ls, cp, r, C, L0, R, del_alf, del_bet, m_mol,
-        c, cloud, ice);
-}
+// SaturationAdjustmentSat::run() now lives in SaturationAdjustmentSat.cpp, which carries the
+// mirrored ATJUP algorithm and dispatches back to cSaturnModel::Saturation_Adjustment() below
+// unless ATSAT_SATADJ is set. That routine is the inherited one and stays the default; the
+// header records the ten points on which the two differ.
 
 //Tao, W.-K., Simpson, J., and McCumber, M.: 
 //An Ice-Water Saturation Adjustment, American Meteorological Society, Notes and 

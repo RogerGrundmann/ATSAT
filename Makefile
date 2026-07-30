@@ -24,7 +24,8 @@ LIB_OBJ = lib/Array.o lib/Array_2D.o lib/Array_1D.o lib/Config.o lib/Utils.o lib
 ATSAT_OBJ = planet/cSaturnModel.o planet/PrintMsg_Sat.o planet/RungeKutta_Sat_Turb.o \
 planet/RHS_Sat_Turb.o planet/BC_Sat.o planet/ParaView_Sat.o planet/Thermo_Sat.o \
 planet/Pressure_Sat.o planet/InitVelocity_Sat.o planet/InitVariables_Sat.o \
-planet/Weather_Sat.o planet/FileIO_Sat.o planet/ConvectiveAdjustmentSat.o 
+planet/Weather_Sat.o planet/FileIO_Sat.o planet/ConvectiveAdjustmentSat.o \
+planet/SaturationAdjustmentSat.o 
 
 XML_OBJ = tinyxml2/tinyxml2.o
 
