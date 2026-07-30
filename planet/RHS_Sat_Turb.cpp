@@ -200,6 +200,69 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     // missing.
 
 
+// ===== Nondimensionalisation of the body forces (ATSAT_NONDIM) =====
+//
+// rhs_u is an acceleration in units of u_0^2/L, with L = L_atm*1e3 = 5e5 m. Any term written
+// from physical constants therefore needs the factor that carries it into those units, and the
+// three body forces each need a DIFFERENT one, because each is built from a different
+// combination of dimensional quantities:
+//
+//   Coriolis     2*Omega*w, and w is already nondimensional (w_phys/u_0), so restoring the
+//                velocity costs u_0 and the nondimensionalisation costs L/u_0^2:
+//                    nd_cor  = L/u_0        = 1063.83
+//   centrifugal  Omega^2*rm with rm the nondimensional radius, so r_phys = rm*L costs L, and
+//                L/u_0^2 again:
+//                    nd_cent = L^2/u_0^2    = 1.13e6
+//   buoyancy     g*p_stat/(r_mix*R_mix*T) with p_stat in BAR and r_mix*R_mix*T in pascals, so
+//                the expression is 1e-5 of a physical acceleration, and L/u_0^2 again:
+//                    nd_buoy = 1e5*L/u_0^2  = 2.26e5
+//
+// Without them the terms are not "small", they are in the wrong unit system, and the model has
+// never felt any of them: Coriolis measures ~1e-4 and buoyancy ~1e-2 against transport of order
+// 1. That is why the three sign corrections that precede this commit were all invisible.
+//
+// THE 1e5 IS ATJUP'S NUMBER AND IT IS RIGHT HERE ONLY BECAUSE R_mix IS IN J/(kg K) IN BOTH.
+// It is worth stating because the previous commit removed a 1e3 that had been copied across
+// with a comment claiming J/(g K); had that comment been true, this factor would have been 1e2
+// and blindly reusing ATJUP's 1e5 would have been a thousandfold error in the largest of the
+// three. The factors are computed from the model's own u_0 and L_atm rather than written as
+// numbers, so they follow the configuration instead of going stale with it.
+//
+// WHY ONE SWITCH AND NOT THREE KNOBS TO TASTE. ATJUP raised the buoyancy alone and the radial
+// velocity ran to 1535 m/s in 150 iterations; the conclusion drawn at the time was that the
+// scale "cannot be switched on". That was the wrong conclusion from a right measurement.
+// Buoyancy at full strength with Coriolis still 1000x too weak is not a more physical model, it
+// is a NON-ROTATING one being convected, and nothing in it can turn a vertical plume into a
+// balanced flow. The two belong to one balance and have to arrive together. ATSAT_NONDIM=1
+// turns on all three; the individual ATSAT_ND_* switches exist for attribution, not for
+// production runs. ATSAT_BUOY_SCALE is a multiplier on top of nd_buoy for finding the usable
+// range — 1.0 is the physical value.
+//
+// NOT CARRIED OVER: ATJUP's ramp (ATJUP_BUOY_RAMP_ITERS), which eases the buoyancy in over the
+// first few hundred iterations because switching it on cold blows the CFL limit. If ATSAT needs
+// one, that is the place to look.
+//
+// The pressure gradient is deliberately absent from this list: it needs no factor, being
+// already in the same units as the rest of rhs_u.
+    static const int nd_all = [](){
+        const char* e = getenv("ATSAT_NONDIM");  return e ? atoi(e) : 0; }();
+    static const int nd_cor_on = [](){
+        const char* e = getenv("ATSAT_ND_COR");  return e ? atoi(e) : -1; }();
+    static const int nd_cent_on = [](){
+        const char* e = getenv("ATSAT_ND_CENT"); return e ? atoi(e) : -1; }();
+    static const int nd_buoy_on = [](){
+        const char* e = getenv("ATSAT_ND_BUOY"); return e ? atoi(e) : -1; }();
+    static const double buoy_scale = [](){
+        const char* e = getenv("ATSAT_BUOY_SCALE"); return e ? atof(e) : 1.0; }();
+
+    const double L_m = L_atm * 1.0e3;                      // shell thickness [m]
+    const double nd_cor  = ((nd_cor_on  >= 0 ? nd_cor_on  : nd_all) != 0)
+                         ? L_m / u_0 : 1.0;
+    const double nd_cent = ((nd_cent_on >= 0 ? nd_cent_on : nd_all) != 0)
+                         ? L_m * L_m / (u_0 * u_0) : 1.0;
+    const double nd_buoy = ((nd_buoy_on >= 0 ? nd_buoy_on : nd_all) != 0)
+                         ? 1.0e5 * L_m / (u_0 * u_0) : 1.0;
+
 // ===== influence of the Coriolis force =====
 //
 // With theta the COLATITUDE and v the theta-component (so +v points south), the rotation vector
@@ -223,9 +286,9 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 //
 // The radial component was already right, and is unchanged. ATJUP carries the same two errors in
 // the same two lines (RHS_Jup_Turb.cpp) — they are not an ATSAT-only drift.
-    double Coriolis_rad = - 2.0 * omega * sinthe * w_ijk;
-    double Coriolis_the = - 2.0 * omega * costhe * w_ijk;
-    double Coriolis_phi = + 2.0 * omega * (+ costhe * v_ijk
+    double Coriolis_rad = nd_cor * -2.0 * omega * sinthe * w_ijk;
+    double Coriolis_the = nd_cor * -2.0 * omega * costhe * w_ijk;
+    double Coriolis_phi = nd_cor * +2.0 * omega * (+ costhe * v_ijk
         + sinthe * u_ijk);
 
 
@@ -255,8 +318,8 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 // force does not silently inherit it. theta runs 0..pi so sin(theta) >= 0 and the positive
 // root is the right one.
     const double sinthe_true = std::sqrt(std::max(0.0, 1.0 - costhe * costhe));
-    double centrifugal_rad = omega * omega * rm * sinthe_true * sinthe_true;
-    double centrifugal_the = omega * omega * rm * sinthe_true * costhe;
+    double centrifugal_rad = nd_cent * omega * omega * rm * sinthe_true * sinthe_true;
+    double centrifugal_the = nd_cent * omega * omega * rm * sinthe_true * costhe;
 
     double coeff_energy_p = u_0 * u_0/(cp_mix * t_ref); // coefficient for the source terms = 2.33e-4 (Eckert-number)
 
@@ -578,7 +641,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
             buoyancy_u = + buoyancy * g * (p_stat.x[i][j][k] + p_dyn.x[i][j][k])
                          / (r_mix * R_mix * t.x[i][j][k] * t_ref);
         } else {
-            buoyancy_u = - buoyancy
+            buoyancy_u = - nd_buoy * buoy_scale * buoyancy
                 * (g * p_stat.x[i][j][k] / (r_mix * R_mix * t.x[i][j][k] * t_ref)
                    - buoy_ref_level[i]);
         }
