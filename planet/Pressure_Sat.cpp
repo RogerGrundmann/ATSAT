@@ -16,6 +16,41 @@ using namespace std;
 // two do differently, in particular that the divergence source here is div(grad p) and not
 // div(u*), so this routine never sees the velocity divergence at all.
 
+/*
+ * ONE place where the mixture density is formed, mirroring ATJUP's computeMixtureDensity().
+ *
+ * Before this, the ideal-gas relation was written out twice — in cSaturnModel::rho_at() and
+ * again as a lambda inside ThermalWindDiagSat.h — with different fallbacks for an unusable
+ * cell (r_mix in one, 0.0 in the other). Two copies of one formula can drift; now there is
+ * one, and rho_at() is a gated accessor over the array it fills.
+ *
+ * R_mix is in J/(g K) in this model family, hence the 1e3; p_stat is in bars, hence the 1e5.
+ * An unusable cell stores 0.0 and every reader treats that as "no density", which is ATJUP's
+ * convention: rho_at() substitutes r_mix, the direct readers skip the cell.
+ *
+ * DIFFERENT FROM ATJUP, DELIBERATELY AND FOR NOW: ATJUP builds this from
+ * (p_stat + p_dyn*p_dyn_to_bar()), i.e. it includes the dynamic pressure. ATSAT has no
+ * p_dyn_to_bar() — that is ATJUP_PDYN_UNITS, still on the list of things ATSAT lacks — and
+ * ATJUP's own comment records that adding p_dyn UNCONVERTED counted 7.79x too heavily. So the
+ * hydrostatic pressure alone is used here, which is exactly what ATSAT computed before, and
+ * this change stays a change of structure rather than of physics. Settling p_dyn's units is
+ * the prerequisite, and it is a separate piece of work.
+ */
+void cSaturnModel::computeMixtureDensity(){
+    #pragma omp parallel for collapse(2) schedule(static)
+    for(int i = 0; i < im; i++){
+        for(int j = 0; j < jm; j++){
+            for(int k = 0; k < km; k++){
+                const double T = t.x[i][j][k] * t_ref;
+                // Written !(T > 0.0) so a NaN lands here instead of propagating.
+                if(!(T > 0.0) || !(R_mix > 0.0)){ rho_mix.x[i][j][k] = 0.0; continue; }
+                const double rho = (p_stat.x[i][j][k] * 1.0e5) / (R_mix * 1.0e3 * T);
+                rho_mix.x[i][j][k] = std::isfinite(rho) ? rho : 0.0;
+            }
+        }
+    }
+}
+
 void cSaturnModel::computePressure(){
     cout << endl << "      ATSAT: computePressure" << endl;
 

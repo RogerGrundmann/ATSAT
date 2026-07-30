@@ -384,6 +384,11 @@ void cSaturnModel::Run(){
 
         if(iter_n % 2 == 0){
 
+            // One density for the whole physics block, before anything reads it. ATJUP does
+            // the same at the same point; everything downstream either goes through rho_at()
+            // (gated by ATSAT_LOCAL_RHO) or reads rho_mix directly when it must be local.
+            computeMixtureDensity();
+
             getPressureSolver().run();
             AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
 
@@ -551,6 +556,7 @@ void cSaturnModel::resetArrays(){
 
     p_dyn.initArray(im, jm, km, pa);                // dynamic pressure
     p_stat.initArray(im, jm, km, 1.0);                // static pressure
+    rho_mix.initArray(im, jm, km, 0.0);               // mixture density, computeMixtureDensity()
     radiation.initArray(im, jm, km, 0.0);             // net thermal radiative flux [W/m2]
     epsilon.initArray(im, jm, km, 0.0);               // layer emissivity
     Q_rad.initArray(im, jm, km, 0.0);                 // radiative heating rate [W/m3]

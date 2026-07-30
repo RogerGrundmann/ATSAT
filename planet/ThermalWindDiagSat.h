@@ -93,10 +93,13 @@ inline void ThermalWindDiagSat::run(){
             for(int i = 1; i < im - 1; i++){
                 // Local density from the ideal gas law with the model's own mixture constant.
                 // R_mix is in J/(g K) in this model family, hence the 1e3; p_stat is in bars.
+                // Reads rho_mix directly rather than through m.rho_at(): this is a
+                // measurement of drho/dtheta, so it needs the LOCAL field whatever
+                // ATSAT_LOCAL_RHO is set to — the same bypass the radiative heating uses, and
+                // the same one ATJUP's diagnostics use. Was a lambda repeating the ideal-gas
+                // formula; there is one copy of it now, in computeMixtureDensity().
                 auto rho_at = [&](int jj) -> double {
-                    const double T = m.t.x[i][jj][k] * m.t_ref;
-                    if(!(T > 0.0)) return 0.0;
-                    return (m.p_stat.x[i][jj][k] * 1.0e5) / (m.R_mix * 1.0e3 * T);
+                    return m.rho_mix.x[i][jj][k];
                 };
                 const double rho = rho_at(j);
                 if(!(rho > 0.0)) continue;

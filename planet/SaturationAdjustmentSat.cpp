@@ -92,29 +92,18 @@ void SaturationAdjustmentSat::run_mirrored(const std::string& gas,
                 if(cloud.x[i][j][k] < 0.0) cloud.x[i][j][k] = 0.0;
                 if(ice.x[i][j][k]   < 0.0) ice.x[i][j][k]   = 0.0;
 
-                // Density used for both the saturation quantity and the latent-heat divisor.
+                // Density for both the saturation quantity and the latent-heat divisor.
+                // rho_at() is now ATSAT's single gated accessor, exactly as ATJUP's is: r_mix
+                // unless ATSAT_LOCAL_RHO is set. PrecipitationSat goes through the same gate, so
+                // the microphysics and the adjustment saturate on the same density by
+                // construction — which is what PrecipitationSat.h has always claimed.
                 //
-                // ATJUP's line here reads `m.rho_at(i, j, k)`, and copying it literally was
-                // wrong: ATJUP's rho_at() opens with `if(!local_rho()) return r_mix;`, so its
-                // DEFAULT is the reference density and the local one is opt-in via
-                // ATJUP_LOCAL_RHO. ATSAT's rho_at() carries no such gate and always returns
-                // the local value, so the literal copy silently switched the algorithm to a
-                // density ATJUP does not use by default — and the run diverged, T to 4.7e5 degC
-                // in eight iterations. The mechanism is a feedback: the latent-heat divisor
-                // cp_mix*rho is small in a thin cell, so the heating per unit condensate is
-                // large; that raises T, and with the saturation target q = rho*ep*E/p also
-                // scaled by the same small rho, more vapour reads as supersaturated and
-                // condenses. Both halves push the same way.
-                //
-                // The gate is reproduced here, with ATJUP's default, rather than being added to
-                // rho_at() itself: PrecipitationSat and the radiative coupling also call
-                // rho_at(), and changing it underneath them is a separate change that needs its
-                // own measurement. See the closing note in the header — ATSAT's precipitation
-                // therefore still saturates on the local density while this routine saturates
-                // on r_mix, which is the inconsistency that note describes, now located exactly.
-                static const int local_rho = [](){
-                    const char* e = getenv("ATSAT_LOCAL_RHO"); return e ? atoi(e) : 0; }();
-                const double rho_c = local_rho ? m.rho_at(i, j, k) : m.r_mix;
+                // Why the gate defaults to the reference density: switching this to the local
+                // one diverged the run, T to 4.65e5 degC in eight iterations. Both halves of the
+                // feedback push the same way — the divisor cp_mix*rho is small in a thin cell so
+                // the heating per unit condensate is large, and the target rho*ep*E/p is scaled
+                // by the same small rho so more vapour reads as supersaturated.
+                const double rho_c = m.rho_at(i, j, k);
 
                 const double E_Rain_0 = saturation_vapour_pressure(t_u, C, L0, R,
                                                                    del_alf, del_bet);

@@ -423,7 +423,10 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 //
 //     radiation_t = rad_coupling * Q_rad * L_rad / (rho * cp_mix * u_0 * t_ref).
 //
-// The density is the LOCAL one from rho_at(), not the reference r_mix. That is not a detail: the
+// The density is the LOCAL one, read from rho_mix DIRECTLY rather than through rho_at(). That
+// bypass is deliberate and is what ATJUP does here too: rho_at() is gated by ATSAT_LOCAL_RHO and
+// returns the constant r_mix by default, which is right for the schemes that saturate on it and
+// wrong for this one. Not a detail: the
 // thin, cold upper atmosphere is where Q_rad > 0 does its heating, and it is the small rho there
 // that lets those layers respond quickly and relax toward radiative equilibrium. Using r_mix
 // would flatten exactly the part of the profile the scheme exists to set.
@@ -439,7 +442,8 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         const char* e = getenv("ATSAT_RAD_COUPLING"); return e ? atof(e) : 0.0; }();
     double radiation_t = 0.0;
     if(rad_coupling != 0.0){
-        const double rho   = rho_at(i, j, k);                  // [kg/m3], ideal gas with R_mix
+        const double rho_f = rho_mix.x[i][j][k];               // [kg/m3], computeMixtureDensity()
+        const double rho   = (rho_f > 0.0 && std::isfinite(rho_f)) ? rho_f : r_mix;
         const double L_rad = L_atm * 1.0e3;                    // shell thickness [m]
         if(rho > 0.0 && cp_mix > 0.0){
             radiation_t = rad_coupling * Q_rad.x[i][j][k] * L_rad

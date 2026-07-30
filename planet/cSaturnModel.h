@@ -166,17 +166,33 @@ public:
     }
 
     /*
-     * Local mixture density [kg/m3]. ATJUP keeps a rho_mix array filled by
-     * computeMixtureDensity(); ATSAT has none, so the same quantity is formed here from the ideal
-     * gas law with the model's own mixture constant (R_mix is in J/(g K), hence the 1e3, and
-     * p_stat is in bars). Falls back to the scalar r_mix if the state is not usable.
+     * THE one gate on which density the model uses, mirroring ATJUP's local_rho(). Default
+     * FALSE, i.e. the constant reference density r_mix — which is ATJUP's default too, and the
+     * reason it is the default is that the local density is a strong feedback in the schemes
+     * that saturate on it. Set ATSAT_LOCAL_RHO=1 to move every gated caller at once.
+     */
+    static bool local_rho(){
+        static const bool v = [](){
+            const char* e = getenv("ATSAT_LOCAL_RHO"); return e && atoi(e) != 0; }();
+        return v;
+    }
+
+    /*
+     * Mixture density for the cell, in kg/m3. Reads the rho_mix array that
+     * computeMixtureDensity() fills once per physics block; falls back to r_mix wherever that
+     * array holds nothing usable, so no caller can divide by zero. Exactly ATJUP's rho_at().
+     *
+     * Callers that must ALWAYS see the local field — the radiative heating, the thermal-wind
+     * residual — read rho_mix directly and bypass this gate, as ATJUP's do.
      */
     double rho_at(int i, int j, int k){
-        const double T = t.x[i][j][k] * t_ref;
-        if(!(T > 0.0) || !(R_mix > 0.0)) return r_mix;
-        const double rho = (p_stat.x[i][j][k] * 1.0e5) / (R_mix * 1.0e3 * T);
+        if(!local_rho()) return r_mix;
+        const double rho = rho_mix.x[i][j][k];
         return (rho > 0.0 && std::isfinite(rho)) ? rho : r_mix;
     }
+
+    // Fills rho_mix from the ideal gas law with the model's own R_mix (Pressure_Sat.cpp).
+    void computeMixtureDensity();
 
     double layer_thickness_m(int i){
         if(i < 0 || i > im-2) return 0.0;
@@ -704,6 +720,7 @@ private:
     Array p_dyn;                // dynamic pressure
     Array p_dynn;                // dynamic pressure
     Array p_stat;                // static pressure
+    Array rho_mix;              // mixture density [kg/m3], filled by computeMixtureDensity()
 //    Array rho;                // density
 
     Array rhs_t;                // auxilliar field RHS temperature
