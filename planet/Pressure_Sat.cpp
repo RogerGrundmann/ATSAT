@@ -10,7 +10,11 @@
 
 using namespace std;
 
-void PressureSolverSat::run() { m.computePressure(); }
+// PressureSolverSat::run() now lives in PressureSolverSat.h, which carries the mirrored ATJUP
+// solver and dispatches back to computePressure() below unless ATSAT_PRESS_SOLVER is set.
+// computePressure() is the inherited solver and stays the default; the header records what the
+// two do differently, in particular that the divergence source here is div(grad p) and not
+// div(u*), so this routine never sees the velocity divergence at all.
 
 void cSaturnModel::computePressure(){
     cout << endl << "      ATSAT: computePressure" << endl;
