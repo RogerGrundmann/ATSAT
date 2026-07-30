@@ -24,7 +24,14 @@ using namespace std;
  * cell (r_mix in one, 0.0 in the other). Two copies of one formula can drift; now there is
  * one, and rho_at() is a gated accessor over the array it fills.
  *
- * R_mix is in J/(g K) in this model family, hence the 1e3; p_stat is in bars, hence the 1e5.
+ * R_mix is in J/(kg K) — ChemistrySat assembles it as a mass-weighted mean of the per-species
+ * R and prints it as 2909.2, which is R_universal/M_mix = 8314/2.8596 = 2907.4 to within 0.06%.
+ * p_stat is in bars, hence the 1e5. There is NO further factor: this line used to carry
+ * R_mix*1.0e3 on the strength of a comment claiming J/(g K), which made every density it
+ * produced 1000x too small — 0.0047 kg/m3 at 55 bar and 400 K, against a reference r_mix of
+ * 1.382. The buoyancy term in RHS_Sat_Turb.cpp has always divided by R_mix WITHOUT the 1e3,
+ * and its diagnostic reproduces the printed 47.7 N/m3, which is what settles which of the two
+ * readings was right.
  * An unusable cell stores 0.0 and every reader treats that as "no density", which is ATJUP's
  * convention: rho_at() substitutes r_mix, the direct readers skip the cell.
  *
@@ -44,7 +51,7 @@ void cSaturnModel::computeMixtureDensity(){
                 const double T = t.x[i][j][k] * t_ref;
                 // Written !(T > 0.0) so a NaN lands here instead of propagating.
                 if(!(T > 0.0) || !(R_mix > 0.0)){ rho_mix.x[i][j][k] = 0.0; continue; }
-                const double rho = (p_stat.x[i][j][k] * 1.0e5) / (R_mix * 1.0e3 * T);
+                const double rho = (p_stat.x[i][j][k] * 1.0e5) / (R_mix * T);
                 rho_mix.x[i][j][k] = std::isfinite(rho) ? rho : 0.0;
             }
         }

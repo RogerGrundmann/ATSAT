@@ -169,10 +169,13 @@ inline void RadiationSat::run(){
 
                 const double tau_cia = (T > 0.0) ? cia_coeff * (P_mean / T) * dP : 0.0;
 
-                // Mixture density from the ideal gas law with the model's own mixture constant.
-                // R_mix is in J/(g K) in this model family, hence the factor 1e3.
+                // Layer-mean density from the ideal gas law. R_mix is in J/(kg K) — it is
+                // printed as 2909.2 and equals R_universal/M_mix — so there is no 1e3 here.
+                // This line used to carry one, on a comment claiming J/(g K), and every
+                // density it produced was 1000x too small; since rho divides the heating,
+                // Q_rad was correspondingly too large. P_mean is already in Pa.
                 const double rho_c   = (T > 0.0 && m.R_mix > 0.0)
-                                     ? P_mean / (m.R_mix * 1.0e3 * T) : 0.0;
+                                     ? P_mean / (m.R_mix * T) : 0.0;
                 const double inv_rho = (rho_c > 0.0 && std::isfinite(rho_c)) ? 1.0 / rho_c : 0.0;
 
                 const double q_ch4 = std::max(0.0, m.ch4.x[i][j][k]) * inv_rho;
