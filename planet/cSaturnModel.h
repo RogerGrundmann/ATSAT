@@ -201,6 +201,12 @@ public:
     std::vector<double> buoy_ref_level;
     void computeBuoyancyRefLevel();
 
+    // ---- Numerical safety nets, ported from ATJUP. All off by default. ----
+    // ATSAT_NANCHECK: census of non-finite cells, per field, with the index extent.
+    bool nan_watch(int iter);
+    // ATSAT_VEL_SHAPIRO_INLOOP / ATSAT_SHAPIRO_STRENGTH: 1-2-1 filter on u, v, w.
+    void dampVelocities();
+
     double layer_thickness_m(int i){
         if(i < 0 || i > im-2) return 0.0;
         return (double)(m_layer_heights[i+1] - m_layer_heights[i]) * 1.0e3;

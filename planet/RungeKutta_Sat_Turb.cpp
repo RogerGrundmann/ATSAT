@@ -86,6 +86,27 @@ void cSaturnModel::RungeKuttaSat(){
     // The two clamps are the ones ATJUP uses. k* cannot be negative and cannot exceed a generous
     // physical ceiling; dis* has a floor because it appears in denominators throughout the
     // closure (nue = k/dis among them) and a zero there is an infinity one step later.
+    // ===== Temperature limiter (ATSAT_T_LIMITER, default 0 = off) =====
+    //
+    // t is the only prognostic field in this model with no bound of any kind: the species have
+    // FluxLimiterNH4SH and damp_wiggles on their mass fluxes, k* and dis* are clamped in this
+    // very loop, and t has nothing. Advection cannot create a new extremum, so a temperature
+    // that leaves the range spanned by its own neighbourhood is a scheme error rather than
+    // physics — and the sharpest fronts in ATSAT are at the poles and the model top.
+    //
+    // What this does, after the RK4 update: clip t to the range spanned by the cell and its six
+    // face neighbours IN THE OLD STATE (tn, untouched during the update). That is the clipping
+    // step of an FCT scheme. It cannot create a new local extremum, and it leaves any update
+    // that already stays inside the local bounds exactly as it was — so it is inert on a
+    // well-behaved run and only bites where the scheme has already failed. It reports how often
+    // it fires, because a limiter that acts silently hides the front it is standing in for.
+    //
+    // ATJUP additionally skips solid neighbours, whose tn is an extrapolated value rather than a
+    // state. ATSAT has no solid body, so every neighbour takes part.
+    static const int t_limiter_on = [](){
+        const char* e = getenv("ATSAT_T_LIMITER"); return e ? atoi(e) : 0; }();
+    long t_clip_hits = 0;
+
     const bool turb_on_rk = turb_active;
     const double tke_max_nd = 1000.0 / (u_0 * u_0);   // 1000 m2/s2
     constexpr double dis_min_nd = 1.0e-10;            // matches TurbulenceSat::dis_min
@@ -297,8 +318,29 @@ void cSaturnModel::RungeKuttaSat(){
                 const double knh3_ice4   = rhs_nh3_ice.x[i][j][k];
                 const double knh4sh4     = rhs_nh4sh.x[i][j][k];
 
-                t.x[i][j][k] = tn_ijk + dt * (kt1 + 2.0 * kt2
-                    + 2.0 * kt3 + kt4)/6.0;
+                {
+                    double t_new = tn_ijk + dt * (kt1 + 2.0 * kt2
+                        + 2.0 * kt3 + kt4)/6.0;
+                    if(t_limiter_on){
+                        // Local bounds from the OLD state.
+                        double lo = tn_ijk, hi = tn_ijk;
+                        auto take = [&](int ii, int jj, int kk){
+                            const double val = tn.x[ii][jj][kk];
+                            if(val < lo) lo = val;
+                            if(val > hi) hi = val;
+                        };
+                        take(i-1,j,k); take(i+1,j,k);
+                        take(i,j-1,k); take(i,j+1,k);
+                        take(i,j,k-1); take(i,j,k+1);
+                        if(t_new < lo){ t_new = lo;
+                            #pragma omp atomic
+                            ++t_clip_hits; }
+                        else if(t_new > hi){ t_new = hi;
+                            #pragma omp atomic
+                            ++t_clip_hits; }
+                    }
+                    t.x[i][j][k] = t_new;
+                }
                 if(turb_on_rk){
                     const double ktke4 = rhs_tke.x[i][j][k], kdis4 = rhs_dis.x[i][j][k];
                     tke.x[i][j][k] = std::min(std::max(tken_ijk
@@ -353,6 +395,10 @@ void cSaturnModel::RungeKuttaSat(){
             }
         }
     }
+
+    if(t_clip_hits > 0)
+        printf("      ATSAT: t limiter clipped %ld cells this iteration"
+               " (ATSAT_T_LIMITER=0 to lift it)\n", t_clip_hits);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

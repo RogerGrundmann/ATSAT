@@ -240,3 +240,81 @@ void cSaturnModel::writeResults(){
 /*
 *
 */
+
+/*
+ * ATSAT_NANCHECK — a CENSUS of non-finite cells, not just the first one.
+ *
+ * Ported from cJupiterModel::nan_watch. The reason it counts rather than reporting the first
+ * hit: the scan runs i outermost, so a NaN born in the interior gets reported at the i=0
+ * boundary cell that merely inherited it through the bcRadius extrapolation. Counting per field
+ * and recording the index extent shows at a glance whether this is one interior cell, a whole
+ * boundary plane, or already everywhere — which is the difference between a local physics
+ * problem and a global one.
+ *
+ * Worth having at all because NaN is INVISIBLE to printMinMax: searchMinMax_3D compares with a
+ * bare > and every comparison against a NaN is false, so a non-finite cell is silently skipped
+ * and a thoroughly broken field can print a perfectly reasonable maximum.
+ *
+ * The bit test is exact and branch-free: exponent all ones means inf or NaN, whatever the
+ * payload, and it does not depend on the compiler's floating-point flags the way isnan() can.
+ *
+ * ATJUP scans the arrays its restart serialises. ATSAT has no restart (that is item 7 of the
+ * ATJUP/ATSAT gap list), so the list is written out here — the prognostic fields plus the two
+ * pressures, which is what determines whether the next iteration is meaningful.
+ */
+bool cSaturnModel::nan_watch(int iter){
+    struct Named { const char* name; Array* a; };
+    Named fields[] = {
+        {"t",         &t},         {"u",         &u},         {"v",     &v},
+        {"w",         &w},         {"p_dyn",     &p_dyn},     {"p_stat", &p_stat},
+        {"h2o",       &h2o},       {"h2o_cloud", &h2o_cloud}, {"h2o_ice", &h2o_ice},
+        {"ch4",       &ch4},       {"ch4_cloud", &ch4_cloud}, {"ch4_ice", &ch4_ice},
+        {"nh3",       &nh3},       {"nh3_cloud", &nh3_cloud}, {"nh3_ice", &nh3_ice},
+        {"h2s",       &h2s},       {"nh4sh",     &nh4sh},
+        {"tke",       &tke},       {"dis",       &dis},       {"nue",     &nue},
+        {"rho_mix",   &rho_mix},
+    };
+    const int nf = (int)(sizeof(fields)/sizeof(fields[0]));
+
+    long total = 0;
+    bool any = false;
+
+    for(int a = 0; a < nf; a++){
+        long n = 0;
+        int i_lo = im, i_hi = -1, j_lo = jm, j_hi = -1, k_lo = km, k_hi = -1;
+        int fi = -1, fj = -1, fk = -1;
+        for(int i = 0; i < im; i++)
+            for(int j = 0; j < jm; j++)
+                for(int k = 0; k < km; k++){
+                    std::uint64_t bits;
+                    std::memcpy(&bits, &fields[a].a->x[i][j][k], sizeof(bits));
+                    if((bits & 0x7FF0000000000000ULL) == 0x7FF0000000000000ULL){
+                        n++;
+                        if(i < i_lo) i_lo = i;
+                        if(i > i_hi) i_hi = i;
+                        if(j < j_lo) j_lo = j;
+                        if(j > j_hi) j_hi = j;
+                        if(k < k_lo) k_lo = k;
+                        if(k > k_hi) k_hi = k;
+                        if(fi < 0){ fi = i; fj = j; fk = k; }
+                    }
+                }
+        if(n > 0){
+            if(!any){
+                printf("      ATSAT: ===== NAN WATCH: state went non-finite at iteration %d =====\n",
+                       iter);
+                any = true;
+            }
+            printf("        %-12s %8ld cells   i[%d..%d] j[%d..%d] k[%d..%d]   first (%d,%d,%d)"
+                   "  t=%g p_stat=%g\n",
+                   fields[a].name, n, i_lo, i_hi, j_lo, j_hi, k_lo, k_hi, fi, fj, fk,
+                   t.x[fi][fj][fk], p_stat.x[fi][fj][fk]);
+            total += n;
+        }
+    }
+    if(any) printf("        total %ld non-finite cells\n", total);
+    return !any;
+}
+/*
+*
+*/

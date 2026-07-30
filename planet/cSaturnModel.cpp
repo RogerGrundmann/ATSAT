@@ -140,6 +140,26 @@ static int precip_enabled(){
 }
 
 
+// Shapiro filtering of the velocity fields (ATJUP's dampVelocities). ATSAT's Utils has the
+// 1-2-1 filter but not ATJUP's higher-order damp_wiggles_ho, so only the 2nd-order form is
+// available here; ATJUP_VEL_SHAPIRO_ORDER=4 has no ATSAT counterpart.
+static int shapiro_vel_inloop(){
+    static const int v = [](){
+        const char* e = getenv("ATSAT_VEL_SHAPIRO_INLOOP"); return e ? atoi(e) : 0; }();
+    return v;
+}
+static double shapiro_strength(){
+    static const double v = [](){
+        const char* e = getenv("ATSAT_SHAPIRO_STRENGTH"); return e ? atof(e) : 1.0; }();
+    return v;
+}
+static int nancheck_on(){
+    static const int v = [](){
+        const char* e = getenv("ATSAT_NANCHECK"); return e ? atoi(e) : 0; }();
+    return v;
+}
+
+
 // Turbulence closure (TurbulenceSat), ported from ATJUP. Default OFF, bit-identical: with it off
 // tke/dis/nue and the rest stay identically zero.
 //
@@ -159,6 +179,13 @@ static int turb_env_enabled(){
 /*
 *
 */
+void cSaturnModel::dampVelocities(){
+    const double s = shapiro_strength();
+    AtomUtils::damp_wiggles(u, nullptr, true, true, true, s);
+    AtomUtils::damp_wiggles(v, nullptr, true, true, true, s);
+    AtomUtils::damp_wiggles(w, nullptr, true, true, true, s);
+}
+
 ChemistrySat& cSaturnModel::getChemistry(){
     if(!m_chem)
         m_chem = new ChemistrySat(*this);
@@ -202,6 +229,16 @@ void cSaturnModel::LoadConfig(const char *filename){
 *
 */
 void cSaturnModel::Run(){
+    // ATSAT_FPE=1 turns the first invalid floating-point operation into a SIGFPE instead of a
+    // silently propagating NaN. Run the CLI under gdb to get the exact line:
+    //     OMP_NUM_THREADS=1 ATSAT_FPE=1 gdb -batch -ex run -ex "bt 6" -ex "info locals"
+    //         --args cli/sat . config_ca.xml   (one line; split here only for width)
+    // (build with -g -O0 for line numbers). NaN is INVISIBLE to printMinMax, whose
+    // searchMinMax_3D compares with a bare > and so skips every non-finite cell — which is why
+    // a domain-wide NaN can look like a perfectly quiet run. Off by default: trapping would
+    // abort on the first harmless inf in a diagnostic field.
+    if(getenv("ATSAT_FPE")) feenableexcept(FE_INVALID | FE_DIVBYZERO);
+
 
     #ifdef _OPENMP
         printf("\n\n   number of processors: %d\n\n", omp_get_num_procs());
@@ -463,6 +500,17 @@ void cSaturnModel::Run(){
             printMinMax();
             writeData();
         }
+
+        // Shapiro filter on the velocities, opt-in. ATJUP applies one at initialisation and
+        // optionally n passes per iteration; ATSAT already filters p_dyn and the mass fluxes
+        // this way but has never filtered u, v, w. Grid-scale checkerboard in the velocity is
+        // what the pressure projection cannot see and what feeds the polar cells.
+        if(shapiro_vel_inloop() > 0)
+            for(int n = 0; n < shapiro_vel_inloop(); n++) dampVelocities();
+
+        // Non-finite census, opt-in. Runs at the checkpoint cadence so it costs nothing on the
+        // iterations in between.
+        if(nancheck_on() && iter_n % checkpoint == 0) nan_watch(iter_n);
 
         if(panorama_cnt == panorama_print) panorama_cnt = 1;
 
