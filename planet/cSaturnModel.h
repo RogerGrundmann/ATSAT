@@ -60,7 +60,7 @@ class cSaturnModel{
     template<class M> friend class ConvectiveAdjustment;
     friend class RadiationSat;
     friend class ThermalWindDiagSat;
-    friend class PrecipitationSat;
+    template<class M> friend class Precipitation;
     template<class M> friend class Turbulence;
 
 public:
@@ -563,8 +563,30 @@ private:
     double del_bet_h2o = - 8.7e-3;
 
 //    double del_alf_nh3 = - 0.888;  // original paper by Sanchez-Lavega, Perez-Hoyos and Huesco, p. 770
+    // ---- Ice-phase SVP coefficients: PLACEHOLDERS, and named ones ----
+    //
+    // ATSAT's parameter set has no MEASURED ice pair for H2O or NH3 — only CH4 has one, and even
+    // that is a copy of its liquid pair. The shared precipitation and saturation-adjustment code
+    // reads one set of names on every planet, so rather than let ATSAT's copy of the microphysics
+    // quietly wire the liquid coefficients into the ice slots (which is what it did while there
+    // were two copies), the substitution is written down here, once, where the parameters live.
+    //
+    // CONSEQUENCE, and it is not small: at Saturn temperatures the ice branch is the one that
+    // matters, so every ice saturation in this model is really a liquid saturation. This is
+    // limitation 2 in the README and the reason ATSAT_SATADJ is still off. Replacing these six
+    // numbers with measured ones is what settles it.
+    double C_h2o_ice       = C_h2o;
+    double L0_h2o_ice      = L0_h2o;
+    double del_alf_h2o_ice = del_alf_h2o;
+    double del_bet_h2o_ice = del_bet_h2o;
+
     double del_alf_nh3 = - 1.2;  // approximated
     double del_bet_nh3 = 0.0;
+
+    double C_nh3_ice       = C_nh3;        // placeholder, see the note above
+    double L0_nh3_ice      = L0_nh3;
+    double del_alf_nh3_ice = del_alf_nh3;
+    double del_bet_nh3_ice = del_bet_nh3;
 
     double del_alf_h2s = 0.0;
     double del_bet_h2s = - 2.9e-3;

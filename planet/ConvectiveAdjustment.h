@@ -49,6 +49,8 @@
 
 #pragma once
 
+#include "ATPhys.h"
+
 #include <cmath>
 #include <chrono>
 #include <cstdio>
@@ -62,28 +64,7 @@
 #include <omp.h>
 #endif
 
-namespace ATPhys {
-
-// Look up "<PLANET>_<name>", e.g. ATJUP_CONV_ADJ_LAPSE, so one shared implementation reads each
-// model's own knobs under its own prefix. Not cached: the caller caches where it matters.
-inline const char* env_for(const char* planet_tag, const char* name){
-    std::string key(planet_tag);
-    key += "_";
-    key += name;
-    return getenv(key.c_str());
-}
-
-inline double env_double(const char* planet_tag, const char* name, double fallback){
-    const char* e = env_for(planet_tag, name);
-    return e ? atof(e) : fallback;
-}
-
-inline int env_int(const char* planet_tag, const char* name, int fallback){
-    const char* e = env_for(planet_tag, name);
-    return e ? atoi(e) : fallback;
-}
-
-}  // namespace ATPhys
+// Shared helpers (environment knobs, saturation vapour pressure) live in ATPhys.h.
 
 
 template<class Model>
