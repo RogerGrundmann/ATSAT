@@ -112,6 +112,24 @@ public:
 
     // Selects between the inherited routine and the mirrored one. Default 0 = the legacy
     // cSaturnModel::Saturation_Adjustment(), so the model is bit-identical until this is set.
+    //
+    // WHAT IT DOES WHEN SET, measured 2026-07-31 over 50 iterations (config_m50, 12 threads),
+    // against the legacy routine with everything else identical:
+    //
+    //     max h2o_cloud   113.254 -> 94.812 g/m3   (-16.3 %), and the peak moves 175 -> 187 km
+    //     max latent heat   1.1115 -> 1.0179 W/m2
+    //     max/min t, max nh4sh: unchanged to the last digit printed
+    //
+    // So it condenses less water and puts the deck a layer higher. Which of the two is right is
+    // NOT settled by this measurement, and the choice is a real trade rather than a fix:
+    //   FOR turning it on  — the mirror carries the repair from the port commit, where the
+    //     legacy routine's saturation target was found to be frozen, and it writes its shared
+    //     diagnostic state under omp critical instead of from every thread at once (point 8).
+    //   AGAINST — its ice-phase quadruple is still the LIQUID one (point 4 below), because
+    //     ATSAT's parameter set has no ice pair for H2O, NH3 or CH4. At Saturn temperatures the
+    //     ice branch is the one that matters, so switching on today trades a known defect for a
+    //     known placeholder.
+    // The 16 % is the size of what is at stake; supplying the ice coefficients is what decides it.
     static int mirrored_enabled(){
         static const int v = [](){
             const char* e = getenv("ATSAT_SATADJ"); return e ? atoi(e) : 0; }();

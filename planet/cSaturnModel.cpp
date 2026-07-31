@@ -134,6 +134,26 @@ static double timestep_override(){
 // Precipitation microphysics (PrecipitationSat), ported from ATJUP. Default OFF, bit-identical.
 // It DOES feed back: the condensate it converts is removed from the cloud/ice fields in place, so
 // it must run AFTER the SaturationAdjustmentSat calls or the adjustment would simply undo it.
+//
+// WHY IT STAYS OFF, measured 2026-07-31 over 50 iterations (config_m50, 12 threads). With it on
+// the scheme runs and produces fluxes, but they are the SAFETY CAP and not physics. At the
+// i=20 level (250 km), reading the .vtk directly:
+//
+//     P_snow    8.6400 mm/day in 65337 of 65341 cells  <- P_max_flux exactly, everywhere
+//     P_graupel 2.1243 mm/day max     P_rain 0 (too cold there)     P_nh3_rain 0.0131 max
+//     Precip_total at the surface: 0 — nothing arrives at the bottom
+//
+// 8.64 mm/day is 1.0e-4 kg/m2/s, the P_max_flux clamp in PrecipitationSat::column. ATJUP's note
+// on that constant says it is set "well above the energy-budget scale, so the cap guards against
+// a numerical runaway instead of silently becoming the operative limiter as it used to". On
+// Saturn it IS the operative limiter, over an entire model level.
+//
+// The cause is not the cap but the coefficients around it: c_c_au and the rest are ATOM's
+// terrestrial numbers, rescaled ONCE to Jupiter's energy budget and then carried here unchanged,
+// while ATSAT's condensate loading is far higher (max h2o_cloud 113 g/m3 against ATJUP's ~30).
+// Switching this on before they are recalibrated to Saturn's own budget would put a saturated
+// clamp into the moisture equations and call it precipitation. Recalibrate first: the observable
+// is the same one ATJUP used, Lv*P against Saturn's emitted flux.
 static int precip_enabled(){
     static const int v = [](){ const char* e = getenv("ATSAT_PRECIP"); return e ? atoi(e) : 0; }();
     return v;
