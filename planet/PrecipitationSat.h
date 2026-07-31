@@ -85,10 +85,22 @@ public:
     struct Species {
         Array *vapour, *cloud, *ice;              // condensate fields (in/out)
         Array *P_r, *P_s, *P_g;                   // output fluxes (per species)
+        Array *S_v, *S_c, *S_i;                   // source terms for the moisture RHS
         double C, L0, R, del_alf, del_bet;        // liquid/gas SVP coefficients
         double C_i, L0_i, del_alf_i, del_bet_i;   // ice SVP coefficients
         double ep, Lv, Ls, t_frz, t_low;          // gas-const ratio, latent heats, temps
     };
+
+    // The mass half of phase 2c, mirrored from ATJUP. When on, column() stops writing the
+    // depleted condensate into the fields and instead reports RATES into S_v/S_c/S_i, which
+    // RHSSat adds to the moisture equations. Same knob as the latent-heat half in
+    // RHS_Sat_Turb.cpp, because the two are one physical statement: the heat a conversion
+    // releases and the mass it moved must enter the model together.
+    static bool coupling_on(){
+        static const bool v = [](){
+            const char* e = getenv("ATSAT_PRECIP_COUPLING"); return e ? (atof(e) != 0.0) : true; }();
+        return v;
+    }
 
     void run();
 
@@ -103,16 +115,36 @@ private:
 #include "cSaturnModel.h"
 #include "SaturationAdjustmentSat.h"
 
+// Every species must have t_low < t_frz, or its ice band (T < t_frz && T >= t_low) is EMPTY and
+// the ice can never convert to snow. That is not hypothetical: t_00_ch4 was methane's critical
+// temperature, 100 K above its triple point, and methane ice was consequently sinkless in both
+// models until 2026-07-31. Checked once, at the first call, and reported rather than asserted —
+// a bad pair should be visible in the log of the run it spoiled, not abort a queued job.
+static void check_phase_order(const char* gas, double t_frz, double t_low){
+    if(!(t_low < t_frz))
+        printf("      ATSAT: WARNING - %s has t_00 = %.2f K >= t_0 = %.2f K. The ice band is empty,"
+               " so %s ice cannot convert to snow. See the note at t_00_ch4.\n",
+               gas, t_low, t_frz, gas);
+}
+
 inline void PrecipitationSat::run(){
     std::cout << std::endl << "      ATSAT: PrecipitationSat (H2O+NH3+CH4 3-cat + NH4SH settling)" << std::endl;
     auto begin = std::chrono::high_resolution_clock::now();
 
     // Zero the shared latent-heat diagnostic; each species adds into it.
-    #pragma omp parallel for collapse(2) schedule(static)
-    for(int i = 0; i < m.im; i++)
-        for(int j = 0; j < m.jm; j++)
-            for(int k = 0; k < m.km; k++)
-                m.Q_precip.x[i][j][k] = 0.0;
+    // Q_precip and the nine moisture source terms: column() writes them per cell, so a cell it
+    // does not reach this iteration must not keep last iteration's rate.
+    Array* zero_me[] = { &m.Q_precip,
+        &m.S_precip_h2o, &m.S_precip_h2o_cloud, &m.S_precip_h2o_ice,
+        &m.S_precip_nh3, &m.S_precip_nh3_cloud, &m.S_precip_nh3_ice,
+        &m.S_precip_ch4, &m.S_precip_ch4_cloud, &m.S_precip_ch4_ice };
+    for(Array* a : zero_me){
+        #pragma omp parallel for collapse(2) schedule(static)
+        for(int i = 0; i < m.im; i++)
+            for(int j = 0; j < m.jm; j++)
+                for(int k = 0; k < m.km; k++)
+                    a->x[i][j][k] = 0.0;
+    }
 
     // --- H2O three-category ---
     Species h2o;
@@ -133,6 +165,8 @@ inline void PrecipitationSat::run(){
     // coefficients; the fix is to give ATSAT the ice pair, a parameter decision and not a port.
     h2o.C_i = m.C_h2o; h2o.L0_i = m.L0_h2o; h2o.del_alf_i = m.del_alf_h2o; h2o.del_bet_i = m.del_bet_h2o;
     h2o.ep = m.ep_h2o; h2o.Lv = m.lv_h2o; h2o.Ls = m.ls_h2o; h2o.t_frz = m.t_0_h2o; h2o.t_low = m.t_00_h2o;
+    h2o.S_v = &m.S_precip_h2o; h2o.S_c = &m.S_precip_h2o_cloud; h2o.S_i = &m.S_precip_h2o_ice;
+    check_phase_order("H2O", h2o.t_frz, h2o.t_low);
     column(h2o);
 
     // --- NH3 three-category (Saturn's main visible cloud deck) ---
@@ -142,6 +176,8 @@ inline void PrecipitationSat::run(){
     nh3.C = m.C_nh3; nh3.L0 = m.L0_nh3; nh3.R = m.R_nh3; nh3.del_alf = m.del_alf_nh3; nh3.del_bet = m.del_bet_nh3;
     nh3.C_i = m.C_nh3; nh3.L0_i = m.L0_nh3; nh3.del_alf_i = m.del_alf_nh3; nh3.del_bet_i = m.del_bet_nh3;   // see the note above
     nh3.ep = m.ep_nh3; nh3.Lv = m.lv_nh3; nh3.Ls = m.ls_nh3; nh3.t_frz = m.t_0_nh3; nh3.t_low = m.t_00_nh3;
+    nh3.S_v = &m.S_precip_nh3; nh3.S_c = &m.S_precip_nh3_cloud; nh3.S_i = &m.S_precip_nh3_ice;
+    check_phase_order("NH3", nh3.t_frz, nh3.t_low);
     column(nh3);
 
     // --- CH4 three-category ---
@@ -161,6 +197,8 @@ inline void PrecipitationSat::run(){
     ch4.C = m.C_ch4; ch4.L0 = m.L0_ch4; ch4.R = m.R_ch4; ch4.del_alf = m.del_alf_ch4; ch4.del_bet = m.del_bet_ch4;
     ch4.C_i = m.C_ch4_ice; ch4.L0_i = m.L0_ch4_ice; ch4.del_alf_i = m.del_alf_ch4_ice; ch4.del_bet_i = m.del_bet_ch4_ice;
     ch4.ep = m.ep_ch4; ch4.Lv = m.lv_ch4; ch4.Ls = m.ls_ch4; ch4.t_frz = m.t_0_ch4; ch4.t_low = m.t_00_ch4;
+    ch4.S_v = &m.S_precip_ch4; ch4.S_c = &m.S_precip_ch4_cloud; ch4.S_i = &m.S_precip_ch4_ice;
+    check_phase_order("CH4", ch4.t_frz, ch4.t_low);
     column(ch4);
 
     // --- NH4SH crystal sedimentation ---
@@ -298,12 +336,37 @@ inline void PrecipitationSat::column(const Species& s){
                                        - s.Lv * F_ev / dz;
 
                 // --- bounded depletion of the condensate that fed the conversions ---
+                // TWO WAYS TO APPLY IT, and only one of them survives. Mirrored from ATJUP.
+                //
+                // Writing the depleted value straight into the field (the `else` below) is what
+                // this scheme has always done, and the Runge-Kutta throws it away: RHSSat runs
+                // before it in the same iteration, but the integration is X = Xn + dt*(...) with
+                // Xn the copy restoreVar() made at the END OF THE PREVIOUS iteration, which
+                // predates this call. So the depleted value is overwritten a few lines later and
+                // only the stage-1 right-hand side ever sees it. Measured on ATSAT: max
+                // h2o_cloud over 50 iterations is 113.254038 with precipitation off and
+                // 113.253984 with it on. The rain fell and the cloud never noticed.
+                //
+                // With the coupling on the depletion is reported as a RATE instead, and RHSSat
+                // adds it to the moisture equations where the Runge-Kutta integrates it like any
+                // other tendency. tau = dz/v_fall is the residence time of the falling
+                // hydrometeors, NOT the model timestep, so d_c/tau is the conversion rate
+                // itself, capped so it cannot remove more than the condensate present within one
+                // residence time. Nondimensionalisation is L_atm[m]/u_0, the model's time unit,
+                // the same factor the latent-heat half uses.
                 const double tau = dz / v_fall;              // residence time of falling hydrometeors
                 const double d_c = std::min(dep_frac * q_c, (S_c_au + S_ac + S_s_rim + S_g_rim + S_csg) * tau);
                 const double d_i = std::min(dep_frac * q_i,  S_i_au * tau);
-                s.cloud->x[i][j][k]  = q_c - std::max(0.0, d_c);
-                s.ice->x[i][j][k]    = q_i - std::max(0.0, d_i);
-                s.vapour->x[i][j][k] = q_v + S_ev * tau;
+                if(coupling_on()){
+                    const double nd = (m.L_atm * 1.0e3) / m.u_0;   // physical rate -> nondimensional
+                    s.S_c->x[i][j][k] = - std::max(0.0, d_c) / tau * nd;
+                    s.S_i->x[i][j][k] = - std::max(0.0, d_i) / tau * nd;
+                    s.S_v->x[i][j][k] = + S_ev * nd;
+                }else{
+                    s.cloud->x[i][j][k]  = q_c - std::max(0.0, d_c);
+                    s.ice->x[i][j][k]    = q_i - std::max(0.0, d_i);
+                    s.vapour->x[i][j][k] = q_v + S_ev * tau;
+                }
 
                 // --- flux integration: incoming + phase handoff + local sources ---
                 const double F_r = F_r_in - F_r_frz + F_s_melt + F_g_melt - F_ev

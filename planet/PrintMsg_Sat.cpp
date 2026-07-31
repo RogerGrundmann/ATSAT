@@ -62,6 +62,16 @@ void cSaturnModel::printMinMax(){
 //    searchMinMax_3D(" max 3D cloudiness_h2o ", " min 3D cloudiness_h2o ", "[/]", cloudiness_h2o, 1.0);
     cout << endl;
 
+    // CH4 was never printed at all — the fields existed, condensed and (until t_00_ch4 was
+    // corrected) accumulated without a sink, and none of it appeared in any log. That is how a
+    // 45.6 g/m3 methane ice deck with zero methane snow stayed invisible until someone read the
+    // .vtk by hand.
+    cout << endl << " Methane " << endl;
+    searchMinMax_3D(" max 3D ch4 ",  " min 3D ch4 ", "g/m³", ch4, 1e3 * r_mix);
+    searchMinMax_3D(" max 3D ch4_cloud ", " min 3D ch4_cloud ", "g/m³", ch4_cloud, 1e3 * r_mix);
+    searchMinMax_3D(" max 3D ch4_ice ", " min 3D ch4_ice ", "g/m³", ch4_ice, 1e3 * r_mix);
+    cout << endl;
+
     cout << endl << " Hydrogen Sulfide " << endl;
     searchMinMax_3D(" max 3D h2s ",  " min 3D h2s ", "g/m³", h2s, 1e3 * r_mix);
     searchMinMax_3D(" max 3D w_h2s ", " min 3D w_h2s ", " g/m³s", w_h2s, 1e3 * r_mix);

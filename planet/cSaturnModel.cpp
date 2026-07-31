@@ -736,6 +736,15 @@ void cSaturnModel::resetArrays(){
     P_nh3_rain.initArray(im, jm, km, 0.0);
     P_nh3_snow.initArray(im, jm, km, 0.0);
     P_nh3_graupel.initArray(im, jm, km, 0.0);
+    S_precip_h2o.initArray(im, jm, km, 0.0);        // precipitation source terms, moisture eqs
+    S_precip_h2o_cloud.initArray(im, jm, km, 0.0);
+    S_precip_h2o_ice.initArray(im, jm, km, 0.0);
+    S_precip_nh3.initArray(im, jm, km, 0.0);
+    S_precip_nh3_cloud.initArray(im, jm, km, 0.0);
+    S_precip_nh3_ice.initArray(im, jm, km, 0.0);
+    S_precip_ch4.initArray(im, jm, km, 0.0);
+    S_precip_ch4_cloud.initArray(im, jm, km, 0.0);
+    S_precip_ch4_ice.initArray(im, jm, km, 0.0);
     P_ch4_rain.initArray(im, jm, km, 0.0);
     P_ch4_snow.initArray(im, jm, km, 0.0);
     P_ch4_graupel.initArray(im, jm, km, 0.0);

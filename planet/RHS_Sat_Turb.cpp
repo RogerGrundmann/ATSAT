@@ -594,7 +594,11 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 // inflate the heating by r_mix/rho_local, which at Saturn's cloud decks is a large factor in the
 // wrong direction. PrecipitationSat.h states the same convention at its own site.
     static const double precip_coupling = [](){
-        const char* e = getenv("ATSAT_PRECIP_COUPLING"); return e ? atof(e) : 0.0; }();
+        // DEFAULT 1.0 since 2026-07-31. It gates BOTH halves of the coupling: this latent-heat
+        // term and the condensate depletion PrecipitationSat reports into S_precip_* below.
+        // They are one physical statement — the heat a conversion releases and the mass it
+        // moved must enter the model together, or the budget is inconsistent by construction.
+        const char* e = getenv("ATSAT_PRECIP_COUPLING"); return e ? atof(e) : 1.0; }();
     double precip_t = 0.0;
     if(precip_coupling != 0.0){
         const double L_rad = L_atm * 1.0e3;                    // shell thickness [m]
@@ -688,29 +692,39 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         + diffusion_w/re + diffusion_w * nue_t
         - Coriolis * Coriolis_phi;
 
+    // The precipitation source terms. Zero unless ATSAT_PRECIP and ATSAT_PRECIP_COUPLING
+    // are both on; the _cloud and _ice terms are negative (condensate leaving as rain, snow
+    // and graupel) and the vapour term positive (rain evaporating back on the way down).
+    // They arrive already nondimensional — see the writeback in PrecipitationSat.h.
     rhs_ch4.x[i][j][k] =
         - transport_ch4
-        + diffusion_ch4/(sc_ch4 * re) + diffusion_ch4 * nue_t_s;
+        + diffusion_ch4/(sc_ch4 * re) + diffusion_ch4 * nue_t_s
+        + precip_coupling * S_precip_ch4.x[i][j][k];
 
     rhs_ch4_cloud.x[i][j][k] =
         - transport_ch4_cloud
-        + diffusion_ch4_cloud/(sc_ch4 * re) + diffusion_ch4_cloud * nue_t_s;
+        + diffusion_ch4_cloud/(sc_ch4 * re) + diffusion_ch4_cloud * nue_t_s
+        + precip_coupling * S_precip_ch4_cloud.x[i][j][k];
 
     rhs_ch4_ice.x[i][j][k] =
         - transport_ch4_ice
-        + diffusion_ch4_ice/(sc_ch4 * re) + diffusion_ch4_ice * nue_t_s;
+        + diffusion_ch4_ice/(sc_ch4 * re) + diffusion_ch4_ice * nue_t_s
+        + precip_coupling * S_precip_ch4_ice.x[i][j][k];
 
     rhs_h2o.x[i][j][k] =
         - transport_h2o
-        + diffusion_h2o/(sc_h2o * re) + diffusion_h2o * nue_t_s;
+        + diffusion_h2o/(sc_h2o * re) + diffusion_h2o * nue_t_s
+        + precip_coupling * S_precip_h2o.x[i][j][k];
 
     rhs_h2o_cloud.x[i][j][k] =
         - transport_h2o_cloud
-        + diffusion_h2o_cloud/(sc_h2o * re) + diffusion_h2o_cloud * nue_t_s;
+        + diffusion_h2o_cloud/(sc_h2o * re) + diffusion_h2o_cloud * nue_t_s
+        + precip_coupling * S_precip_h2o_cloud.x[i][j][k];
 
     rhs_h2o_ice.x[i][j][k] =
         - transport_h2o_ice
-        + diffusion_h2o_ice/(sc_h2o * re) + diffusion_h2o_ice * nue_t_s;
+        + diffusion_h2o_ice/(sc_h2o * re) + diffusion_h2o_ice * nue_t_s
+        + precip_coupling * S_precip_h2o_ice.x[i][j][k];
 
     rhs_h2s.x[i][j][k] =
         - transport_h2s
@@ -722,15 +736,18 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         - transport_nh3
         + diffusion_nh3/(sc_nh3 * re) + diffusion_nh3 * nue_t_s
 //        + chemical_reaction * w_nh3.x[i][j][k];
-        + chemical_reaction * massflux_nh3.x[i][j][k];
+        + chemical_reaction * massflux_nh3.x[i][j][k]
+        + precip_coupling * S_precip_nh3.x[i][j][k];
 
     rhs_nh3_cloud.x[i][j][k] =
         - transport_nh3_cloud
-        + diffusion_nh3_cloud/(sc_nh3 * re) + diffusion_nh3_cloud * nue_t_s;
+        + diffusion_nh3_cloud/(sc_nh3 * re) + diffusion_nh3_cloud * nue_t_s
+        + precip_coupling * S_precip_nh3_cloud.x[i][j][k];
 
     rhs_nh3_ice.x[i][j][k] =
         - transport_nh3_ice
-        + diffusion_nh3_ice/(sc_nh3 * re) + diffusion_nh3_ice * nue_t_s;
+        + diffusion_nh3_ice/(sc_nh3 * re) + diffusion_nh3_ice * nue_t_s
+        + precip_coupling * S_precip_nh3_ice.x[i][j][k];
 
     rhs_nh4sh.x[i][j][k] =
         - transport_nh4sh

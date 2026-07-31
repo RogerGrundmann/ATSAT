@@ -221,7 +221,7 @@ void cSaturnModel::paraview_panorama_vts(int n){
 
     dump_array("PressureDyn", p_dyn, 1.0, Saturn_panorama_vts_File);
 //    dump_array("PressureStat", p_stat, 1.0, Saturn_panorama_vts_File);
-//    dump_array("Density", rho, 1.0, Saturn_panorama_vts_File);
+//    dump_array("rho_mix", rho_mix, 1.0, Saturn_panorama_vts_File);
 
     dump_array("CoriolisForce", CoriolisForce, 1.0, Saturn_panorama_vts_File);
 //    dump_array("CentrifugalForce", CentrifugalForce, 1e3, Saturn_panorama_vts_File);
@@ -504,7 +504,7 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
 
     dump_zonal("PressureDyn", p_dyn, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("PressureStat", p_stat, 1.0, k_zonal, Saturn_vtk_zonal_File);
-    dump_zonal("Density", rho, 1.0, k_zonal, Saturn_vtk_zonal_File);
+    dump_zonal("rho_mix", rho_mix, 1.0, k_zonal, Saturn_vtk_zonal_File);
 
     dump_zonal("CoriolisForce", CoriolisForce, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("CentrifugalForce", CentrifugalForce, 1e3, k_zonal, Saturn_vtk_zonal_File);
@@ -619,7 +619,7 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
 
     dump_longal("PressureDyn", p_dyn, 1.0, j_longal, Saturn_vtk_longal_File);
     dump_longal("PressureStat", p_stat, 1.0, j_longal, Saturn_vtk_longal_File);
-//    dump_longal("Density", rho, 1.0, j_longal, Saturn_vtk_longal_File);
+//    dump_longal("rho_mix", rho_mix, 1.0, j_longal, Saturn_vtk_longal_File);
 
     dump_longal("CoriolisForce", CoriolisForce, 1.0, j_longal, Saturn_vtk_longal_File);
     dump_longal("CentrifugalForce", CentrifugalForce, 1e3, j_longal, Saturn_vtk_longal_File);
