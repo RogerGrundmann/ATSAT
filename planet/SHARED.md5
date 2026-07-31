@@ -11,3 +11,4 @@
 # header), and rebuild each. If that ever becomes tedious enough to resent, that is the signal to
 # promote them to a shared repository.
 8ba1d3aaa23fe9f096f7d85cb962f089  planet/ConvectiveAdjustment.h
+7a5f2ed1c4687db310c07a573f717d0d  planet/Turbulence.h

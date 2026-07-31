@@ -57,14 +57,11 @@ class cSaturnModel{
     friend class SaturationAdjustmentSat;
     friend class BC_Sat;
     friend class VelocityInitializerSat;
-    // The shared physics headers are templates on the model class, so friendship is granted
-    // to the TEMPLATE. A `friend class Xsat;` here would also declare a class of that name
-    // and collide with the typedef in the binding header.
     template<class M> friend class ConvectiveAdjustment;
     friend class RadiationSat;
     friend class ThermalWindDiagSat;
     friend class PrecipitationSat;
-    friend class TurbulenceSat;
+    template<class M> friend class Turbulence;
 
 public:
 
@@ -194,6 +191,18 @@ public:
     // build their environment-variable names (ATSAT_CONV_ADJ_LAPSE and so on). It is the
     // only thing those files know about which planet they are running on.
     static const char* planet_tag(){ return "ATSAT"; }
+
+    // ---- The surface of a column, for the SHARED physics headers ----
+    //
+    // ATSAT HAS NO OBSTACLE — BC_seamount is never called and i_topography is declared but never
+    // sized, so it must not be read. Every column starts at i = 0 and no cell is solid.
+    //
+    // Every shared header reaches the topography through these two and never touches SeaMount or
+    // i_topography directly, which is what lets one implementation serve a model with an obstacle
+    // and one without. They were extracted when Turbulence was shared: all six real differences
+    // between TurbulenceJup.h and TurbulenceSat.h were this one concept, spelled out inline.
+    int  surface_index(int, int) const { return 0; }
+    bool is_solid(int, int, int) const { return false; }
 
     static double sinthe_min(){
         static const double v = [](){
