@@ -43,7 +43,10 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     // All geometric quantities come from the precomputed struct —
     // NO sin(), cos(), division, or reciprocal computation here.
     const double rm                   = geo.rm;
-    const double sinthe               = geo.sinthe;
+    // geo.sinthe — the one the polar floor would act on — is deliberately not aliased here. With
+    // the Coriolis terms on sinthe_true it has no consumer left that is not a metric group:
+    // everything below reaches it through inv_rmsinthe / inv_rm2sinthe2 / geo.sinthe2, where a
+    // floor belongs. A bare sinthe in a new term is now a compile error rather than a silent one.
     const double costhe               = geo.costhe;
     const double cotanthe             = geo.cotanthe;
     const double inv_rm               = geo.inv_rm;
@@ -286,10 +289,19 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 //
 // The radial component was already right, and is unchanged. ATJUP carries the same two errors in
 // the same two lines (RHS_Jup_Turb.cpp) — they are not an ATSAT-only drift.
-    double Coriolis_rad = nd_cor * -2.0 * omega * sinthe * w_ijk;
+//
+// The sine is the TRUE one, reconstructed from the cosine, for the same reason the centrifugal
+// block below gives: a metric floor has no business in a body force. In ATSAT the two are equal
+// today, because RungeKuttaSat builds its sine table with no floor (ATSAT_SINTHE_MIN default
+// 0.0). But that knob exists so that ATJUP's polar metric can be tried here, and turning it on
+// must change the METRIC only. Floored at ATJUP's 0.55 the Coriolis sine would be too large
+// across everything poleward of 56.6 deg latitude — 16.5 % of the sphere — and would still be
+// 0.55 at j=2, the innermost integrated row, where the true sine is 0.035.
+    const double sinthe_true = std::sqrt(std::max(0.0, 1.0 - costhe * costhe));
+    double Coriolis_rad = nd_cor * -2.0 * omega * sinthe_true * w_ijk;
     double Coriolis_the = nd_cor * -2.0 * omega * costhe * w_ijk;
     double Coriolis_phi = nd_cor * +2.0 * omega * (+ costhe * v_ijk
-        + sinthe * u_ijk);
+        + sinthe_true * u_ijk);
 
 
 // ===== influence of the centrifugal force =====
@@ -316,8 +328,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 // ATJUP's table IS floored for the 1/sin^2 metric divisions, and such a floor has no business
 // in a body force; writing it this way means that if ATSAT ever floors its metric sine the
 // force does not silently inherit it. theta runs 0..pi so sin(theta) >= 0 and the positive
-// root is the right one.
-    const double sinthe_true = std::sqrt(std::max(0.0, 1.0 - costhe * costhe));
+// root is the right one. It is computed once, up with the Coriolis terms that share the reason.
     double centrifugal_rad = nd_cent * omega * omega * rm * sinthe_true * sinthe_true;
     double centrifugal_the = nd_cent * omega * omega * rm * sinthe_true * costhe;
 
