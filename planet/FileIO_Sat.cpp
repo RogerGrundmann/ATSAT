@@ -523,20 +523,35 @@ void cSaturnModel::clampNegativeSpecies(){
     if((int)clamp_added.size() != nf){
         clamp_added.assign(nf, 0.0);
         clamp_cells.assign(nf, 0);
+        clamp_added_bnd.assign(nf, 0.0);
+        clamp_cells_bnd.assign(nf, 0);
     }
 
     for(int f = 0; f < nf; f++){
         Array& F = *fields[f];
-        double added = 0.0;
-        long   cells = 0;
-        #pragma omp parallel for collapse(2) schedule(static) reduction(+:added,cells)
+        double added = 0.0, added_bnd = 0.0;
+        long   cells = 0,   cells_bnd = 0;
+        #pragma omp parallel for collapse(2) schedule(static) \
+                reduction(+:added,cells,added_bnd,cells_bnd)
         for(int i = 0; i < im; i++){
             for(int j = 0; j < jm; j++){
                 for(int k = 0; k < km; k++){
                     const double v = F.x[i][j][k];
                     // Written as !(v >= 0.0) so a NaN is caught here too rather than carried on.
                     if(!(v >= 0.0)){
-                        if(std::isfinite(v)){ added -= v; cells++; }
+                        if(std::isfinite(v)){
+                            added -= v; cells++;
+                            // The two radial boundary planes are not integrated: bcRadius sets
+                            // them by f[s] = (4/3)f[a] - (1/3)f[b], which returns a NEGATIVE
+                            // value whenever f[a] < f[b]/4 — wherever the field decays steeply
+                            // towards the boundary. That is extrapolation overshoot, not
+                            // transport undershoot, and conflating the two cost an entire
+                            // investigation on 2026-07-31: ATSAT's ch4_ice clipped 1848 % of its
+                            // own mass over 200 iterations and read as a runaway source, when 86
+                            // of the 181 cells on the top plane alone accounted for it and the
+                            // field itself was changing by 0.15 %.
+                            if(i == 0 || i == im-1){ added_bnd -= v; cells_bnd++; }
+                        }
                         F.x[i][j][k] = 0.0;
                     }
                 }
@@ -544,6 +559,8 @@ void cSaturnModel::clampNegativeSpecies(){
         }
         clamp_added[f] += added;
         clamp_cells[f] += cells;
+        clamp_added_bnd[f] += added_bnd;
+        clamp_cells_bnd[f] += cells_bnd;
     }
 }
 
@@ -572,10 +589,12 @@ void cSaturnModel::reportClampBudget(){
             for(int j = 0; j < jm; j++)
                 for(int k = 0; k < km; k++)
                     if(fields[f]->x[i][j][k] > 0.0) pos += fields[f]->x[i][j][k];
-        printf("        %-12s gross %.4e over %10ld clippings = %8.4f %% of the current"
-               " field mass (gross, not net — see the note in FileIO_Sat.cpp)\n",
+printf("        %-12s gross %.4e over %10ld clippings = %8.4f %% of the current"
+               " field mass;  %5.1f %% of it on the radial boundary planes (%ld cells)\n",
                names[f], clamp_added[f], clamp_cells[f],
-               (pos > 0.0) ? 100.0 * clamp_added[f] / pos : 0.0);
+               (pos > 0.0) ? 100.0 * clamp_added[f] / pos : 0.0,
+               (clamp_added[f] > 0.0) ? 100.0 * clamp_added_bnd[f] / clamp_added[f] : 0.0,
+               clamp_cells_bnd[f]);
     }
 }
 /*
