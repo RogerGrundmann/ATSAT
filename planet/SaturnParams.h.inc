@@ -14,6 +14,8 @@ bool paraview_flag;
 int nm;
 int checkpoint;
 int panorama_print;
+int checkpoint_save_iter;
+int restart_from_iter;
 double Coriolis;
 double centrifugal;
 double buoyancy;

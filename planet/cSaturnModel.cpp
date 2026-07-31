@@ -459,7 +459,17 @@ void cSaturnModel::Run(){
 
     if(turb_active) TurbulenceSat(*this).init();
 
-    for(iter_n = 1; iter_n <= nm; iter_n++){
+    // ---- Restart, if one was asked for and can be read ----
+    // The loop resumes at restart_from_iter+1, so the PARITY of iter_n is preserved and the
+    // physics block (which runs on even iterations) lands where it would have in one long run.
+    // A missing or mismatched file is not fatal: load_state says so and the run starts from
+    // scratch, because that is almost always what one wants at the end of a long queue.
+    int iter_start = 1;
+    if(restart_from_iter >= 0 && load_state(restart_from_iter)){
+        iter_start = restart_from_iter + 1;
+    }
+
+    for(iter_n = iter_start; iter_n <= nm; iter_n++){
 
         auto begin = std::chrono::high_resolution_clock::now();
 
@@ -538,6 +548,12 @@ void cSaturnModel::Run(){
         BC_Sat(*this).bcPhi();
         BC_Sat(*this).bcRadius();
 
+        // Floor the species at zero before the n-level copies are refreshed, so the clamped
+        // values are what the next Runge-Kutta step starts from. After the boundary conditions,
+        // because the (4/3,-1/3) extrapolation at the radial planes is one of the two sources of
+        // the undershoot. See FileIO_Sat.cpp for the measurement.
+        clampNegativeSpecies();
+
         restoreVar(1.0);
 
         // After the state has been advanced and the boundaries applied: put any superadiabatic
@@ -565,6 +581,28 @@ void cSaturnModel::Run(){
         // iterations in between.
         if(nancheck_on() && iter_n % checkpoint == 0) nan_watch(iter_n);
 
+        // ---- Binary restart checkpoints ----
+        // One explicit dump at checkpoint_save_iter, plus a periodic one every
+        // restart_save_stride iterations, which is ATJUP's arrangement and its stride of 100.
+        // The periodic dump is written ONLY when the state is clean, so a diverged run can never
+        // overwrite a good restart point — being able to resume from it is the file's whole
+        // value. Written at the END of the iteration, after restoreVar has run, so the stored
+        // n-level copies are consistent with the fields they were built from.
+        if(checkpoint_save_iter >= 0 && iter_n == checkpoint_save_iter)
+            save_state(iter_n);
+
+        {
+            constexpr int restart_save_stride = 100;
+            if(restart_save_stride > 0 && iter_n > 0 && iter_n % restart_save_stride == 0
+               && iter_n != checkpoint_save_iter){
+                if(restart_state_is_clean())
+                    save_state(iter_n);
+                else
+                    cout << "      ATSAT: restart checkpoint SKIPPED at iter " << iter_n
+                         << " - non-finite cell present (state not clean)" << endl;
+            }
+        }
+
         if(panorama_cnt == panorama_print) panorama_cnt = 1;
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -591,6 +629,7 @@ void cSaturnModel::resetArrays(){
     LatentHeat.initArray_2D(jm, km, 0.0);            // areas of higher latent heat
     precip_srf_h2o.initArray_2D(jm, km, 0.0);
     precip_srf_nh3.initArray_2D(jm, km, 0.0);
+    precip_srf_ch4.initArray_2D(jm, km, 0.0);
     precip_srf_nh4sh.initArray_2D(jm, km, 0.0);
     precip_srf_total.initArray_2D(jm, km, 0.0);
     vel_star.initArray_2D(jm, km, 0.0);
@@ -667,6 +706,9 @@ void cSaturnModel::resetArrays(){
     P_nh3_rain.initArray(im, jm, km, 0.0);
     P_nh3_snow.initArray(im, jm, km, 0.0);
     P_nh3_graupel.initArray(im, jm, km, 0.0);
+    P_ch4_rain.initArray(im, jm, km, 0.0);
+    P_ch4_snow.initArray(im, jm, km, 0.0);
+    P_ch4_graupel.initArray(im, jm, km, 0.0);
     P_nh4sh.initArray(im, jm, km, 0.0);
     Q_precip.initArray(im, jm, km, 0.0);
     tke.initArray(im, jm, km, 0.0);

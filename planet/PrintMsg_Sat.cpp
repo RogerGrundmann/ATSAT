@@ -115,7 +115,10 @@ void cSaturnModel::printMinMax(){
     searchMinMax_3D(" max 3D P_rain ", " min 3D P_rain ", "kg/m2/s", P_rain, 1.0);
     searchMinMax_3D(" max 3D P_nh3_rain ", " min 3D P_nh3_rain ", "kg/m2/s", P_nh3_rain, 1.0);
     searchMinMax_3D(" max 3D Q_precip ", " min 3D Q_precip ", "W/m3", Q_precip, 1.0);
+    searchMinMax_3D(" max 3D P_ch4_rain ", " min 3D P_ch4_rain ", "kg/m2/s", P_ch4_rain, 1.0);
     cout << endl << endl;
+
+    reportClampBudget();
 }
 /*
 *

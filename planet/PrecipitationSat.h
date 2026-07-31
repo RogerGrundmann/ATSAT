@@ -1,6 +1,6 @@
 /*
  * Saturn Atmosphere Circulation Model (ATSAT)
- * Ice / precipitation microphysics — PHASE 3 (H2O, NH3, NH4SH).
+ * Ice / precipitation microphysics — PHASE 3 (H2O, NH3, CH4, NH4SH).
  *
  * Friend class of cSaturnModel (idiom of SaturationAdjustmentSat / RadiationSat).
  * PROVENANCE, AND WHAT OF IT IS MEASURED HERE. Ported from ATJUP's PrecipitationJup, which was
@@ -104,7 +104,7 @@ private:
 #include "SaturationAdjustmentSat.h"
 
 inline void PrecipitationSat::run(){
-    std::cout << std::endl << "      ATSAT: PrecipitationSat (H2O+NH3 3-cat + NH4SH settling)" << std::endl;
+    std::cout << std::endl << "      ATSAT: PrecipitationSat (H2O+NH3+CH4 3-cat + NH4SH settling)" << std::endl;
     auto begin = std::chrono::high_resolution_clock::now();
 
     // Zero the shared latent-heat diagnostic; each species adds into it.
@@ -143,6 +143,25 @@ inline void PrecipitationSat::run(){
     nh3.C_i = m.C_nh3; nh3.L0_i = m.L0_nh3; nh3.del_alf_i = m.del_alf_nh3; nh3.del_bet_i = m.del_bet_nh3;   // see the note above
     nh3.ep = m.ep_nh3; nh3.Lv = m.lv_nh3; nh3.Ls = m.ls_nh3; nh3.t_frz = m.t_0_nh3; nh3.t_low = m.t_00_nh3;
     column(nh3);
+
+    // --- CH4 three-category ---
+    //
+    // The third condensable, and until now the one the scheme ignored — in ATJUP too, from which
+    // this file was mirrored; both were fixed together. CH4 has vapour, cloud and ice fields, its
+    // own saturation-vapour-pressure pair and its own latent heats, and SaturationAdjustmentSat
+    // has been called for it on every iteration: it condensed, and the condensate then had
+    // nowhere to go, so the CH4 budget could only grow.
+    //
+    // This matters more on Saturn than on Jupiter. Saturn's upper troposphere is cold enough for
+    // methane to reach saturation, which is why the planet has a methane haze at all; Jupiter's
+    // is not, so ATJUP's CH4 fluxes are expected to stay at zero and ATSAT's are not.
+    Species ch4;
+    ch4.vapour = &m.ch4; ch4.cloud = &m.ch4_cloud; ch4.ice = &m.ch4_ice;
+    ch4.P_r = &m.P_ch4_rain; ch4.P_s = &m.P_ch4_snow; ch4.P_g = &m.P_ch4_graupel;
+    ch4.C = m.C_ch4; ch4.L0 = m.L0_ch4; ch4.R = m.R_ch4; ch4.del_alf = m.del_alf_ch4; ch4.del_bet = m.del_bet_ch4;
+    ch4.C_i = m.C_ch4_ice; ch4.L0_i = m.L0_ch4_ice; ch4.del_alf_i = m.del_alf_ch4_ice; ch4.del_bet_i = m.del_bet_ch4_ice;
+    ch4.ep = m.ep_ch4; ch4.Lv = m.lv_ch4; ch4.Ls = m.ls_ch4; ch4.t_frz = m.t_0_ch4; ch4.t_low = m.t_00_ch4;
+    column(ch4);
 
     // --- NH4SH crystal sedimentation ---
     sedimentNH4SH();
@@ -341,12 +360,16 @@ inline void PrecipitationSat::surfaceMap(){
             const double nh3_srf = m.P_nh3_rain.x[i_base][j][k]
                                  + m.P_nh3_snow.x[i_base][j][k]
                                  + m.P_nh3_graupel.x[i_base][j][k];
+            const double ch4_srf = m.P_ch4_rain.x[i_base][j][k]
+                                 + m.P_ch4_snow.x[i_base][j][k]
+                                 + m.P_ch4_graupel.x[i_base][j][k];
             const double nh4sh_srf = m.P_nh4sh.x[i_base][j][k];
 
             m.precip_srf_h2o.y[j][k]   = h2o_srf;
             m.precip_srf_nh3.y[j][k]   = nh3_srf;
+            m.precip_srf_ch4.y[j][k]   = ch4_srf;
             m.precip_srf_nh4sh.y[j][k] = nh4sh_srf;
-            m.precip_srf_total.y[j][k] = h2o_srf + nh3_srf + nh4sh_srf;
+            m.precip_srf_total.y[j][k] = h2o_srf + nh3_srf + ch4_srf + nh4sh_srf;
         }
     }
 }

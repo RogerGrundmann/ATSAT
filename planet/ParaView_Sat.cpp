@@ -77,6 +77,91 @@ namespace ParaViewSaturn{
         }
     }
 }
+
+// ===== The fields ATJUP's ParaView writes and ATSAT's did not =====
+//
+// Mirrored from ParaView_Jup.cpp: the mixture density, the radiation pair, the eight
+// precipitation fluxes and the six turbulence fields. Everything ATSAT already wrote is kept —
+// the NH3 condensate pair and the w_/j_/jT_/massflux_/difflux_ quintets have no counterpart in
+// ATJUP's writer, so this is the union of the two field sets and not a replacement.
+//
+// ONE list, not four. ATJUP repeats its field list once per slice writer, which is how its own
+// radial and zonal outputs came to disagree (the radial one has NH3Cloud commented out and the
+// zonal one does not). dump_radial, dump_zonal and dump_longal share a signature, so the list
+// lives here once and each writer passes its own dumper and slice index. Adding a field is one
+// line and it appears in every slice.
+//
+// UNITS. These streams run precision(4) with ios::fixed, so a raw SI value below 5e-5 prints as
+// 0.0000 and the field is lost. Three groups are therefore scaled, with the unit in the comment:
+//   - precipitation fluxes to mm/day (x86400 from kg/m2/s; 1 kg/m2 of water == 1 mm of depth),
+//   - Q_rad and Q_precip to mW/m3,
+//   - tke to m2/s2 (x u_0^2) and nue_t to m2/s (x u_0 * L_atm in metres).
+// dis stays DIMENSIONLESS on purpose: its conversion depends on which closure ran (eps* uses
+// u_0^3/L, omega* uses u_0/L) and the writer cannot know that. prod and the two source terms
+// are left dimensionless for the same reason; their range prints without loss.
+//
+// All of these are ZERO unless the module that fills them is switched on — ATSAT_PRECIP for the
+// P_* and Q_precip, ATSAT_TURB for the turbulence six, ATSAT_RADIATION for the radiation pair.
+// They are written regardless, so that a run with the knob off shows a field of zeros rather
+// than a missing array, which in ParaView looks the same as a broken writer.
+#define DUMP_EXTRA_FIELDS_3D(DUMP, IDX, F)                                    \
+    DUMP("rho_mix",       rho_mix,    1.0,     IDX, F);                       \
+    DUMP("Q_rad",         Q_rad,      1.0e3,   IDX, F);   /* mW/m3  */        \
+    DUMP("Radiation",     radiation,  1.0,     IDX, F);   /* W/m2   */        \
+    DUMP("P_rain",        P_rain,     86400.0, IDX, F);   /* mm/day */        \
+    DUMP("P_snow",        P_snow,     86400.0, IDX, F);                       \
+    DUMP("P_graupel",     P_graupel,  86400.0, IDX, F);                       \
+    DUMP("P_nh3_rain",    P_nh3_rain, 86400.0, IDX, F);                       \
+    DUMP("P_nh3_snow",    P_nh3_snow, 86400.0, IDX, F);                       \
+    DUMP("P_nh3_graupel", P_nh3_graupel, 86400.0, IDX, F);                    \
+    DUMP("P_ch4_rain",    P_ch4_rain, 86400.0, IDX, F);                       \
+    DUMP("P_ch4_snow",    P_ch4_snow, 86400.0, IDX, F);                       \
+    DUMP("P_ch4_graupel", P_ch4_graupel, 86400.0, IDX, F);                    \
+    DUMP("P_nh4sh",       P_nh4sh,    86400.0, IDX, F);                       \
+    DUMP("Q_precip",      Q_precip,   1.0e3,   IDX, F);   /* mW/m3  */        \
+    DUMP("tke",           tke,        u_0 * u_0, IDX, F); /* m2/s2  */        \
+    DUMP("disd",          dis,        1.0,     IDX, F);   /* nondimensional */\
+    DUMP("nue_t",         nue,        u_0 * L_atm * 1.0e3, IDX, F); /* m2/s */\
+    DUMP("prod",          prod,       1.0,     IDX, F);                       \
+    DUMP("tke_source",    tke_source, 1.0,     IDX, F);                       \
+    DUMP("dis_source",    dis_source, 1.0,     IDX, F);
+
+// The same list for the panorama .vts, whose dumper takes no slice index. The names carry their
+// unit as a suffix here because the .vts header has to name every scalar in one attribute
+// string, where a bare "P_rain" gives the reader no way to know it is not kg/m2/s. ATJUP's
+// panorama uses exactly these names; keeping them identical is what lets one ParaView state
+// file open a Jupiter and a Saturn panorama.
+#define DUMP_EXTRA_FIELDS_VTS(F)                                              \
+    dump_array("rho_mix",           rho_mix,       1.0,     F);               \
+    dump_array("Q_rad_mW_m3",       Q_rad,         1.0e3,   F);               \
+    dump_array("Radiation",         radiation,     1.0,     F);               \
+    dump_array("P_rain_mmd",        P_rain,        86400.0, F);               \
+    dump_array("P_snow_mmd",        P_snow,        86400.0, F);               \
+    dump_array("P_graupel_mmd",     P_graupel,     86400.0, F);               \
+    dump_array("P_nh3_rain_mmd",    P_nh3_rain,    86400.0, F);               \
+    dump_array("P_nh3_snow_mmd",    P_nh3_snow,    86400.0, F);               \
+    dump_array("P_nh3_graupel_mmd", P_nh3_graupel, 86400.0, F);               \
+    dump_array("P_ch4_rain_mmd",    P_ch4_rain,    86400.0, F);               \
+    dump_array("P_ch4_snow_mmd",    P_ch4_snow,    86400.0, F);               \
+    dump_array("P_ch4_graupel_mmd", P_ch4_graupel, 86400.0, F);               \
+    dump_array("P_nh4sh_mmd",       P_nh4sh,       86400.0, F);               \
+    dump_array("Q_precip_mW_m3",    Q_precip,      1.0e3,   F);               \
+    dump_array("tke_m2s2",          tke,           u_0 * u_0, F);             \
+    dump_array("dis_nd",            dis,           1.0,     F);               \
+    dump_array("nue_t_m2s",         nue,           u_0 * L_atm * 1.0e3, F);   \
+    dump_array("prod_nd",           prod,          1.0,     F);               \
+    dump_array("tke_source_nd",     tke_source,    1.0,     F);               \
+    dump_array("dis_source_nd",     dis_source,    1.0,     F);
+
+// The scalar names the .vts header must announce, in one place so the header and the writer
+// cannot drift apart. A name listed here but not written (or the reverse) is not an error
+// ParaView reports — it simply shows an empty array.
+#define PANORAMA_EXTRA_SCALARS                                                \
+    "rho_mix Q_rad_mW_m3 Radiation P_rain_mmd P_snow_mmd P_graupel_mmd "      \
+    "P_nh3_rain_mmd P_nh3_snow_mmd P_nh3_graupel_mmd "                        \
+    "P_ch4_rain_mmd P_ch4_snow_mmd P_ch4_graupel_mmd P_nh4sh_mmd "            \
+    "Q_precip_mW_m3 tke_m2s2 dis_nd nue_t_m2s prod_nd tke_source_nd "         \
+    "dis_source_nd "
 /*
  * 
 */
@@ -100,7 +185,8 @@ void cSaturnModel::paraview_panorama_vts(int n){
     Saturn_panorama_vts_File <<  "<VTKFile type=\"StructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"  << endl;
     Saturn_panorama_vts_File <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
     Saturn_panorama_vts_File <<  "  <Piece Extent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
-    Saturn_panorama_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDynamic PressureStatic CH4 CH4Cloud CH4Ice NH3 NH3Cloud NH3Ice H2O H2OCloud H2OIce Q_Latent Q_Sensible BuoyancyForce \">\n"  << endl;
+    Saturn_panorama_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDynamic PressureStatic CH4 CH4Cloud CH4Ice NH3 NH3Cloud NH3Ice H2O H2OCloud H2OIce Q_Latent Q_Sensible "
+        PANORAMA_EXTRA_SCALARS "BuoyancyForce \">\n"  << endl;
 
     Saturn_panorama_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" Name=\"Velocity\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
@@ -163,8 +249,10 @@ void cSaturnModel::paraview_panorama_vts(int n){
 //    dump_array("j_nh4sh", j_nh4sh, 1e3, Saturn_panorama_vts_File);
 //    dump_array("jT_nh4sh", jT_nh4sh, 1e3, Saturn_panorama_vts_File);
 
-//    dump_array("Q_Latent", Q_Latent, 1.0, Saturn_panorama_vts_File);
+    dump_array("Q_Latent", Q_Latent, 1.0, Saturn_panorama_vts_File);
 //    dump_array("Q_Sensible", Q_Sensible, 1.0, Saturn_panorama_vts_File);
+
+    DUMP_EXTRA_FIELDS_VTS(Saturn_panorama_vts_File)
 
     Saturn_panorama_vts_File <<  "   </PointData>\n" << endl;
     Saturn_panorama_vts_File <<  "   <Points>\n"  << endl;
@@ -293,6 +381,7 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
     dump_radial("PressureDyn", p_dyn, 1.0, i_radial, Saturn_vtk_radial_File);
     dump_radial("PressureStat", p_stat, 1.0, i_radial, Saturn_vtk_radial_File);
 //    dump_radial("Density", rho, 1.0, i_radial, Saturn_vtk_radial_File);
+    dump_radial("rho_mix", rho_mix, 1.0, i_radial, Saturn_vtk_radial_File);
 
     dump_radial("CoriolisForce", CoriolisForce, 1.0, i_radial, Saturn_vtk_radial_File);
     dump_radial("CentrifugalForce", CentrifugalForce, 1e3, i_radial, Saturn_vtk_radial_File);
@@ -301,6 +390,22 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
 
     dump_radial("Q_Latent", Q_Latent, 1.0, i_radial, Saturn_vtk_radial_File);
     dump_radial("Q_Sensible", Q_Sensible, 1.0, i_radial, Saturn_vtk_radial_File);
+    DUMP_EXTRA_FIELDS_3D(dump_radial, i_radial, Saturn_vtk_radial_File)
+
+    // All-species SURFACE precipitation map, mm/day. The fields above are sampled at this
+    // file's one altitude i_radial and so miss any deck that does not sit there; these are 2D
+    // and always taken at the base of the column, so they are the condensate mass flux actually
+    // arriving at the bottom, with its per-species breakdown. A radial slice is a (j,k) plane,
+    // which is the shape of these arrays — that is why they appear here and not in the zonal or
+    // longitudinal writers.
+    dump_radial_2d("Precip_total", precip_srf_total, 86400.0, Saturn_vtk_radial_File);
+    dump_radial_2d("Precip_h2o",   precip_srf_h2o,   86400.0, Saturn_vtk_radial_File);
+    dump_radial_2d("Precip_nh3",   precip_srf_nh3,   86400.0, Saturn_vtk_radial_File);
+    dump_radial_2d("Precip_ch4",   precip_srf_ch4,   86400.0, Saturn_vtk_radial_File);
+    dump_radial_2d("Precip_nh4sh", precip_srf_nh4sh, 86400.0, Saturn_vtk_radial_File);
+
+    // Per-column friction velocity u_tau, from TurbulenceSat::compute_vel_star.
+    dump_radial_2d("vel_star_ms", vel_star, 1.0, Saturn_vtk_radial_File);
 
     Saturn_vtk_radial_File <<  "VECTORS v-w-Cell float " << endl;
     for(int j = 0; j < jm; j++){
@@ -417,6 +522,7 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
 
     dump_zonal("Q_Latent", Q_Latent, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("Q_Sensible", Q_Sensible, 1.0, k_zonal, Saturn_vtk_zonal_File);
+    DUMP_EXTRA_FIELDS_3D(dump_zonal, k_zonal, Saturn_vtk_zonal_File)
 
     Saturn_vtk_zonal_File <<  "VECTORS u-v-Cell float" << endl;
     for(int i = 0; i < im; i++){
@@ -536,6 +642,7 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
 
     dump_longal("Q_Latent", Q_Latent, 1.0, j_longal, Saturn_vtk_longal_File);
     dump_longal("Q_Sensible", Q_Sensible, 1.0, j_longal, Saturn_vtk_longal_File);
+    DUMP_EXTRA_FIELDS_3D(dump_longal, j_longal, Saturn_vtk_longal_File)
 
     Saturn_vtk_longal_File <<  "VECTORS u-w-Cell float" << endl;
     for(int i = 0; i < im; i++){

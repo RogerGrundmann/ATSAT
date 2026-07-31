@@ -15,6 +15,8 @@ void cSaturnModel::SetDefaultConfig() {
   nm = 224;
   checkpoint = 8;
   panorama_print = 32;
+  checkpoint_save_iter = -1;
+  restart_from_iter = -1;
   Coriolis = 1;
   centrifugal = 1;
   buoyancy = 1;

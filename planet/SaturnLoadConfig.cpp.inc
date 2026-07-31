@@ -19,6 +19,8 @@
     Config::FillIntWithElement(elem_saturn, "nm", nm);
     Config::FillIntWithElement(elem_saturn, "checkpoint", checkpoint);
     Config::FillIntWithElement(elem_saturn, "panorama_print", panorama_print);
+    Config::FillIntWithElement(elem_saturn, "checkpoint_save_iter", checkpoint_save_iter);
+    Config::FillIntWithElement(elem_saturn, "restart_from_iter", restart_from_iter);
     Config::FillDoubleWithElement(elem_saturn, "Coriolis", Coriolis);
     Config::FillDoubleWithElement(elem_saturn, "centrifugal", centrifugal);
     Config::FillDoubleWithElement(elem_saturn, "buoyancy", buoyancy);

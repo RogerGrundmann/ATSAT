@@ -10,6 +10,9 @@
 #include "cSaturnModel.h"
 #include "Utils.h"
 
+#include <vector>
+#include <cstdint>
+
 using namespace std;
 using namespace AtomUtils;
 
@@ -31,7 +34,16 @@ void cSaturnModel::writeData(){
 //    int k_zonal = 0;
     paraview_vtk_zonal(iter_n, k_zonal);
 
-    if(paraview_flag && (iter_n % panorama_print == 0)){
+    // The full 3D panorama .vts, which is the only output carrying every field over the whole
+    // volume. It used to fire on panorama_print alone, which is a different cadence from the
+    // checkpoint that writes the .vtk slices and from the 100-iteration restart stride — so a
+    // run could produce slices at 100 and 200 and a panorama at neither, which is what the
+    // 2026-07-31 200-iteration run had to work around by switching panorama_print to 999.
+    // The 100-stride is added so the three output kinds land on the same iterations: with
+    // checkpoint = 100 a run now writes .vtk, .vts and .bin together at 100 and at 200.
+    // panorama_print is kept as an additional trigger so existing configurations still get
+    // what they asked for.
+    if(paraview_flag && (iter_n % panorama_print == 0 || iter_n % 100 == 0)){
         paraview_panorama_vts(iter_n);
 //        paraview_sphere_vts(iter_n);
     }
@@ -314,6 +326,258 @@ bool cSaturnModel::nan_watch(int iter){
     }
     if(any) printf("        total %ld non-finite cells\n", total);
     return !any;
+}
+/*
+*
+*/
+
+/*
+ * ===== Restart checkpoint (item 7 of the ATJUP/ATSAT gap list) =====
+ *
+ * Ported from cJupiterModel::save_state / load_state / restart_state_is_clean. ATSAT has had no
+ * restart of any kind: every run began at iteration 0 and any result past the first few hundred
+ * iterations had to be paid for again from scratch. The file is a raw dump — a 5-int header
+ * followed by the arrays, each written as im*jm contiguous rows of km doubles.
+ *
+ * Only the genuinely PROGNOSTIC arrays are stored, with the same reasoning as ATJUP: the
+ * reaction rates, the diffusive and thermal mass fluxes, the forces, the radiation and
+ * precipitation fluxes and the latent and sensible heat fields are all recomputed from these at
+ * the top of the next iteration, so storing them would add bulk and one more way for the file to
+ * disagree with itself.
+ *
+ * p_stat is stored although it is quasi-static: the buoyancy term and the whole saturation chain
+ * read it, and it has to match the temperature field it was built with.
+ *
+ * The magic is "SAT1", not ATJUP's "JUP1", so a Jupiter restart handed to ATSAT is rejected by
+ * the header check instead of being read as 41x181x361 doubles of nonsense — the two models
+ * have the same grid dimensions, so the dimension check alone would not catch it.
+ *
+ * NOT p_dynn, although ATJUP stores it. cSaturnModel DECLARES p_dynn and never allocates it:
+ * there is no p_dynn.initArray() anywhere in the model, so its data pointer is the NULL that
+ * Array's default constructor leaves. The one place that writes to it, PrintMsg_Sat.cpp:336 in
+ * steadyQuery(), is dead code — nothing in ATSAT or the CLI calls steadyQuery, which is the only
+ * reason that null dereference has never fired. Putting p_dynn in this list made it fire: the
+ * first 100-iteration checkpoint segfaulted in restart_state_is_clean. ATSAT does not maintain a
+ * previous-iteration copy of the dynamic pressure at all, so there is nothing here to store.
+ */
+std::vector<Array*> cSaturnModel::restart_arrays(){
+    return { &t,   &u,   &v,   &w,
+             &tn,  &un,  &vn,  &wn,
+             &h2o,  &h2o_cloud,  &h2o_ice,
+             &h2on, &h2o_cloudn, &h2o_icen,
+             &h2s,  &h2sn,
+             &nh3,  &nh3_cloud,  &nh3_ice,
+             &nh3n, &nh3_cloudn, &nh3_icen,
+             &ch4,  &ch4_cloud,  &ch4_ice,
+             &ch4n, &ch4_cloudn, &ch4_icen,
+             &nh4sh, &nh4shn,
+             &p_dyn, &p_stat,
+             &tke, &dis, &tken, &disn, &nue };
+}
+
+// Every array in restart_arrays() must actually own storage. An Array that was declared but
+// never initArray'd has x == NULL, and the three routines below walk these pointers without
+// looking — which is how p_dynn took down the first checkpoint. Checked once, on the first call,
+// and reported by index so the offending entry is identifiable without a debugger.
+static bool restart_arrays_allocated(const std::vector<Array*>& arrs, const char* who){
+    for(size_t a = 0; a < arrs.size(); a++){
+        if(arrs[a]->x == NULL){
+            printf("      ATSAT: %s ABORTED - restart array #%zu was never initArray'd"
+                   " (declared but not allocated); fix restart_arrays()\n", who, a);
+            return false;
+        }
+    }
+    return true;
+}
+
+void cSaturnModel::save_state(int iter){
+    const string fn = output_path + "/sat_restart_" + std::to_string(iter) + ".bin";
+    std::ofstream f(fn, std::ios::binary);
+    if(!f){
+        cout << "      ATSAT: save_state FAILED to open " << fn << endl;
+        return;
+    }
+    // Header: magic, grid dimensions, and the iteration this state belongs to. The grid is
+    // checked on load, so a restart written at another resolution is rejected rather than read
+    // as garbage.
+    const int32_t hdr[5] = { 0x53415431 /*"SAT1"*/, im, jm, km, iter };
+    f.write(reinterpret_cast<const char*>(hdr), sizeof(hdr));
+
+    std::vector<Array*> arrs = restart_arrays();
+    if(!restart_arrays_allocated(arrs, "save_state")) return;
+    for(size_t a = 0; a < arrs.size(); a++)
+        for(int i = 0; i < im; i++)
+            for(int j = 0; j < jm; j++)
+                f.write(reinterpret_cast<const char*>(arrs[a]->x[i][j]), km * sizeof(double));
+
+    if(!f){
+        cout << "      ATSAT: save_state FAILED while writing " << fn
+             << " (disk full?)" << endl;
+        return;
+    }
+    const double mb = (double)(sizeof(hdr) + arrs.size() * (size_t)im * jm * km * sizeof(double))
+                    / (1024.0 * 1024.0);
+    printf("      ATSAT: save_state wrote %zu arrays (%.1f MB) to %s\n",
+           arrs.size(), mb, fn.c_str());
+}
+
+bool cSaturnModel::load_state(int iter){
+    const string fn = output_path + "/sat_restart_" + std::to_string(iter) + ".bin";
+    std::ifstream f(fn, std::ios::binary);
+    if(!f){
+        cout << "      ATSAT: load_state: no file " << fn
+             << " - running from scratch" << endl;
+        return false;
+    }
+    int32_t hdr[5];
+    f.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
+    if(!f || hdr[0] != 0x53415431 || hdr[1] != im || hdr[2] != jm || hdr[3] != km){
+        cout << "      ATSAT: load_state: bad header / grid mismatch in " << fn
+             << " - running from scratch" << endl;
+        return false;
+    }
+
+    std::vector<Array*> arrs = restart_arrays();
+    if(!restart_arrays_allocated(arrs, "load_state")) return false;
+    for(size_t a = 0; a < arrs.size(); a++)
+        for(int i = 0; i < im; i++)
+            for(int j = 0; j < jm; j++){
+                f.read(reinterpret_cast<char*>(arrs[a]->x[i][j]), km * sizeof(double));
+                if(!f){
+                    cout << "      ATSAT: load_state: truncated file " << fn
+                         << " - running from scratch" << endl;
+                    return false;
+                }
+            }
+
+    cout << "      ATSAT: load_state restored " << arrs.size() << " arrays from "
+         << fn << " (resuming after iteration " << hdr[4] << ")" << endl;
+    return true;
+}
+
+// True when every serialised prognostic field is finite everywhere. This guards the periodic
+// checkpoint: a diverged state must never overwrite a good restart point, because being able to
+// resume from it is the file's whole value. The bit test is the one nan_watch uses above —
+// exponent all ones means inf or NaN whatever the payload, and unlike isfinite() it does not
+// depend on the compiler's floating-point flags. Which matters here: the ATSAT_DT=0.001 run of
+// 2026-07-31 was non-finite in 512797 cells at iteration 1 and would otherwise have written a
+// 1.2 GB file of NaN over its predecessor.
+bool cSaturnModel::restart_state_is_clean(){
+    std::vector<Array*> arrs = restart_arrays();
+    if(!restart_arrays_allocated(arrs, "restart_state_is_clean")) return false;
+    bool clean = true;
+    for(size_t a = 0; a < arrs.size() && clean; a++)
+        for(int i = 0; i < im && clean; i++)
+            for(int j = 0; j < jm && clean; j++)
+                for(int k = 0; k < km; k++){
+                    std::uint64_t bits;
+                    std::memcpy(&bits, &arrs[a]->x[i][j][k], sizeof(bits));
+                    if((bits & 0x7FF0000000000000ULL) == 0x7FF0000000000000ULL){
+                        clean = false;
+                        break;
+                    }
+                }
+    return clean;
+}
+/*
+*
+*/
+
+/*
+ * ===== Zero floor for the condensable species, with accounting =====
+ *
+ * Ported from cJupiterModel::clampNegativeSpecies. WHY IT IS NEEDED HERE, measured rather than
+ * assumed: the 200-iteration run of 2026-07-31 (config_run200.xml, default timestep) reports
+ *
+ *     min h2o    -0.000002 g/m3      min nh3   -0.0517 -> -0.0318 g/m3
+ *     min nh4sh  -0.0316 g/m3 at iteration 100, -0.0626 at iteration 200
+ *
+ * i.e. NH4SH's negative minimum DOUBLES over 100 iterations. A mass density below zero has no
+ * meaning, the saturation formulas take logarithms of these fields, and the chemistry multiplies
+ * two of them together — a negative concentration there produces a reaction rate with the wrong
+ * SIGN, which is a source where there should be a sink.
+ *
+ * The cause is the same one ATJUP identified: the centred differences of the transport terms
+ * undershoot wherever a species has a sharp edge, and the (4/3,-1/3) extrapolation at the radial
+ * boundary planes undershoots a field that is already essentially zero there. ATJUP measured the
+ * clipped amount as small enough that a plain floor is the right answer rather than a
+ * mass-conserving filler; the measurement for ATSAT is in the commit that adds this.
+ *
+ * A floor is in principle a mass SOURCE, so the clipped amount is accumulated per field and
+ * reported next to printMinMax rather than left invisible. Read that report as GROSS clipping,
+ * not net mass gained: the saturation adjustment re-partitions vapour and condensate on the next
+ * pass and hands most of it straight back. What the counter is FOR is the day that stops being
+ * true. ATSAT_NO_CLAMP=1 turns the floor off and restores the old behaviour exactly.
+ */
+void cSaturnModel::clampNegativeSpecies(){
+    static const int off = [](){ const char* e = getenv("ATSAT_NO_CLAMP"); return e ? atoi(e) : 0; }();
+    if(off) return;
+
+    Array* fields[] = {
+        &h2o, &h2o_cloud, &h2o_ice,
+        &h2s,
+        &nh3, &nh3_cloud, &nh3_ice,
+        &ch4, &ch4_cloud, &ch4_ice,
+        &nh4sh };
+    const int nf = (int)(sizeof(fields) / sizeof(fields[0]));
+
+    if((int)clamp_added.size() != nf){
+        clamp_added.assign(nf, 0.0);
+        clamp_cells.assign(nf, 0);
+    }
+
+    for(int f = 0; f < nf; f++){
+        Array& F = *fields[f];
+        double added = 0.0;
+        long   cells = 0;
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+:added,cells)
+        for(int i = 0; i < im; i++){
+            for(int j = 0; j < jm; j++){
+                for(int k = 0; k < km; k++){
+                    const double v = F.x[i][j][k];
+                    // Written as !(v >= 0.0) so a NaN is caught here too rather than carried on.
+                    if(!(v >= 0.0)){
+                        if(std::isfinite(v)){ added -= v; cells++; }
+                        F.x[i][j][k] = 0.0;
+                    }
+                }
+            }
+        }
+        clamp_added[f] += added;
+        clamp_cells[f] += cells;
+    }
+}
+
+// Companion report, called from printMinMax so it shares the checkpoint cadence.
+void cSaturnModel::reportClampBudget(){
+    static const char* const names[] = {
+        "h2o","h2o_cloud","h2o_ice","h2s","nh3","nh3_cloud","nh3_ice",
+        "ch4","ch4_cloud","ch4_ice","nh4sh" };
+    const int nf = (int)(sizeof(names)/sizeof(names[0]));
+    if((int)clamp_added.size() != nf) return;
+
+    Array* fields[] = {
+        &h2o, &h2o_cloud, &h2o_ice, &h2s, &nh3, &nh3_cloud, &nh3_ice,
+        &ch4, &ch4_cloud, &ch4_ice, &nh4sh };
+
+    bool any = false;
+    for(int f = 0; f < nf; f++) if(clamp_cells[f] > 0) any = true;
+    if(!any) return;
+
+    printf("\n      ATSAT: negative-value clamp, cumulative since start\n");
+    for(int f = 0; f < nf; f++){
+        if(clamp_cells[f] == 0) continue;
+        double pos = 0.0;
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+:pos)
+        for(int i = 0; i < im; i++)
+            for(int j = 0; j < jm; j++)
+                for(int k = 0; k < km; k++)
+                    if(fields[f]->x[i][j][k] > 0.0) pos += fields[f]->x[i][j][k];
+        printf("        %-12s gross %.4e over %10ld clippings = %8.4f %% of the current"
+               " field mass (gross, not net — see the note in FileIO_Sat.cpp)\n",
+               names[f], clamp_added[f], clamp_cells[f],
+               (pos > 0.0) ? 100.0 * clamp_added[f] / pos : 0.0);
+    }
 }
 /*
 *

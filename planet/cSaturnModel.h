@@ -232,6 +232,18 @@ public:
     // ATSAT_VEL_SHAPIRO_INLOOP / ATSAT_SHAPIRO_STRENGTH: 1-2-1 filter on u, v, w.
     void dampVelocities();
 
+    // Zero floor for the condensable species, with accounting — see FileIO_Sat.cpp.
+    void clampNegativeSpecies();
+    void reportClampBudget();
+    std::vector<double> clamp_added;        // cumulative mass added by the floor, per field
+    std::vector<long>   clamp_cells;        // cumulative number of clipped cells, per field
+
+    // ---- Restart checkpoint, ported from ATJUP (see FileIO_Sat.cpp) ----
+    std::vector<Array*> restart_arrays();   // the prognostic 3D fields a checkpoint serialises
+    void save_state(int iter);              // dump them to output_path/sat_restart_<iter>.bin
+    bool load_state(int iter);              // restore them; false (run from scratch) if absent
+    bool restart_state_is_clean();          // true when every serialised field is finite
+
     double layer_thickness_m(int i){
         if(i < 0 || i > im-2) return 0.0;
         return (double)(m_layer_heights[i+1] - m_layer_heights[i]) * 1.0e3;
@@ -677,6 +689,7 @@ private:
     Array_2D LatentHeat;        // areas of higher latent heat
     Array_2D precip_srf_h2o;    // surface precipitation, H2O   [kg/m2/s] (PrecipitationSat)
     Array_2D precip_srf_nh3;    // surface precipitation, NH3   [kg/m2/s]
+    Array_2D precip_srf_ch4;    // surface precipitation, CH4   [kg/m2/s]
     Array_2D precip_srf_nh4sh;  // surface precipitation, NH4SH [kg/m2/s]
     Array_2D precip_srf_total;  // surface precipitation, all species [kg/m2/s]
     Array_2D vel_star;          // friction velocity u_tau at the first fluid layer [m/s]
@@ -794,6 +807,9 @@ private:
     Array P_nh3_rain;              // NH3 rain
     Array P_nh3_snow;              // NH3 snow
     Array P_nh3_graupel;           // NH3 graupel
+    Array P_ch4_rain;              // CH4 rain
+    Array P_ch4_snow;              // CH4 snow
+    Array P_ch4_graupel;           // CH4 graupel
     Array P_nh4sh;                 // NH4SH settling flux
     Array Q_precip;                // latent heat released by precipitation [W/m3]
     // Turbulence closure (TurbulenceSat). k* and dis* are PROGNOSTIC when ATSAT_TURB is set:
