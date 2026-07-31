@@ -26,6 +26,8 @@ def main():
             ('nm', 'the maximum number of iterations', 'int', 224),
             ('checkpoint', "control when to write output files", 'int', 8),
             ('panorama_print', "control when to write panorama files", 'int', 32),
+            ('checkpoint_save_iter', 'dump the full 3D prognostic state to output_path/sat_restart_<iter>.bin when iter_n reaches this; -1 disables', 'int', -1),
+            ('restart_from_iter', 'load output_path/sat_restart_<iter>.bin and resume the iteration loop at iter+1, skipping the spin-up; -1 disables', 'int', -1),
 
 
             ('Coriolis', 'Coriolis force', 'double', 1),

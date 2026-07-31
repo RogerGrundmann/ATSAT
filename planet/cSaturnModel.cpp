@@ -131,13 +131,14 @@ static double timestep_override(){
 }
 
 
-// Precipitation microphysics (PrecipitationSat), ported from ATJUP. Default OFF, bit-identical.
-// It DOES feed back: the condensate it converts is removed from the cloud/ice fields in place, so
-// it must run AFTER the SaturationAdjustmentSat calls or the adjustment would simply undo it.
+// Precipitation microphysics (PrecipitationSat), ported from ATJUP. DEFAULT ON since 2026-07-31,
+// by decision, with the caveat below standing. It DOES feed back: the condensate it converts is
+// removed from the cloud/ice fields in place, so it must run AFTER the SaturationAdjustmentSat
+// calls or the adjustment would simply undo it. ATSAT_PRECIP=0 restores the old behaviour.
 //
-// WHY IT STAYS OFF, measured 2026-07-31 over 50 iterations (config_m50, 12 threads). With it on
-// the scheme runs and produces fluxes, but they are the SAFETY CAP and not physics. At the
-// i=20 level (250 km), reading the .vtk directly:
+// THE CAVEAT, measured 2026-07-31 over 50 iterations (config_m50, 12 threads), and not repaired
+// by switching the knob: the scheme runs and produces fluxes, but where it is strongest they are
+// the SAFETY CAP and not physics. At the i=20 level (250 km), reading the .vtk directly:
 //
 //     P_snow    8.6400 mm/day in 65337 of 65341 cells  <- P_max_flux exactly, everywhere
 //     P_graupel 2.1243 mm/day max     P_rain 0 (too cold there)     P_nh3_rain 0.0131 max
@@ -151,11 +152,12 @@ static double timestep_override(){
 // The cause is not the cap but the coefficients around it: c_c_au and the rest are ATOM's
 // terrestrial numbers, rescaled ONCE to Jupiter's energy budget and then carried here unchanged,
 // while ATSAT's condensate loading is far higher (max h2o_cloud 113 g/m3 against ATJUP's ~30).
-// Switching this on before they are recalibrated to Saturn's own budget would put a saturated
-// clamp into the moisture equations and call it precipitation. Recalibrate first: the observable
-// is the same one ATJUP used, Lv*P against Saturn's emitted flux.
+// So where P_snow reads 8.6400 the number is the clamp speaking, not the microphysics, and the
+// recalibration is still owed: the observable is the one ATJUP used, Lv*P against Saturn's
+// emitted flux. Until then, read the fluxes as an upper bound wherever they sit at 8.6400 and as
+// physics wherever they do not.
 static int precip_enabled(){
-    static const int v = [](){ const char* e = getenv("ATSAT_PRECIP"); return e ? atoi(e) : 0; }();
+    static const int v = [](){ const char* e = getenv("ATSAT_PRECIP"); return e ? atoi(e) : 1; }();
     return v;
 }
 
@@ -574,6 +576,13 @@ void cSaturnModel::Run(){
         // the undershoot. See FileIO_Sat.cpp for the measurement.
         clampNegativeSpecies();
 
+        // Steady-state query: max|f - f_n| per field with its location, plus the continuity
+        // residual. BEFORE restoreVar, which is what makes the differences non-zero — see the
+        // note on the function. Same cadence as printMinMax; ATSAT_STEADY=0 switches it off.
+        static const int steady_on = [](){
+            const char* e = getenv("ATSAT_STEADY"); return e ? atoi(e) : 1; }();
+        if(steady_on && iter_n % checkpoint == 0) steadyQuery();
+
         restoreVar(1.0);
 
         // After the state has been advanced and the boundaries applied: put any superadiabatic
@@ -714,7 +723,8 @@ void cSaturnModel::resetArrays(){
 
     thermalmassflux.initArray(im, jm, km, 0.0);   // thermal massflux_h2s
 
-    p_dyn.initArray(im, jm, km, pa);                // dynamic pressure
+    p_dyn.initArray(im, jm, km, pa);
+    p_dynn.initArray(im, jm, km, pa);                // dynamic pressure, previous iteration
     p_stat.initArray(im, jm, km, 1.0);                // static pressure
     rho_mix.initArray(im, jm, km, 0.0);               // mixture density, computeMixtureDensity()
     radiation.initArray(im, jm, km, 0.0);             // net thermal radiative flux [W/m2]
@@ -819,6 +829,10 @@ void cSaturnModel::restoreVar(double coeff){
                 // restore factor the other fields use, so they stay in step with it.
                 tken.x[i][j][k] = coeff * tke.x[i][j][k];
                 disn.x[i][j][k] = coeff * dis.x[i][j][k];
+                // p_dynn is the previous-iteration dynamic pressure. Nothing maintained it and
+                // nothing even allocated it, while steadyQuery pretended to difference against
+                // it. It belongs with the other n-copies.
+                p_dynn.x[i][j][k] = coeff * p_dyn.x[i][j][k];
                 un.x[i][j][k] = coeff * u.x[i][j][k];
                 vn.x[i][j][k] = coeff * v.x[i][j][k];
                 wn.x[i][j][k] = coeff * w.x[i][j][k];

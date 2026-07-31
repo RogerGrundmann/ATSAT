@@ -329,7 +329,6 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
         x = x + dx;
     }
     Saturn_vtk_radial_File <<  "POINT_DATA " << jm * km << endl;
-//    dump_radial("Seamount", SeaMount, 1.0, i_radial, Saturn_vtk_radial_File);
     dump_radial("u-Component", u, u_0, i_radial, Saturn_vtk_radial_File);
     dump_radial("v-Component", v, u_0, i_radial, Saturn_vtk_radial_File);
     dump_radial("w-Component", w, u_0, i_radial, Saturn_vtk_radial_File);
@@ -337,8 +336,6 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
     Saturn_vtk_radial_File <<  "LOOKUP_TABLE default"  <<endl;
     for(int j = 0; j < jm; j++){
         for(int k = 0; k < km; k++){
-//            Saturn_vtk_radial_File << t.x[i_radial][j][k] * t_ref - t_ref << endl;
-//            Saturn_vtk_radial_File << t.x[i_radial][j][k] * t_ref << endl;
             Saturn_vtk_radial_File << t.x[i_radial][j][k] * t_ref/10.0 << endl;
         }
     }
@@ -351,7 +348,6 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
     dump_radial("H2O", h2o, 1e3, i_radial, Saturn_vtk_radial_File);
     dump_radial("H2OCloud", h2o_cloud, 1e3, i_radial, Saturn_vtk_radial_File);
     dump_radial("H2OIce", h2o_ice, 1e3, i_radial, Saturn_vtk_radial_File);
-//    dump_radial("cloudiness_h2o", cloudiness_h2o, 1.0, i_radial, Saturn_vtk_radial_File);
 
     dump_radial("H2S", h2s, 1e3, i_radial, Saturn_vtk_radial_File);
     dump_radial("w_h2s", w_h2s, 1e3, i_radial, Saturn_vtk_radial_File);
@@ -368,7 +364,6 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
     dump_radial("jT_nh3", jT_nh3, 1e3, i_radial, Saturn_vtk_radial_File);
     dump_radial("massflux_nh3", massflux_nh3, 1e3, i_radial, Saturn_vtk_radial_File);
     dump_radial("difflux_nh3", difflux_nh3, 1e3, i_radial, Saturn_vtk_radial_File);
-//    dump_radial("cloudiness_nh3", cloudiness_nh3, 1.0, i_radial, Saturn_vtk_radial_File);
 
     dump_radial("NH4SH", nh4sh, 1e3, i_radial, Saturn_vtk_radial_File);
     dump_radial("w_nh4sh", w_nh4sh, 1e3, i_radial, Saturn_vtk_radial_File);
@@ -468,8 +463,6 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
 
     for(int i = 0; i < im; i++){
         for(int j = 0; j < jm; j++){
-//            Saturn_vtk_zonal_File << t.x[i][j][k_zonal] * t_ref - t_ref << endl;
-//            Saturn_vtk_zonal_File << t.x[i][j][k_zonal] * t_ref << endl;
             Saturn_vtk_zonal_File << t.x[i][j][k_zonal] * t_ref/10.0 << endl;
             aux.x[i][j][k_zonal] = get_layer_height(i);
         }
@@ -485,7 +478,6 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
     dump_zonal("H2O", h2o, 1e3, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("H2OCloud", h2o_cloud, 1e3, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("H2OIce", h2o_ice, 1e3, k_zonal, Saturn_vtk_zonal_File);
-//    dump_zonal("cloudiness_h2o", cloudiness_h2o, 1.0, k_zonal, Saturn_vtk_zonal_File);
 
     dump_zonal("H2S", h2s, 1e3, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("w_h2s", w_h2s, 1e3, k_zonal, Saturn_vtk_zonal_File);
@@ -502,7 +494,6 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
     dump_zonal("jT_nh3", jT_nh3, 1e3, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("massflux_nh3", massflux_nh3, 1e3, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("difflux_nh3", difflux_nh3, 1e3, k_zonal, Saturn_vtk_zonal_File);
-//    dump_zonal("cloudiness_nh3", cloudiness_nh3, 1.0, k_zonal, Saturn_vtk_zonal_File);
 
     dump_zonal("NH4SH", nh4sh, 1e3, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("w_nh4sh", w_nh4sh, 1e3, k_zonal, Saturn_vtk_zonal_File);
@@ -513,7 +504,7 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
 
     dump_zonal("PressureDyn", p_dyn, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("PressureStat", p_stat, 1.0, k_zonal, Saturn_vtk_zonal_File);
-//    dump_zonal("Density", rho, 1.0, k_zonal, Saturn_vtk_zonal_File);
+    dump_zonal("Density", rho, 1.0, k_zonal, Saturn_vtk_zonal_File);
 
     dump_zonal("CoriolisForce", CoriolisForce, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("CentrifugalForce", CentrifugalForce, 1e3, k_zonal, Saturn_vtk_zonal_File);
@@ -579,7 +570,6 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
         x = x + dx;
     }
     Saturn_vtk_longal_File <<  "POINT_DATA " << im * km << endl;
-//    dump_longal("Seamount", SeaMount, 1.0, j_longal, Saturn_vtk_longal_File);
     dump_longal("u-Component", u, u_0, j_longal, Saturn_vtk_longal_File);
     dump_longal("v-Component", v, u_0, j_longal, Saturn_vtk_longal_File);
     dump_longal("w-Component", w, u_0, j_longal, Saturn_vtk_longal_File);
@@ -588,8 +578,6 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
 
     for(int i = 0; i < im; i++){
         for(int k = 0; k < km; k++){
-//            Saturn_vtk_longal_File << t.x[i][j_longal][k] * t_ref - t_ref << endl;
-//            Saturn_vtk_longal_File << t.x[i][j_longal][k] * t_ref << endl;
             Saturn_vtk_longal_File << t.x[i][j_longal][k] * t_ref/10.0 << endl;
             aux.x[i][j_longal][k] = get_layer_height(i);
         }
@@ -605,7 +593,6 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
     dump_longal("H2O", h2o, 1e3, j_longal, Saturn_vtk_longal_File);
     dump_longal("H2OCloud", h2o_cloud, 1e3, j_longal, Saturn_vtk_longal_File);
     dump_longal("H2OIce", h2o_ice, 1e3, j_longal, Saturn_vtk_longal_File);
-//    dump_longal("cloudiness_h2o", cloudiness_h2o, 1.0, j_longal, Saturn_vtk_longal_File);
 
     dump_longal("H2S", h2s, 1e3, j_longal, Saturn_vtk_longal_File);
     dump_longal("w_h2s", w_h2s, 1e3, j_longal, Saturn_vtk_longal_File);
@@ -622,7 +609,6 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
     dump_longal("jT_nh3", jT_nh3, 1e3, j_longal, Saturn_vtk_longal_File);
     dump_longal("massflux_nh3", massflux_nh3, 1e3, j_longal, Saturn_vtk_longal_File);
     dump_longal("difflux_nh3", difflux_nh3, 1e3, j_longal, Saturn_vtk_longal_File);
-//    dump_longal("cloudiness_nh3", cloudiness_nh3, 1.0, j_longal, Saturn_vtk_longal_File);
 
     dump_longal("NH4SH", nh4sh, 1e3, j_longal, Saturn_vtk_longal_File);
     dump_longal("w_nh4sh", w_nh4sh, 1e3, j_longal, Saturn_vtk_longal_File);

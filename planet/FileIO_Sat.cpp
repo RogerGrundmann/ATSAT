@@ -352,13 +352,12 @@ bool cSaturnModel::nan_watch(int iter){
  * the header check instead of being read as 41x181x361 doubles of nonsense — the two models
  * have the same grid dimensions, so the dimension check alone would not catch it.
  *
- * NOT p_dynn, although ATJUP stores it. cSaturnModel DECLARES p_dynn and never allocates it:
- * there is no p_dynn.initArray() anywhere in the model, so its data pointer is the NULL that
- * Array's default constructor leaves. The one place that writes to it, PrintMsg_Sat.cpp:336 in
- * steadyQuery(), is dead code — nothing in ATSAT or the CLI calls steadyQuery, which is the only
- * reason that null dereference has never fired. Putting p_dynn in this list made it fire: the
- * first 100-iteration checkpoint segfaulted in restart_state_is_clean. ATSAT does not maintain a
- * previous-iteration copy of the dynamic pressure at all, so there is nothing here to store.
+ * p_dynn IS stored, but only since the commit that revived steadyQuery. It used to be declared
+ * and never allocated — no p_dynn.initArray() anywhere — so its data pointer was the NULL that
+ * Array's default constructor leaves, and putting it in this list segfaulted the first
+ * 100-iteration checkpoint. It is now allocated and refreshed by restoreVar with the other
+ * n-copies, which is what makes it worth serialising: a run resumed from a restart has to know
+ * the previous iteration's pressure or its first steady-state report is meaningless.
  */
 std::vector<Array*> cSaturnModel::restart_arrays(){
     return { &t,   &u,   &v,   &w,
@@ -371,7 +370,7 @@ std::vector<Array*> cSaturnModel::restart_arrays(){
              &ch4,  &ch4_cloud,  &ch4_ice,
              &ch4n, &ch4_cloudn, &ch4_icen,
              &nh4sh, &nh4shn,
-             &p_dyn, &p_stat,
+             &p_dyn, &p_dynn, &p_stat,
              &tke, &dis, &tken, &disn, &nue };
 }
 
