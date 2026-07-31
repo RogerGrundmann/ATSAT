@@ -9,6 +9,8 @@
         <nm>224</nm>  <!-- the maximum number of iterations (int) -->
         <checkpoint>8</checkpoint>  <!-- control when to write output files (int) -->
         <panorama_print>32</panorama_print>  <!-- control when to write panorama files (int) -->
+        <checkpoint_save_iter>-1</checkpoint_save_iter>  <!-- dump the full 3D prognostic state to output_path/sat_restart_<iter>.bin when iter_n reaches this; -1 disables (int) -->
+        <restart_from_iter>-1</restart_from_iter>  <!-- load output_path/sat_restart_<iter>.bin and resume the iteration loop at iter+1, skipping the spin-up; -1 disables (int) -->
         <Coriolis>1</Coriolis>  <!-- Coriolis force (double) -->
         <centrifugal>1</centrifugal>  <!-- centrifugal force (double) -->
         <buoyancy>1</buoyancy>  <!-- buoyancy force (double) -->
