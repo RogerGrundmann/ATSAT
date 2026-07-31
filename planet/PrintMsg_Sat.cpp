@@ -558,7 +558,11 @@ void cSaturnModel::steadyQuery(){
                         break;
         default :     cout << choice << "error in iterationPrintout_3D member function in class Accuracy" << endl;
     }
-    i_loc_level = i_loc*int(L_atm)/(im-1)*1.e-3;
+    // The *1.e-3 treated L_atm as METRES. It is kilometres, and i_loc_level is an int, so
+    // every level in this report truncated to 0 and the whole column read "0km" whatever
+    // the cell was — which is exactly how it looked as though every field changed most at
+    // the bottom boundary. searchMinMax_3D twenty lines up has always had it right.
+    i_loc_level = i_loc * (int)L_atm/(im-1);
     if(j_loc <= 90){
         j_loc_deg = 90 - j_loc;
         deg_lat = deg_north;
