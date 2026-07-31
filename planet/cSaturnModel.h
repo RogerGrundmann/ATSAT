@@ -57,7 +57,10 @@ class cSaturnModel{
     friend class SaturationAdjustmentSat;
     friend class BC_Sat;
     friend class VelocityInitializerSat;
-    friend class ConvectiveAdjustmentSat;
+    // The shared physics headers are templates on the model class, so friendship is granted
+    // to the TEMPLATE. A `friend class Xsat;` here would also declare a class of that name
+    // and collide with the typedef in the binding header.
+    template<class M> friend class ConvectiveAdjustment;
     friend class RadiationSat;
     friend class ThermalWindDiagSat;
     friend class PrecipitationSat;
@@ -187,6 +190,11 @@ public:
      * Set ATSAT_SINTHE_MIN=0.55 to run ATJUP's polar metric and find out whether ATSAT's polar
      * behaviour is the same problem.
      */
+    // The model's own name, used by the SHARED physics headers for their log prefix and to
+    // build their environment-variable names (ATSAT_CONV_ADJ_LAPSE and so on). It is the
+    // only thing those files know about which planet they are running on.
+    static const char* planet_tag(){ return "ATSAT"; }
+
     static double sinthe_min(){
         static const double v = [](){
             const char* e = getenv("ATSAT_SINTHE_MIN");

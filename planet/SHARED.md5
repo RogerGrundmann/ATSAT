@@ -1,0 +1,13 @@
+# Checksums of the SHARED physics headers — files that must be BYTE-IDENTICAL in every planet
+# model (ATJUP, ATSAT, and ATNEPT/ATURAN once they have them).
+#
+# There is no submodule and no symlink holding them together: symlinks are not safe here, because
+# Synology Drive has silently reverted a working tree once already, and a submodule costs
+# workflow friction on every clone. So the copies are plain files and THIS manifest is what makes
+# a divergence loud instead of silent. `make check-shared` verifies it.
+#
+# Editing a shared header means: edit it in one repo, copy it to the others, regenerate this
+# manifest in ALL of them (md5sum planet/ConvectiveAdjustment.h > planet/SHARED.md5 keeping this
+# header), and rebuild each. If that ever becomes tedious enough to resent, that is the signal to
+# promote them to a shared repository.
+8ba1d3aaa23fe9f096f7d85cb962f089  planet/ConvectiveAdjustment.h

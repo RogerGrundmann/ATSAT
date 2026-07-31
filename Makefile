@@ -24,7 +24,7 @@ LIB_OBJ = lib/Array.o lib/Array_2D.o lib/Array_1D.o lib/Config.o lib/Utils.o lib
 ATSAT_OBJ = planet/cSaturnModel.o planet/PrintMsg_Sat.o planet/RungeKutta_Sat_Turb.o \
 planet/RHS_Sat_Turb.o planet/BC_Sat.o planet/ParaView_Sat.o planet/Thermo_Sat.o \
 planet/Pressure_Sat.o planet/InitVelocity_Sat.o planet/InitVariables_Sat.o \
-planet/Weather_Sat.o planet/FileIO_Sat.o planet/ConvectiveAdjustmentSat.o \
+planet/Weather_Sat.o planet/FileIO_Sat.o \
 planet/SaturationAdjustmentSat.o 
 
 XML_OBJ = tinyxml2/tinyxml2.o
@@ -102,3 +102,8 @@ clean:
 	\rm -vf planet/*.d lib/*.d cli/*.d tinyxml2/*.d
 	\rm -vf python/*.so python/*.o python/pyatsat.cpp
 	\rm -rf python/build/
+
+# Verify the shared physics headers have not diverged between the planet models.
+.PHONY: check-shared
+check-shared:
+	@grep -v '^#' planet/SHARED.md5 | md5sum -c - && echo "shared headers OK"
