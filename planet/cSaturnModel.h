@@ -101,29 +101,6 @@ public:
 
     double maxValue, minValue;
     /*
-     * Given a latitude, return the layer index of tropopause
-    */
-    int get_tropopause_layer(int j){
-        assert(j>=0);
-        assert(j<jm);
-        //refer to  BC_Thermo::TropopauseLocation and BC_Thermo::GetTropopauseHightAdd
-        //tropopause height is proportional to the mean tropospheric temperature.
-        //higher near the equator - warm troposphere
-        //lower at the poles - cold troposphere
-
-//        tropopause_layers[j] = 30;
-//        tropopause_layers[j] = 35;
-//        init_tropopause_layers();
-        tropopause_layers[j] = im_tropopause[j];
-        return tropopause_layers[j];
-    }
-    /*
-     *
-    */
-    int get_surface_layer(int j, int k){
-        return i_topography[j][k];
-    }
-    /*
      * This function must be called after init_layer_heights()
      * Given a layer index i, return the height of this layer
     */
@@ -132,9 +109,6 @@ public:
             return -1;
         }
         return m_layer_heights[i];
-    }
-    std::vector<float> get_layer_heights(){
-        return m_layer_heights;
     }
     /*
      * Thickness of layer i in METRES. m_layer_heights is built from L_atm, which is specified in
@@ -296,17 +270,6 @@ public:
         if(i < 0 || i > im-2) return 0.0;
         return (double)(m_layer_heights[i+1] - m_layer_heights[i]) * 1.0e3;
     }   
-    /*
-    * Given a altitude, return the layer index
-    */
-    int get_layer_index(float height){
-        std::size_t i = 0;
-        for(; i<m_layer_heights.size(); i++){
-            if(height<m_layer_heights[i])
-                return i-1;
-        }
-        return i;
-    }
 
 
 
