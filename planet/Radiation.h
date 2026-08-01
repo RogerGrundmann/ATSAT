@@ -23,13 +23,20 @@
  *
  * Everything below — C_cia, he_ratio, the four kappa values, tau_cloud_cap, opac_cal, k_sw — is a
  * GREY-OPACITY CALIBRATION, not a measurement. One set of numbers is in force on both planets
- * today, and they were tuned on Jupiter: C_cia so that Jupiter's thermal photosphere lands near
- * 0.5 bar, opac_cal so its OLR comes out near 14 W/m2. That tuning is NOT KNOWN TO TRANSFER. The
- * CIA layer optical depth goes as comp * P^2 / (T*g), and Saturn's gravity is 2.6x weaker and its
- * H2 fraction larger, both of which deepen tau for the same coefficient — which is why Saturn's
- * first measured photosphere came out at 0.054 bar, an order of magnitude above Jupiter's target.
- * They stay here, as one shared calibration, precisely so that stays visible as one question
- * rather than two independently drifting answers. The per-planet lever is the runtime knob
+ * today, and they were tuned on Jupiter: C_cia so that CIA alone puts Jupiter's thermal
+ * photosphere near 0.5 bar, opac_cal so that the combined opacity brings it to 0.25-0.35 bar.
+ * Both of those are now measured and printed every run, by the diagnostic below, and as of the
+ * recalibration recorded there Jupiter hits both.
+ *
+ * THAT TUNING IS NOT KNOWN TO TRANSFER, and the same diagnostic says so out loud. The CIA layer
+ * optical depth goes as comp * P^2 / (T*g), and Saturn's gravity is 2.6x weaker and its H2
+ * fraction larger, both of which deepen tau for the same coefficient. Saturn's photosphere with
+ * these numbers sits at 0.068 bar — a factor of 5 above Jupiter's 0.326, in a model radiating
+ * 1.33 W/m2 against the 4.45 that enters it. Whether that is Saturn or a symptom is not a question
+ * this file answers; what it does is make sure the question is visible.
+ *
+ * They stay here, as one shared calibration, precisely so that stays ONE question rather than two
+ * independently drifting answers. The per-planet lever is the runtime knob
  * (<TAG>_CIA_STRENGTH, <TAG>_OPACITY_STRENGTH), not a second copy of the constant. The day either
  * planet is genuinely calibrated on its own measurements, its coefficient moves up into its model
  * header alongside F_int and stops being shared — and that move should be a commit that says so.
@@ -131,12 +138,37 @@ public:
     // as good as the species fields they multiply. The CH4 field in particular is large (q_ch4 ~
     // 0.246 kg/kg on Jupiter, ~100x the real Jovian value), which is why kappa_ch4 is
     // correspondingly small.
+    //
+    // opac_cal WAS 0.25, AND THAT VALUE WAS STALE BY EXACTLY THE FACTOR IT LOOKS LIKE. It was
+    // tuned when the species fields were divided by the wrong density, so the mixing ratios it was
+    // fitted against were far too small; once that was fixed the same coefficient put Jupiter's
+    // photosphere at 0.031 bar instead of the 0.25-0.35 it was chosen for. Recalibrated on
+    // Jupiter, 30 iterations from cold, by sweeping ATJUP_OPACITY_STRENGTH:
+    //
+    //     strength    opac_cal    photosphere    mean OLR   (against 13.695 W/m2 in)
+    //       1.0        0.25         0.0307 bar     8.319
+    //       0.20       0.05         0.1636         10.222
+    //       0.12       0.03         0.2886         11.576
+    //       0.10       0.025        0.3259         12.070      <-- adopted
+    //       0.08       0.02         0.3555         12.665
+    //       0.05       0.0125       0.4059         13.817
+    //       0.0        0            0.5108         18.091      <-- CIA alone
+    //
+    // THE TWO TARGETS DO NOT COINCIDE, and the photosphere is the one being hit. Radiative balance
+    // (OLR = 13.7 in) wants ~0.0125, which puts the photosphere at 0.406 bar, outside the range;
+    // 0.025 puts the photosphere mid-range and leaves the column radiating 12% less than enters
+    // it. That residual is not opac_cal's to fix — it is 30 iterations from cold with a model top
+    // this file elsewhere notes is anomalously cold, and radiation does not yet feed T by default.
+    //
+    // The bottom row is the floor: with the gas and cloud opacity switched off entirely, CIA alone
+    // puts the photosphere at 0.51 bar. That is C_cia's own calibration target, reproduced, and it
+    // is why the fix belonged in opac_cal and not in C_cia.
     static constexpr double kappa_ch4     = 0.003;  // CH4 grey band mass opacity [m2/kg]
     static constexpr double kappa_nh3     = 1.5;    // NH3 grey band mass opacity [m2/kg]
     static constexpr double kappa_cloud   = 25.0;   // liquid-cloud grey mass opacity [m2/kg]
     static constexpr double kappa_ice     = 12.0;   // ice-cloud grey mass opacity [m2/kg]
     static constexpr double tau_cloud_cap = 0.4;    // per-layer cap on the cloud optical depth
-    static constexpr double opac_cal      = 0.25;   // OLR calibration on the whole gas+cloud opacity
+    static constexpr double opac_cal      = 0.025;  // calibration on the whole gas+cloud opacity
 
     // Grey two-stream multi-layer solve. Fills radiation / epsilon / Q_rad.
     void run();
