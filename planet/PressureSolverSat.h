@@ -97,11 +97,17 @@ class PressureSolverSat {
 public:
     explicit PressureSolverSat(cSaturnModel& model) : m(model) {}
 
-    // Selects between the inherited solver and the mirrored one. Default 0 = the legacy
-    // cSaturnModel::computePressure(), so the model is bit-identical until this is set.
+    // Selects between the mirrored solver and the inherited one. DEFAULT 1 = the mirrored solver;
+    // set ATSAT_PRESS_SOLVER=0 to go back to cSaturnModel::computePressure(), which is kept
+    // precisely so that comparison stays one environment variable away.
+    //
+    // It became the default on the measurement recorded in the commit: a 43% lower Poisson
+    // residual and a dynamic pressure that no longer goes negative. READ THE THREADING NOTE
+    // ABOVE BEFORE TRUSTING A MULTI-THREADED RUN — the relaxation this mirrors carries ATJUP's
+    // in-place race, and it is now on the default path.
     static int mirrored_enabled(){
         static const int v = [](){
-            const char* e = getenv("ATSAT_PRESS_SOLVER"); return e ? atoi(e) : 0; }();
+            const char* e = getenv("ATSAT_PRESS_SOLVER"); return e ? atoi(e) : 1; }();
         return v;
     }
 
