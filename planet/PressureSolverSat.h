@@ -71,18 +71,34 @@
  * the relaxation; with more than one sweep, leaving them outside lets the interior run away
  * from its own edges for all but the last pass.
  *
- * ===== A DEFECT CARRIED OVER DELIBERATELY =====
+ * ===== A DEFECT CARRIED OVER, AND THEN FIXED =====
  *
- * ATJUP's relaxation is `#pragma omp parallel for collapse(2)` over (i,j) while writing
- * p_dyn in place and reading p_dyn[i±1][j±1] — threads read cells their neighbours are
- * concurrently writing. That makes the sweep neither Jacobi nor Gauss-Seidel but a hybrid
- * whose result depends on the thread count and the scheduling, i.e. a data race. ATSAT's
- * computePressure() has a SERIAL Poisson loop and does not have this problem.
+ * ATJUP's relaxation was `#pragma omp parallel for collapse(2)` over (i,j) while writing p_dyn
+ * in place and reading p_dyn[i±1][j±1] — threads reading cells their neighbours were
+ * concurrently writing. That made the sweep neither Jacobi nor Gauss-Seidel but a hybrid whose
+ * result depended on the thread count and the scheduling, i.e. a data race. It was mirrored here
+ * rather than quietly fixed, because the point of this class was to be comparable to ATJUP's.
  *
- * It is mirrored here rather than quietly fixed, because it is ATJUP's and the point of this
- * class is to be comparable to it. But it must not be switched on without knowing: ATSAT is
- * already not reproducible run to run at 24 threads (measured 2026-07-30), and this would add
- * a second source. Run this solver at OMP_NUM_THREADS=1 for anything that has to be compared.
+ * IT IS NOW RED-BLACK GAUSS-SEIDEL, and the race is gone BY CONSTRUCTION: each sweep is two
+ * passes over a checkerboard colouring of (i+j+k), and within a pass every cell's six stencil
+ * neighbours are the other colour, so nothing is read while it is being written. See the
+ * relaxation loop for why red-black rather than Jacobi — the original was trying to be
+ * lexicographic Gauss-Seidel and only the (i,j) parallelism broke it, so this keeps the scheme it
+ * meant to be.
+ *
+ * BE HONEST ABOUT WHAT THE FIX BOUGHT. It is a correctness fix, not the repair of a visible wrong
+ * number. Measured at one iteration, Dynamic_Pressure came out bit-identical at 1 and at 24
+ * threads WITH THE RACY CODE TOO, so at this grid and sweep count the race's effect was below what
+ * the outputs resolve. What changes measurably is the SCHEME, at any fixed thread count, because
+ * red-black orders the updates differently from a lexicographic sweep: the Poisson residual goes
+ * 0.001230 -> 0.001109 at 30 iterations, single-threaded.
+ *
+ * THE REMAINING 24-THREAD NONDETERMINISM IS NOT THIS SOLVER, and that was established rather than
+ * assumed. At one iteration, 1 thread against 24, exactly one of the 66 output fields differs —
+ * H2OCloud — and it differs identically with the serial legacy computePressure(), with the racy
+ * mirror, and with this one. So the pre-existing irreproducibility recorded on 2026-07-30 lives in
+ * the H2O saturation adjustment, not here. Anything that has to be compared still wants
+ * OMP_NUM_THREADS=1 until that is dealt with.
  *
  * ===== WHAT IS NOT MIRRORED =====
  *
@@ -286,8 +302,21 @@ private:
 
         for(int sweep = 0; sweep < n_sweeps; sweep++){
 
-            // See the header note on the race this pragma carries over from ATJUP.
-            #pragma omp parallel for collapse(2) schedule(dynamic, 4)
+          // RED-BLACK GAUSS-SEIDEL. Each sweep is two passes over a checkerboard colouring of
+          // (i+j+k): every cell of one colour has all six of its stencil neighbours in the other,
+          // so within a pass no cell reads anything any other cell is writing. The result no
+          // longer depends on the thread count or the schedule.
+          //
+          // What this replaces was one pass with `collapse(2) schedule(dynamic, 4)` writing p_dyn
+          // in place while reading p_dyn[i±1][j±1] — a genuine data race, and the reason ATSAT's
+          // header carried a warning not to trust a threaded run. Note what the old loop was
+          // trying to be: k ran serially inside a thread, so k-1 was current and k+1 was one sweep
+          // old, i.e. lexicographic Gauss-Seidel — correct in serial, and only the (i,j)
+          // parallelism broke it. Red-black keeps Gauss-Seidel's convergence rate and its
+          // use-the-newest-value character while making the neighbour set unambiguous.
+          for(int colour = 0; colour < 2; colour++){
+
+            #pragma omp parallel for collapse(2) schedule(static)
             for(int i = 1; i < m.im-1; i++){
                 for(int j = 1; j < m.jm-1; j++){
 
@@ -323,7 +352,11 @@ private:
                     const double num3 = geo.inv_rm2sinthe2 * inv_dphi2;
                     const double denom = 2.0 * num1 + 2.0 * num2 + 2.0 * num3;
 
-                    for(int k = 1; k < m.km-1; k++){
+                    // First interior k of this colour, then every second one: the cells with
+                    // (i + j + k) odd are one colour and even the other.
+                    const int k0 = 2 - ((i + j + colour) & 1);
+
+                    for(int k = k0; k < m.km-1; k += 2){
 
                         // ---- Divergence source ----
                         double du_dr, dv_dthe, dw_dphi;
@@ -360,6 +393,7 @@ private:
                     } // k
                 } // j
             } // i
+          } // colour
 
             // ---- Outer boundary condition of the relaxation ----
             // 2-point Neumann, not the 3-point cubic computePressure() used: p_dyn is absent
