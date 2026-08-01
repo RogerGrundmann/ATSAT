@@ -4,7 +4,6 @@
 // Forward declarations — full definitions included at the bottom of files that
 // instantiate these classes, after cSaturnModel is complete.
 class ChemistrySat;
-class PressureSolverSat;
 class SaturationAdjustmentSat;
 class BC_Sat;
 class VelocityInitializerSat;
@@ -50,10 +49,16 @@ namespace{
     std::function<double(double)> default_lambda=[](double i)->double{return i;};
 }
 
+// PressureSolverSat is a typedef of the SHARED PressureSolver template, not a class of its own,
+// so it cannot be forward-declared as one. The template is declared here and the alias formed
+// below; a pointer to a specialization needs neither complete.
+template<class M> class PressureSolver;
+class cSaturnModel;
+typedef PressureSolver<cSaturnModel> PressureSolverSat;
+
 class cSaturnModel{
 
     friend class ChemistrySat;
-    friend class PressureSolverSat;
     template<class M> friend class PressureSolver;
     friend class SaturationAdjustmentSat;
     friend class BC_Sat;
@@ -674,7 +679,6 @@ private:
     void init_v_or_w(Array &v_or_w, int j, double coeff_trop, double coeff_sl);
     void init_v_or_w_above_tropopause(Array &v_or_w, int j, double coeff);
 
-    void computePressure();
     void init_temperature();
     void init_PressureStatic();
     void init_PressureDynamic();
