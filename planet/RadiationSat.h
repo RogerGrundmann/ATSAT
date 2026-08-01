@@ -34,11 +34,10 @@
  * uniform (= F_int) and Q_rad -> 0; a column out of equilibrium shows the tendency toward it, and
  * that is the intended self-test.
  *
- * ONE DEPARTURE IN THE IMPLEMENTATION. ATJUP divides the species fields by a stored mixture
- * density rho_mix, filled by its own computeMixtureDensity(). ATSAT has no such array, so the
- * density is formed locally here from the ideal gas law with the model's own R_mix — which is the
- * same quantity ATJUP's routine computes. No model state is added and no call ordering is
- * introduced by this class.
+ * THE DENSITY. Both models divide the species fields by the stored mixture density rho_mix,
+ * filled by computeMixtureDensity() before the physics block. When this file was first written
+ * ATSAT had no such array and formed its own density here; it has one now, so the departure is
+ * gone and the two models again read the same quantity from the same place.
  */
 
 #pragma once
@@ -169,13 +168,19 @@ inline void RadiationSat::run(){
 
                 const double tau_cia = (T > 0.0) ? cia_coeff * (P_mean / T) * dP : 0.0;
 
-                // Layer-mean density from the ideal gas law. R_mix is in J/(kg K) — it is
-                // printed as 2909.2 and equals R_universal/M_mix — so there is no 1e3 here.
-                // This line used to carry one, on a comment claiming J/(g K), and every
-                // density it produced was 1000x too small; since rho divides the heating,
-                // Q_rad was correspondingly too large. P_mean is already in Pa.
-                const double rho_c   = (T > 0.0 && m.R_mix > 0.0)
-                                     ? P_mean / (m.R_mix * T) : 0.0;
+                // The density that turns the species DENSITIES into the mass mixing ratios the
+                // kappa values want. It must be the CELL-CENTRED density, because the species
+                // fields it divides are cell-centred: rho_mix, formed once per physics block by
+                // computeMixtureDensity() from p_stat[i] and the same ideal gas law. Read
+                // directly, not through rho_at(), so this is always the local field — as in
+                // ATJUP, and for the same reason.
+                //
+                // This line used to form its own density from P_mean, the mean of the pressures
+                // at the two INTERFACES of the layer. P_mean < p_stat[i] wherever pressure falls
+                // upward, i.e. everywhere, so that density was systematically too small and every
+                // mixing ratio derived from it too large. That was a leftover from before ATSAT
+                // had a rho_mix array at all, not a deliberate departure.
+                const double rho_c = m.rho_mix.x[i][j][k];
                 const double inv_rho = (rho_c > 0.0 && std::isfinite(rho_c)) ? 1.0 / rho_c : 0.0;
 
                 const double q_ch4 = std::max(0.0, m.ch4.x[i][j][k]) * inv_rho;
