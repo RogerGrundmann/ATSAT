@@ -54,6 +54,7 @@ class cSaturnModel{
 
     friend class ChemistrySat;
     friend class PressureSolverSat;
+    template<class M> friend class PressureSolver;
     friend class SaturationAdjustmentSat;
     friend class BC_Sat;
     friend class VelocityInitializerSat;
@@ -177,6 +178,23 @@ public:
     // between TurbulenceJup.h and TurbulenceSat.h were this one concept, spelled out inline.
     int  surface_index(int, int) const { return 0; }
     bool is_solid(int, int, int) const { return false; }
+
+    // ---- What the SHARED PressureSolver.h asks of this model ----
+    //
+    // has_obstacle() is the same fact is_solid() states cell by cell, asked once: ATSAT contains
+    // no solid body, so the solver's wall condition on p_dyn defaults off. With nothing solid the
+    // walled and unwalled stencils are the same sum anyway.
+    static bool has_obstacle(){ return false; }
+
+    // Rigid radial walls on aux_u, default OFF here where ATJUP has them ON. ATSAT's i=0 is the
+    // deep interior of a gas giant rather than a floor, and whether a lid belongs there at all is
+    // a modelling question the port did not get to settle. ATSAT_BC_RIGID_LID=1 turns it on.
+    static bool press_rigid_lid(){ return false; }
+
+    // The model's own boundary conditions on aux_*/rhs_* before the projection takes their
+    // divergence. Defined in Pressure_Sat.cpp; these are computePressure()'s conditions, kept
+    // because they are ATSAT's and the shared solver reads the fields they write.
+    void prepareProjectionBoundaries(bool rigid_lid);
 
     /*
      * ---- Saturn's radiative constants, for the SHARED Radiation.h ----
