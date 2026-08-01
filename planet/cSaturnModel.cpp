@@ -756,6 +756,23 @@ void cSaturnModel::resetArrays(){
     disn.initArray(im, jm, km, 0.0);
     rhs_tke.initArray(im, jm, km, 0.0);
     rhs_dis.initArray(im, jm, km, 0.0);
+    acc_t.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_u.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_v.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_w.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_h2o.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_h2o_cloud.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_h2o_ice.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_ch4.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_ch4_cloud.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_ch4_ice.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_h2s.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_nh3.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_nh3_cloud.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_nh3_ice.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_nh4sh.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_tke.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
+    acc_dis.initArray(im, jm, km, 0.0);   // RK4 stage accumulator
     nue.initArray(im, jm, km, 0.0);
     nue_t.initArray(im, jm, km, 0.0);
     prod.initArray(im, jm, km, 0.0);

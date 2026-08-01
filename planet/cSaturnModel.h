@@ -901,6 +901,31 @@ private:
     Array disn;                    // dis* at the start of the RK4 step
     Array rhs_tke;                 // tendency of k*
     Array rhs_dis;                 // tendency of dis*
+
+    /*
+     * RK4 STAGE ACCUMULATORS. y_{n+1} = y_n + dt/6 (k1 + 2k2 + 2k3 + k4), and the four k's are
+     * evaluated in four separate passes over the grid, so the running sum needs somewhere to live
+     * that is neither the start-of-step state (the *n arrays) nor the current stage input (the
+     * live fields). One array per integrated field; see RungeKuttaSat for why the stages had to be
+     * separated at all.
+     */
+    Array acc_t;
+    Array acc_u;
+    Array acc_v;
+    Array acc_w;
+    Array acc_h2o;
+    Array acc_h2o_cloud;
+    Array acc_h2o_ice;
+    Array acc_ch4;
+    Array acc_ch4_cloud;
+    Array acc_ch4_ice;
+    Array acc_h2s;
+    Array acc_nh3;
+    Array acc_nh3_cloud;
+    Array acc_nh3_ice;
+    Array acc_nh4sh;
+    Array acc_tke;
+    Array acc_dis;
     Array nue;                     // eddy viscosity nue* (the closure's own name)
     Array nue_t;                   // eddy viscosity as the RHS reads it [dimensionless]
     Array prod;                    // shear production P_k

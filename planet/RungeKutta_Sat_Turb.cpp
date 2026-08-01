@@ -113,216 +113,149 @@ void cSaturnModel::RungeKuttaSat(){
     const double tke_max_nd = 1000.0 / (u_0 * u_0);   // 1000 m2/s2
     constexpr double dis_min_nd = 1.0e-10;            // matches TurbulenceSat::dis_min
 
-    #pragma omp parallel for collapse(2) schedule(static)
-    for(int i = 1; i < im-1; i++){
-//        for(int j = 1; j < jm-1; j++){
-        for(int j = 2; j < jm-2; j++){
-//        for(int j = 3; j < jm-3; j++){
+    // ===== RK4, WITH THE FOUR STAGES SEPARATED =====
+    //
+    // Every stage is now two passes over the whole grid with an implicit barrier between them:
+    // one that fills rhs_* from the current stage input, and one that folds rhs_* into the
+    // accumulator and forms the next stage input. Eight passes per step instead of one.
+    //
+    // WHY IT HAD TO CHANGE. All four stages used to run inside a single cell loop: RHSSat(i,j,k)
+    // then an immediate overwrite of t, u, v, w and every species AT THAT CELL, four times over,
+    // before the loop moved on. But RHSSat DIFFERENTIATES those same live fields — COMPUTE_DR,
+    // COMPUTE_DTHE and COMPUTE_DPHI read them at i+-1, j+-1, k+-1 — so a cell computing its
+    // stage 2 was reading neighbours that had already been advanced to their own stage 1, or had
+    // not been touched yet, depending entirely on where the loop had got to.
+    //
+    // Under OpenMP that is a data race and it was THE source of ATSAT's run-to-run
+    // irreproducibility: with every other parallel region in the model serialised and only this
+    // loop left parallel, four runs produced four different states; serialised, the model is
+    // bit-reproducible. It was found by bisection, one region at a time.
+    //
+    // Serially it was not a race but it was still not RK4: each stage differentiated neighbours
+    // sitting at inconsistent stages, so the scheme was a pointwise four-substep update wearing
+    // RK4's coefficients. Both defects have the same cause and the same fix, which is why this is
+    // one commit and not two.
+    //
+    // The cost is memory: y_n lives in the *n arrays, the stage input in the live fields, and the
+    // running sum k1 + 2k2 + 2k3 + k4 now needs a third place, the acc_* arrays.
+    for(int stage = 0; stage < 4; stage++){
 
-            // Build the geometry struct once per (i,j) column.
-            CellGeometry geo;
-            geo.rm       = metricRadius(rad.z[i]);
-            geo.rm2      = geo.rm * geo.rm;
-            geo.exp_rm   = coord_stretching ? 1.0 / (geo.rm + 1.0) : 1.0;
-            geo.exp_2_rm = geo.exp_rm * geo.exp_rm;
-            geo.sinthe   = sinthe_tbl[j];
-            geo.sinthe2  = geo.sinthe * geo.sinthe;
-            geo.costhe   = costhe_tbl[j];
-            geo.cotanthe             = geo.costhe / geo.sinthe;
-            geo.inv_rm               = 1.0 / geo.rm;
-            geo.inv_rm2              = 1.0 / geo.rm2;
-            geo.inv_rmsinthe         = 1.0 / (geo.rm * geo.sinthe);
-            geo.inv_rm2sinthe        = geo.inv_rm2 / geo.sinthe;
-            geo.inv_rm2sinthe2       = geo.inv_rm2 / geo.sinthe2;
-            geo.costhe_inv_rm2sinthe = geo.costhe * geo.inv_rm2sinthe;
-            geo.inv_2dr   = inv_2dr;
-            geo.inv_2dthe = inv_2dthe;
-            geo.inv_2dphi = inv_2dphi;
-            geo.inv_dr2   = inv_dr2;
-            geo.inv_dthe2 = inv_dthe2;
-            geo.inv_dphi2 = inv_dphi2;
+        // Offset of the NEXT stage's input from y_n, and this stage's weight in the sum.
+        const double c_in = (stage == 0 || stage == 1) ? 0.5 * dt : (stage == 2 ? dt : 0.0);
+        const double wgt  = (stage == 0 || stage == 3) ? 1.0 : 2.0;
 
-            for(int k = 1; k < km-1; k++){
+        // ---- pass A: tendencies everywhere, from one consistent state ----
+        // Reads the live fields with a stencil and writes rhs_*, which are different arrays, so
+        // no cell can see a neighbour half-updated.
+        #pragma omp parallel for collapse(2) schedule(static)
+        for(int i = 1; i < im-1; i++){
+            for(int j = 2; j < jm-2; j++){
+                CellGeometry geo;
+                geo.rm       = metricRadius(rad.z[i]);
+                geo.rm2      = geo.rm * geo.rm;
+                geo.exp_rm   = coord_stretching ? 1.0 / (geo.rm + 1.0) : 1.0;
+                geo.exp_2_rm = geo.exp_rm * geo.exp_rm;
+                geo.sinthe   = sinthe_tbl[j];
+                geo.sinthe2  = geo.sinthe * geo.sinthe;
+                geo.costhe   = costhe_tbl[j];
+                geo.cotanthe             = geo.costhe / geo.sinthe;
+                geo.inv_rm               = 1.0 / geo.rm;
+                geo.inv_rm2              = 1.0 / geo.rm2;
+                geo.inv_rmsinthe         = 1.0 / (geo.rm * geo.sinthe);
+                geo.inv_rm2sinthe        = geo.inv_rm2 / geo.sinthe;
+                geo.inv_rm2sinthe2       = geo.inv_rm2 / geo.sinthe2;
+                geo.costhe_inv_rm2sinthe = geo.costhe * geo.inv_rm2sinthe;
+                geo.inv_2dr   = inv_2dr;
+                geo.inv_2dthe = inv_2dthe;
+                geo.inv_2dphi = inv_2dphi;
+                geo.inv_dr2   = inv_dr2;
+                geo.inv_dthe2 = inv_dthe2;
+                geo.inv_dphi2 = inv_dphi2;
+                for(int k = 1; k < km-1; k++)
+                    cSaturnModel::RHSSat(i, j, k, geo);
+            }
+        }
 
-                // Start-of-step values, read once. All four stages integrate from these.
-                const double tn_ijk     = tn.x[i][j][k];
-                const double un_ijk     = un.x[i][j][k];
-                const double vn_ijk     = vn.x[i][j][k];
-                const double wn_ijk     = wn.x[i][j][k];
-                const double h2on_ijk   = h2on.x[i][j][k];
-                const double h2ocn_ijk  = h2o_cloudn.x[i][j][k];
-                const double h2oin_ijk  = h2o_icen.x[i][j][k];
-                const double ch4n_ijk   = ch4n.x[i][j][k];
-                const double ch4cn_ijk  = ch4_cloudn.x[i][j][k];
-                const double ch4in_ijk  = ch4_icen.x[i][j][k];
-                const double h2sn_ijk   = h2sn.x[i][j][k];
-                const double nh3n_ijk   = nh3n.x[i][j][k];
-                const double nh3cn_ijk  = nh3_cloudn.x[i][j][k];
-                const double nh3in_ijk  = nh3_icen.x[i][j][k];
-                const double nh4shn_ijk = nh4shn.x[i][j][k];
-                const double tken_ijk   = tken.x[i][j][k];
-                const double disn_ijk   = disn.x[i][j][k];
+        // ---- pass B: fold into the accumulator, then form the next stage input ----
+        #pragma omp parallel for collapse(2) schedule(static)
+        for(int i = 1; i < im-1; i++){
+            for(int j = 2; j < jm-2; j++){
+                for(int k = 1; k < km-1; k++){
+                    acc_t.x[i][j][k] = (stage == 0) ? wgt * rhs_t.x[i][j][k]
+                                      : acc_t.x[i][j][k] + wgt * rhs_t.x[i][j][k];
+                    acc_u.x[i][j][k] = (stage == 0) ? wgt * rhs_u.x[i][j][k]
+                                      : acc_u.x[i][j][k] + wgt * rhs_u.x[i][j][k];
+                    acc_v.x[i][j][k] = (stage == 0) ? wgt * rhs_v.x[i][j][k]
+                                      : acc_v.x[i][j][k] + wgt * rhs_v.x[i][j][k];
+                    acc_w.x[i][j][k] = (stage == 0) ? wgt * rhs_w.x[i][j][k]
+                                      : acc_w.x[i][j][k] + wgt * rhs_w.x[i][j][k];
+                    acc_h2o.x[i][j][k] = (stage == 0) ? wgt * rhs_h2o.x[i][j][k]
+                                      : acc_h2o.x[i][j][k] + wgt * rhs_h2o.x[i][j][k];
+                    acc_h2o_cloud.x[i][j][k] = (stage == 0) ? wgt * rhs_h2o_cloud.x[i][j][k]
+                                      : acc_h2o_cloud.x[i][j][k] + wgt * rhs_h2o_cloud.x[i][j][k];
+                    acc_h2o_ice.x[i][j][k] = (stage == 0) ? wgt * rhs_h2o_ice.x[i][j][k]
+                                      : acc_h2o_ice.x[i][j][k] + wgt * rhs_h2o_ice.x[i][j][k];
+                    acc_ch4.x[i][j][k] = (stage == 0) ? wgt * rhs_ch4.x[i][j][k]
+                                      : acc_ch4.x[i][j][k] + wgt * rhs_ch4.x[i][j][k];
+                    acc_ch4_cloud.x[i][j][k] = (stage == 0) ? wgt * rhs_ch4_cloud.x[i][j][k]
+                                      : acc_ch4_cloud.x[i][j][k] + wgt * rhs_ch4_cloud.x[i][j][k];
+                    acc_ch4_ice.x[i][j][k] = (stage == 0) ? wgt * rhs_ch4_ice.x[i][j][k]
+                                      : acc_ch4_ice.x[i][j][k] + wgt * rhs_ch4_ice.x[i][j][k];
+                    acc_h2s.x[i][j][k] = (stage == 0) ? wgt * rhs_h2s.x[i][j][k]
+                                      : acc_h2s.x[i][j][k] + wgt * rhs_h2s.x[i][j][k];
+                    acc_nh3.x[i][j][k] = (stage == 0) ? wgt * rhs_nh3.x[i][j][k]
+                                      : acc_nh3.x[i][j][k] + wgt * rhs_nh3.x[i][j][k];
+                    acc_nh3_cloud.x[i][j][k] = (stage == 0) ? wgt * rhs_nh3_cloud.x[i][j][k]
+                                      : acc_nh3_cloud.x[i][j][k] + wgt * rhs_nh3_cloud.x[i][j][k];
+                    acc_nh3_ice.x[i][j][k] = (stage == 0) ? wgt * rhs_nh3_ice.x[i][j][k]
+                                      : acc_nh3_ice.x[i][j][k] + wgt * rhs_nh3_ice.x[i][j][k];
+                    acc_nh4sh.x[i][j][k] = (stage == 0) ? wgt * rhs_nh4sh.x[i][j][k]
+                                      : acc_nh4sh.x[i][j][k] + wgt * rhs_nh4sh.x[i][j][k];
+                    if(turb_on_rk){
+                        acc_tke.x[i][j][k] = (stage == 0) ? wgt * rhs_tke.x[i][j][k]
+                                          : acc_tke.x[i][j][k] + wgt * rhs_tke.x[i][j][k];
+                        acc_dis.x[i][j][k] = (stage == 0) ? wgt * rhs_dis.x[i][j][k]
+                                          : acc_dis.x[i][j][k] + wgt * rhs_dis.x[i][j][k];
+                    }
 
-                // ----- RK stage 1 -----
-                cSaturnModel::RHSSat(i, j, k, geo);
-
-                const double kt1     = rhs_t.x[i][j][k];
-                const double ku1     = rhs_u.x[i][j][k];
-                const double kv1     = rhs_v.x[i][j][k];
-                const double kw1     = rhs_w.x[i][j][k];
-                const double kc1     = rhs_h2o.x[i][j][k];
-                const double kcloud1 = rhs_h2o_cloud.x[i][j][k];
-                const double kice1   = rhs_h2o_ice.x[i][j][k];
-                const double kch41       = rhs_ch4.x[i][j][k];
-                const double kch4_cloud1 = rhs_ch4_cloud.x[i][j][k];
-                const double kch4_ice1   = rhs_ch4_ice.x[i][j][k];
-                const double kh2s1       = rhs_h2s.x[i][j][k];
-                const double knh31       = rhs_nh3.x[i][j][k];
-                const double knh3_cloud1 = rhs_nh3_cloud.x[i][j][k];
-                const double knh3_ice1   = rhs_nh3_ice.x[i][j][k];
-                const double knh4sh1     = rhs_nh4sh.x[i][j][k];
-                const double ktke1 = rhs_tke.x[i][j][k], kdis1 = rhs_dis.x[i][j][k];
-
-                t.x[i][j][k] = tn_ijk + kt1 * 0.5 * dt;
-                if(turb_on_rk){
-                    tke.x[i][j][k] = std::min(std::max(tken_ijk + ktke1 * 0.5 * dt, 0.0), tke_max_nd);
-                    dis.x[i][j][k] = std::max(disn_ijk + kdis1 * 0.5 * dt, dis_min_nd);
+                    if(stage < 3){
+                        t.x[i][j][k] = tn.x[i][j][k] + c_in * rhs_t.x[i][j][k];
+                        u.x[i][j][k] = un.x[i][j][k] + c_in * rhs_u.x[i][j][k];
+                        v.x[i][j][k] = vn.x[i][j][k] + c_in * rhs_v.x[i][j][k];
+                        w.x[i][j][k] = wn.x[i][j][k] + c_in * rhs_w.x[i][j][k];
+                        h2o.x[i][j][k] = h2on.x[i][j][k] + c_in * rhs_h2o.x[i][j][k];
+                        h2o_cloud.x[i][j][k] = h2o_cloudn.x[i][j][k] + c_in * rhs_h2o_cloud.x[i][j][k];
+                        h2o_ice.x[i][j][k] = h2o_icen.x[i][j][k] + c_in * rhs_h2o_ice.x[i][j][k];
+                        ch4.x[i][j][k] = ch4n.x[i][j][k] + c_in * rhs_ch4.x[i][j][k];
+                        ch4_cloud.x[i][j][k] = ch4_cloudn.x[i][j][k] + c_in * rhs_ch4_cloud.x[i][j][k];
+                        ch4_ice.x[i][j][k] = ch4_icen.x[i][j][k] + c_in * rhs_ch4_ice.x[i][j][k];
+                        h2s.x[i][j][k] = h2sn.x[i][j][k] + c_in * rhs_h2s.x[i][j][k];
+                        nh3.x[i][j][k] = nh3n.x[i][j][k] + c_in * rhs_nh3.x[i][j][k];
+                        nh3_cloud.x[i][j][k] = nh3_cloudn.x[i][j][k] + c_in * rhs_nh3_cloud.x[i][j][k];
+                        nh3_ice.x[i][j][k] = nh3_icen.x[i][j][k] + c_in * rhs_nh3_ice.x[i][j][k];
+                        nh4sh.x[i][j][k] = nh4shn.x[i][j][k] + c_in * rhs_nh4sh.x[i][j][k];
+                        if(turb_on_rk){
+                            tke.x[i][j][k] = std::min(std::max(tken.x[i][j][k]
+                                + c_in * rhs_tke.x[i][j][k], 0.0), tke_max_nd);
+                            dis.x[i][j][k] = std::max(disn.x[i][j][k]
+                                + c_in * rhs_dis.x[i][j][k], dis_min_nd);
+                        }
+                    }
                 }
-                u.x[i][j][k] = un_ijk + ku1 * 0.5 * dt;
-                v.x[i][j][k] = vn_ijk + kv1 * 0.5 * dt;
-                w.x[i][j][k] = wn_ijk + kw1 * 0.5 * dt;
+            }
+        }
+    }
 
-                h2o.x[i][j][k] = h2on_ijk + kc1 * 0.5 * dt;
-                h2o_cloud.x[i][j][k] = h2ocn_ijk + kcloud1 * 0.5 * dt;
-                h2o_ice.x[i][j][k] = h2oin_ijk + kice1 * 0.5 * dt;
+    // ===== Final assembly: y_{n+1} = y_n + dt/6 (k1 + 2k2 + 2k3 + k4) =====
+    {
+        const double sixth_dt = dt / 6.0;
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+:t_clip_hits)
+        for(int i = 1; i < im-1; i++){
+            for(int j = 2; j < jm-2; j++){
+                for(int k = 1; k < km-1; k++){
 
-                ch4.x[i][j][k] = ch4n_ijk + kch41 * 0.5 * dt;
-                ch4_cloud.x[i][j][k] = ch4cn_ijk + kch4_cloud1 * 0.5 * dt;
-                ch4_ice.x[i][j][k] = ch4in_ijk + kch4_ice1 * 0.5 * dt;
-
-                h2s.x[i][j][k] = h2sn_ijk + kh2s1 * 0.5 * dt;
-
-                nh3.x[i][j][k] = nh3n_ijk + knh31 * 0.5 * dt;
-                nh3_cloud.x[i][j][k] = nh3cn_ijk + knh3_cloud1 * 0.5 * dt;
-                nh3_ice.x[i][j][k] = nh3in_ijk + knh3_ice1 * 0.5 * dt;
-
-                nh4sh.x[i][j][k] = nh4shn_ijk + knh4sh1 * 0.5 * dt;
-
-
-                // ----- RK stage 2 -----
-                cSaturnModel::RHSSat(i, j, k, geo);
-
-                const double kt2     = rhs_t.x[i][j][k];
-                const double ku2     = rhs_u.x[i][j][k];
-                const double kv2     = rhs_v.x[i][j][k];
-                const double kw2     = rhs_w.x[i][j][k];
-                const double kc2     = rhs_h2o.x[i][j][k];
-                const double kcloud2 = rhs_h2o_cloud.x[i][j][k];
-                const double kice2   = rhs_h2o_ice.x[i][j][k];
-                const double kch42       = rhs_ch4.x[i][j][k];
-                const double kch4_cloud2 = rhs_ch4_cloud.x[i][j][k];
-                const double kch4_ice2   = rhs_ch4_ice.x[i][j][k];
-                const double kh2s2       = rhs_h2s.x[i][j][k];
-                const double knh32       = rhs_nh3.x[i][j][k];
-                const double knh3_cloud2 = rhs_nh3_cloud.x[i][j][k];
-                const double knh3_ice2   = rhs_nh3_ice.x[i][j][k];
-                const double knh4sh2     = rhs_nh4sh.x[i][j][k];
-                const double ktke2 = rhs_tke.x[i][j][k], kdis2 = rhs_dis.x[i][j][k];
-
-                t.x[i][j][k] = tn_ijk + kt2 * 0.5 * dt;
-                if(turb_on_rk){
-                    tke.x[i][j][k] = std::min(std::max(tken_ijk + ktke2 * 0.5 * dt, 0.0), tke_max_nd);
-                    dis.x[i][j][k] = std::max(disn_ijk + kdis2 * 0.5 * dt, dis_min_nd);
-                }
-                u.x[i][j][k] = un_ijk + ku2 * 0.5 * dt;
-                v.x[i][j][k] = vn_ijk + kv2 * 0.5 * dt;
-                w.x[i][j][k] = wn_ijk + kw2 * 0.5 * dt;
-
-                h2o.x[i][j][k] = h2on_ijk + kc2 * 0.5 * dt;
-                h2o_cloud.x[i][j][k] = h2ocn_ijk + kcloud2 * 0.5 * dt;
-                h2o_ice.x[i][j][k] = h2oin_ijk + kice2 * 0.5 * dt;
-
-                ch4.x[i][j][k] = ch4n_ijk + kch42 * 0.5 * dt;
-                ch4_cloud.x[i][j][k] = ch4cn_ijk + kch4_cloud2 * 0.5 * dt;
-                ch4_ice.x[i][j][k] = ch4in_ijk + kch4_ice2 * 0.5 * dt;
-
-                h2s.x[i][j][k] = h2sn_ijk + kh2s2 * 0.5 * dt;
-
-                nh3.x[i][j][k] = nh3n_ijk + knh32 * 0.5 * dt;
-                nh3_cloud.x[i][j][k] = nh3cn_ijk + knh3_cloud2 * 0.5 * dt;
-                nh3_ice.x[i][j][k] = nh3in_ijk + knh3_ice2 * 0.5 * dt;
-
-                nh4sh.x[i][j][k] = nh4shn_ijk + knh4sh2 * 0.5 * dt;
-
-
-                // ----- RK stage 3 -----
-                cSaturnModel::RHSSat(i, j, k, geo);
-
-                const double kt3     = rhs_t.x[i][j][k];
-                const double ku3     = rhs_u.x[i][j][k];
-                const double kv3     = rhs_v.x[i][j][k];
-                const double kw3     = rhs_w.x[i][j][k];
-                const double kc3     = rhs_h2o.x[i][j][k];
-                const double kcloud3 = rhs_h2o_cloud.x[i][j][k];
-                const double kice3   = rhs_h2o_ice.x[i][j][k];
-                const double kch43       = rhs_ch4.x[i][j][k];
-                const double kch4_cloud3 = rhs_ch4_cloud.x[i][j][k];
-                const double kch4_ice3   = rhs_ch4_ice.x[i][j][k];
-                const double kh2s3       = rhs_h2s.x[i][j][k];
-                const double knh33       = rhs_nh3.x[i][j][k];
-                const double knh3_cloud3 = rhs_nh3_cloud.x[i][j][k];
-                const double knh3_ice3   = rhs_nh3_ice.x[i][j][k];
-                const double knh4sh3     = rhs_nh4sh.x[i][j][k];
-                const double ktke3 = rhs_tke.x[i][j][k], kdis3 = rhs_dis.x[i][j][k];
-
-                t.x[i][j][k] = tn_ijk + kt3 * dt;
-                if(turb_on_rk){
-                    tke.x[i][j][k] = std::min(std::max(tken_ijk + ktke3 * dt, 0.0), tke_max_nd);
-                    dis.x[i][j][k] = std::max(disn_ijk + kdis3 * dt, dis_min_nd);
-                }
-                u.x[i][j][k] = un_ijk + ku3 * dt;
-                v.x[i][j][k] = vn_ijk + kv3 * dt;
-                w.x[i][j][k] = wn_ijk + kw3 * dt;
-
-                h2o.x[i][j][k] = h2on_ijk + kc3 * dt;
-                h2o_cloud.x[i][j][k] = h2ocn_ijk + kcloud3 * dt;
-                h2o_ice.x[i][j][k] = h2oin_ijk + kice3 * dt;
-
-                ch4.x[i][j][k] = ch4n_ijk + kch43 * dt;
-                ch4_cloud.x[i][j][k] = ch4cn_ijk + kch4_cloud3 * dt;
-                ch4_ice.x[i][j][k] = ch4in_ijk + kch4_ice3 * dt;
-
-                h2s.x[i][j][k] = h2sn_ijk + kh2s3 * dt;
-
-                nh3.x[i][j][k] = nh3n_ijk + knh33 * dt;
-                nh3_cloud.x[i][j][k] = nh3cn_ijk + knh3_cloud3 * dt;
-                nh3_ice.x[i][j][k] = nh3in_ijk + knh3_ice3 * dt;
-
-                nh4sh.x[i][j][k] = nh4shn_ijk + knh4sh3 * dt;
-
-
-                // ----- RK stage 4 and the weighted update -----
-                cSaturnModel::RHSSat(i, j, k, geo);
-
-                const double kt4     = rhs_t.x[i][j][k];
-                const double ku4     = rhs_u.x[i][j][k];
-                const double kv4     = rhs_v.x[i][j][k];
-                const double kw4     = rhs_w.x[i][j][k];
-                const double kc4     = rhs_h2o.x[i][j][k];
-                const double kcloud4 = rhs_h2o_cloud.x[i][j][k];
-                const double kice4   = rhs_h2o_ice.x[i][j][k];
-                const double kch44       = rhs_ch4.x[i][j][k];
-                const double kch4_cloud4 = rhs_ch4_cloud.x[i][j][k];
-                const double kch4_ice4   = rhs_ch4_ice.x[i][j][k];
-                const double kh2s4       = rhs_h2s.x[i][j][k];
-                const double knh34       = rhs_nh3.x[i][j][k];
-                const double knh3_cloud4 = rhs_nh3_cloud.x[i][j][k];
-                const double knh3_ice4   = rhs_nh3_ice.x[i][j][k];
-                const double knh4sh4     = rhs_nh4sh.x[i][j][k];
-
-                {
-                    double t_new = tn_ijk + dt * (kt1 + 2.0 * kt2
-                        + 2.0 * kt3 + kt4)/6.0;
+                    const double tn_ijk = tn.x[i][j][k];
+                    double t_new = tn_ijk + sixth_dt * acc_t.x[i][j][k];
                     if(t_limiter_on){
                         // Local bounds from the OLD state.
                         double lo = tn_ijk, hi = tn_ijk;
@@ -334,66 +267,33 @@ void cSaturnModel::RungeKuttaSat(){
                         take(i-1,j,k); take(i+1,j,k);
                         take(i,j-1,k); take(i,j+1,k);
                         take(i,j,k-1); take(i,j,k+1);
-                        if(t_new < lo){ t_new = lo;
-                            #pragma omp atomic
-                            ++t_clip_hits; }
-                        else if(t_new > hi){ t_new = hi;
-                            #pragma omp atomic
-                            ++t_clip_hits; }
+                        if(t_new < lo){ t_new = lo; ++t_clip_hits; }
+                        else if(t_new > hi){ t_new = hi; ++t_clip_hits; }
                     }
                     t.x[i][j][k] = t_new;
+
+                    if(turb_on_rk){
+                        tke.x[i][j][k] = std::min(std::max(tken.x[i][j][k]
+                            + sixth_dt * acc_tke.x[i][j][k], 0.0), tke_max_nd);
+                        dis.x[i][j][k] = std::max(disn.x[i][j][k]
+                            + sixth_dt * acc_dis.x[i][j][k], dis_min_nd);
+                    }
+
+                u.x[i][j][k] = un.x[i][j][k] + sixth_dt * acc_u.x[i][j][k];
+                v.x[i][j][k] = vn.x[i][j][k] + sixth_dt * acc_v.x[i][j][k];
+                w.x[i][j][k] = wn.x[i][j][k] + sixth_dt * acc_w.x[i][j][k];
+                h2o.x[i][j][k] = h2on.x[i][j][k] + sixth_dt * acc_h2o.x[i][j][k];
+                h2o_cloud.x[i][j][k] = h2o_cloudn.x[i][j][k] + sixth_dt * acc_h2o_cloud.x[i][j][k];
+                h2o_ice.x[i][j][k] = h2o_icen.x[i][j][k] + sixth_dt * acc_h2o_ice.x[i][j][k];
+                ch4.x[i][j][k] = ch4n.x[i][j][k] + sixth_dt * acc_ch4.x[i][j][k];
+                ch4_cloud.x[i][j][k] = ch4_cloudn.x[i][j][k] + sixth_dt * acc_ch4_cloud.x[i][j][k];
+                ch4_ice.x[i][j][k] = ch4_icen.x[i][j][k] + sixth_dt * acc_ch4_ice.x[i][j][k];
+                h2s.x[i][j][k] = h2sn.x[i][j][k] + sixth_dt * acc_h2s.x[i][j][k];
+                nh3.x[i][j][k] = nh3n.x[i][j][k] + sixth_dt * acc_nh3.x[i][j][k];
+                nh3_cloud.x[i][j][k] = nh3_cloudn.x[i][j][k] + sixth_dt * acc_nh3_cloud.x[i][j][k];
+                nh3_ice.x[i][j][k] = nh3_icen.x[i][j][k] + sixth_dt * acc_nh3_ice.x[i][j][k];
+                nh4sh.x[i][j][k] = nh4shn.x[i][j][k] + sixth_dt * acc_nh4sh.x[i][j][k];
                 }
-                if(turb_on_rk){
-                    const double ktke4 = rhs_tke.x[i][j][k], kdis4 = rhs_dis.x[i][j][k];
-                    tke.x[i][j][k] = std::min(std::max(tken_ijk
-                        + dt * (ktke1 + 2.0*ktke2 + 2.0*ktke3 + ktke4)/6.0, 0.0), tke_max_nd);
-                    dis.x[i][j][k] = std::max(disn_ijk
-                        + dt * (kdis1 + 2.0*kdis2 + 2.0*kdis3 + kdis4)/6.0, dis_min_nd);
-                }
-                u.x[i][j][k] = un_ijk + dt * (ku1 + 2.0 * ku2
-                    + 2.0 * ku3 + ku4)/6.0;
-                v.x[i][j][k] = vn_ijk + dt * (kv1 + 2.0 * kv2
-                    + 2.0 * kv3 + kv4)/6.0;
-                w.x[i][j][k] = wn_ijk + dt * (kw1 + 2.0 * kw2
-                    + 2.0 * kw3 + kw4)/6.0;
-
-                h2o.x[i][j][k] = h2on_ijk
-                    + dt * (kc1 + 2.0 * kc2
-                    + 2.0 * kc3 + kc4)/6.0;
-                h2o_cloud.x[i][j][k] = h2ocn_ijk
-                    + dt * (kcloud1 + 2.0 * kcloud2
-                    + 2.0 * kcloud3 + kcloud4)/6.0;
-                h2o_ice.x[i][j][k] = h2oin_ijk
-                    + dt * (kice1 + 2.0 * kice2
-                    + 2.0 * kice3 + kice4)/6.0;
-
-                ch4.x[i][j][k] = ch4n_ijk
-                    + dt * (kch41 + 2.0 * kch42
-                    + 2.0 * kch43 + kch44)/6.0;
-                ch4_cloud.x[i][j][k] = ch4cn_ijk
-                    + dt * (kch4_cloud1 + 2.0 * kch4_cloud2
-                    + 2.0 * kch4_cloud3 + kch4_cloud4)/6.0;
-                ch4_ice.x[i][j][k] = ch4in_ijk
-                    + dt * (kch4_ice1 + 2.0 * kch4_ice2
-                    + 2.0 * kch4_ice3 + kch4_ice4)/6.0;
-
-                h2s.x[i][j][k] = h2sn_ijk
-                    + dt * (kh2s1 + 2.0 * kh2s2
-                    + 2.0 * kh2s3 + kh2s4)/6.0;
-
-                nh3.x[i][j][k] = nh3n_ijk
-                    + dt * (knh31 + 2.0 * knh32
-                    + 2.0 * knh33 + knh34)/6.0;
-                nh3_cloud.x[i][j][k] = nh3cn_ijk
-                    + dt * (knh3_cloud1 + 2.0 * knh3_cloud2
-                    + 2.0 * knh3_cloud3 + knh3_cloud4)/6.0;
-                nh3_ice.x[i][j][k] = nh3in_ijk
-                    + dt * (knh3_ice1 + 2.0 * knh3_ice2
-                    + 2.0 * knh3_ice3 + knh3_ice4)/6.0;
-
-                nh4sh.x[i][j][k] = nh4shn_ijk
-                    + dt * (knh4sh1 + 2.0 * knh4sh2
-                    + 2.0 * knh4sh3 + knh4sh4)/6.0;
             }
         }
     }
