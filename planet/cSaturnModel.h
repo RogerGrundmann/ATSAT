@@ -57,9 +57,9 @@ class cSaturnModel{
     friend class SaturationAdjustmentSat;
     friend class BC_Sat;
     friend class VelocityInitializerSat;
-    template<class M> friend class ConvectiveAdjustment;
-    friend class RadiationSat;
     friend class ThermalWindDiagSat;
+    template<class M> friend class ConvectiveAdjustment;
+    template<class M> friend class Radiation;
     template<class M> friend class Precipitation;
     template<class M> friend class Turbulence;
 
@@ -203,6 +203,35 @@ public:
     // between TurbulenceJup.h and TurbulenceSat.h were this one concept, spelled out inline.
     int  surface_index(int, int) const { return 0; }
     bool is_solid(int, int, int) const { return false; }
+
+    /*
+     * ---- Saturn's radiative constants, for the SHARED Radiation.h ----
+     *
+     * These five are MEASURED PROPERTIES OF SATURN, which is why they live here and not in the
+     * shared physics file: a mechanical copy of the Jupiter radiation would have produced
+     * Jupiter's radiation budget on Saturn's grid.
+     *
+     *                            ATJUP        ATSAT      source
+     *     solar constant         50.5         14.83      1361 / a^2, a = 5.20 vs 9.58 AU
+     *     Bond albedo            0.343        0.342      measured
+     *     intrinsic flux F_int   5.4          2.01       measured
+     *     x_H2 / x_He            0.863/0.134  0.96/0.032 Saturn's upper atmosphere is He-poor
+     *
+     * The grey-opacity CALIBRATION (C_cia, the kappa values, opac_cal) is deliberately NOT here —
+     * it is one shared set, tuned on Jupiter, and Radiation.h says why. Saturn's lever on it is
+     * ATSAT_CIA_STRENGTH / ATSAT_OPACITY_STRENGTH, and the first Saturn measurement put the
+     * thermal photosphere at 0.054 bar against Jupiter's 0.5 bar target, so that lever has a
+     * question waiting on it.
+     *
+     * NOT ACCOUNTED FOR: the shared file's insolation is an ANNUAL MEAN. Saturn's obliquity is
+     * 26.7 degrees against Jupiter's 3.1, so a real seasonal cycle is being averaged away here in
+     * a way it is not on Jupiter.
+     */
+    static double rad_F_int()       { return 2.01;  }  // Saturn intrinsic heat flux [W/m2]
+    static double rad_S_solar()     { return 14.83; }  // solar constant at 9.58 AU [W/m2]
+    static double rad_albedo_bond() { return 0.342; }  // Saturn Bond albedo (so S*(1-A) is ABSORBED)
+    static double rad_x_H2()        { return 0.96;  }  // H2 mole fraction
+    static double rad_x_He()        { return 0.032; }  // He mole fraction (depleted vs Jupiter)
 
     static double sinthe_min(){
         static const double v = [](){
