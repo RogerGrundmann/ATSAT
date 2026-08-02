@@ -8,6 +8,7 @@ class SaturationAdjustmentSat;
 template<class M> class SaturationAdjustment;
 class BC_Sat;
 template<class M> class BoundaryConditions;
+template<class M> class FluxLimiter;
 class VelocityInitializerSat;
 
 #include <fenv.h>
@@ -67,6 +68,7 @@ class cSaturnModel{
     template<class M> friend class SaturationAdjustment;
     friend class BC_Sat;
     template<class M> friend class BoundaryConditions;
+    template<class M> friend class FluxLimiter;
     friend class VelocityInitializerSat;
     friend class ThermalWindDiagSat;
     template<class M> friend class ConvectiveAdjustment;
