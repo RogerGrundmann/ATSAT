@@ -75,6 +75,9 @@ namespace {
     // (3) Form of the polar extrapolation in BC_theta. See the note at the call site.
     inline int pole_copy(){ static const int v = knob("BC_POLE_COPY", 0); return v; }
 
+    // (7) Form of the radial-wall extrapolation in BC_radius. See the note at the call site.
+    inline int radius_copy(){ static const int v = knob("BC_RADIUS_COPY", 0); return v; }
+
     // The three extrapolation forms these knobs select between, written once. `s` is the
     // boundary slot being filled and a,b,c are the first three interior neighbours inward.
     //   FORM_CUBIC   3-point, f[s] = f[c] - 3f[b] + 3f[a]   — what ATSAT has always used
@@ -126,15 +129,40 @@ void cSaturnModel::BC_radius(){
     const int nt = (int)(sizeof(turb) / sizeof(turb[0]));
     const bool turb_bc = turb_active;
 
+    // --- (7) Form of the radial-wall extrapolation. ATSAT_BC_RADIUS_COPY. ---
+    //
+    //   0  (default) the 3-point cubic ATSAT has always used
+    //   1  plain copy f[0] = f[1], f[im-1] = f[im-2]
+    //   2  2-point Neumann f = (4/3)f[a] - (1/3)f[b]
+    //
+    // Same three forms and the same reason for three rather than ATJUP's two as BC_POLE_COPY;
+    // see the note there. This is the DIAGNOSTIC of the four, not a proposed default: the copy
+    // is first-order and would degrade every transported field at both walls. What it buys is
+    // separation. The two forms agree for a flat profile, but on a profile that varies across the
+    // wall the cubic overshoots, and a plain copy cannot — so running with 1 removes the
+    // overshoot without touching the advection, which tells a boundary artefact apart from a
+    // genuine missing sink in the interior.
+    //
+    // ATJUP's reason for wanting that separation was the deep-level w growth that ends its long
+    // runs, which sits exactly at i = 0..2. Whether ATSAT has the same symptom is not something a
+    // 30-iteration run can answer, and this commit does not claim it does.
+    //
+    // NOTE the asymmetry with the poles: v and w are pinned to zero at j=0/jm-1 but ARE
+    // extrapolated at both radial walls, so this knob moves the velocities and BC_POLE_COPY does
+    // not. ATSAT has no rigid-lid condition on u here — ATSAT_BC_RIGID_LID is a PressureSolver.h
+    // knob acting on aux_u inside the projection (default off for ATSAT), not a velocity BC in
+    // this file, so u at both walls is whatever this extrapolation makes it.
+    const int radial_form = radius_copy();
+
   #pragma omp parallel for
     for(int j = 1; j < jm-1; j++){
         for(int k = 1; k < km-1; k++){
             for(int f = 0; f < nf; f++){
                 Array& F = *fields[f];
-                F.x[0][j][k] = F.x[3][j][k]
-                    - 3.0 * F.x[2][j][k] + 3.0 * F.x[1][j][k];  // extrapolation
-                F.x[im-1][j][k] = F.x[im-4][j][k]
-                    - 3.0 * F.x[im-3][j][k] + 3.0 * F.x[im-2][j][k];  // extrapolation
+                F.x[0][j][k] = extrap(radial_form,
+                    F.x[1][j][k], F.x[2][j][k], F.x[3][j][k], c43, c13);
+                F.x[im-1][j][k] = extrap(radial_form,
+                    F.x[im-2][j][k], F.x[im-3][j][k], F.x[im-4][j][k], c43, c13);
             }
 
             if(turb_bc){
