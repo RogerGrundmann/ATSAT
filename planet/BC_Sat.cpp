@@ -71,6 +71,23 @@ namespace {
 
     // (2) Taper v,w to zero over the top three layers. See the note at the call site.
     inline int top_taper(){ static const int v = knob("BC_TOP_TAPER", 0); return v; }
+
+    // (3) Form of the polar extrapolation in BC_theta. See the note at the call site.
+    inline int pole_copy(){ static const int v = knob("BC_POLE_COPY", 0); return v; }
+
+    // The three extrapolation forms these knobs select between, written once. `s` is the
+    // boundary slot being filled and a,b,c are the first three interior neighbours inward.
+    //   FORM_CUBIC   3-point, f[s] = f[c] - 3f[b] + 3f[a]   — what ATSAT has always used
+    //   FORM_COPY    plain copy, f[s] = f[a]                — first order, cannot overshoot
+    //   FORM_NEUMANN 2-point, f[s] = (4/3)f[a] - (1/3)f[b]  — what ATJUP uses, and what this
+    //                                                         file carried as dead comments
+    enum { FORM_CUBIC = 0, FORM_COPY = 1, FORM_NEUMANN = 2 };
+
+    inline double extrap(int form, double a, double b, double c, double c43, double c13){
+        if(form == FORM_COPY)    return a;
+        if(form == FORM_NEUMANN) return c43 * a - c13 * b;
+        return c - 3.0 * b + 3.0 * a;
+    }
 }
 
 void BC_Sat::bcRadius() { m.BC_radius(); }
@@ -238,11 +255,35 @@ void cSaturnModel::BC_theta(){
     };
     const int nf = (int)(sizeof(fields) / sizeof(fields[0]));
 
-    // k*, dis*, nue* at the two poles (see the note at the top of this file).
+    // k*, dis*, nue* at the two poles (see the note at the top of this file). Deliberately NOT
+    // switched by pole_form: they are already on the 2-point form for a reason that has nothing
+    // to do with the poles — the cubic amplifies an alternating error 7x per call and dis* sits
+    // in denominators throughout the closure — so putting them under a knob about polar accuracy
+    // would let one question silently answer another.
     Array* turb[] = { &tke, &dis, &nue };
     const double turb_floor[] = { 0.0, bc_dis_min, 0.0 };
     const int nt = (int)(sizeof(turb) / sizeof(turb[0]));
     const bool turb_bc = turb_active;
+
+    // --- (3) Form of the polar extrapolation. ATSAT_BC_POLE_COPY. ---
+    //
+    //   0  (default) the 3-point cubic ATSAT has always used here
+    //   1  plain copy f[pole] = f[first interior]        — ATJUP's pole_copy, which it ships ON
+    //   2  2-point Neumann f = (4/3)f[a] - (1/3)f[b]     — ATJUP's baseline form
+    //
+    // Three values rather than ATJUP's two because ATSAT and ATJUP do not start from the same
+    // place: ATJUP's knob picks between copy and 2-point Neumann, whereas ATSAT's default is the
+    // cubic, which is a bigger step from either. Value 2 is also where the ~300 lines of
+    // commented-out alternatives deleted in the restructure went — that dead code was exactly
+    // this form, and it is now a live branch that can be measured instead of a comment.
+    //
+    // Why it might matter here: j=0 and j=jm-1 sit at sin(theta) -> 0, where the metric terms
+    // 1/sin(theta) in the theta and phi derivatives diverge. An extrapolation that overshoots
+    // feeds that singularity; the copy is only first-order accurate but cannot overshoot at all.
+    // ATSAT has an independent lever on the same singularity in ATSAT_SINTHE_MIN (cSaturnModel.h),
+    // which floors sin(theta) rather than changing the extrapolation, so the two should be moved
+    // one at a time.
+    const int pole_form = pole_copy();
 
     #pragma omp parallel for
     for(int k = 1; k < km-1; k++){
@@ -255,10 +296,10 @@ void cSaturnModel::BC_theta(){
 
             for(int f = 0; f < nf; f++){
                 Array& F = *fields[f];
-                F.x[i][0][k] = F.x[i][3][k]
-                    - 3.0 * F.x[i][2][k] + 3.0 * F.x[i][1][k];  // extrapolation
-                F.x[i][jm-1][k] = F.x[i][jm-4][k]
-                    - 3.0 * F.x[i][jm-3][k] + 3.0 * F.x[i][jm-2][k];  // extrapolation
+                F.x[i][0][k] = extrap(pole_form,
+                    F.x[i][1][k], F.x[i][2][k], F.x[i][3][k], c43, c13);
+                F.x[i][jm-1][k] = extrap(pole_form,
+                    F.x[i][jm-2][k], F.x[i][jm-3][k], F.x[i][jm-4][k], c43, c13);
             }
 
             if(turb_bc){
