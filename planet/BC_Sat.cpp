@@ -32,6 +32,29 @@ using namespace std;
 // Gated by cSaturnModel::turb_active — ATSAT_TURB and the configured turb_model resolved into one
 // flag. With the closure off tke, dis and nue are identically zero, so the extrapolation would be
 // a no-op, and skipping it keeps the off path exactly as it was.
+//
+//
+// ===== Why the three routines below are written as field lists =====
+// Each of BC_radius, BC_theta and BC_phi applies ONE formula to every transported field. Written
+// longhand — a named block per field per boundary — that fact was invisible: the file was 1121
+// lines in which the same two lines of arithmetic appeared some 110 times with a different
+// identifier pasted in, and the only way to see that (say) fluxlim_nh4sh is extrapolated at the
+// radial walls but pinned to zero at the poles was to read all of it.
+//
+// The lists below say it directly. A field participates in a boundary if and only if it appears
+// in that boundary's list, and changing the FORM of a boundary is now an edit to one expression
+// rather than to ~38 blocks. That is the point: ATJUP already carries BC_TOP_TAPER, BC_POLE_COPY,
+// BC_RADIUS_COPY and BC_T_LID_PIN as live branches on exactly these expressions (BC_Jup.h), and
+// they could not be ported into the longhand form without tripling it. This commit changes no
+// arithmetic; it only makes the next one possible.
+//
+// DELETED WITH THE LONGHAND: roughly 300 lines of commented-out alternative forms, all of them
+// the 2-point Neumann f[s] = (4/3)f[a] - (1/3)f[b] that these routines used before the cubic.
+// They are not lost — that form is what ATJUP_BC_RADIUS_COPY and friends select, so it returns
+// as a live, testable branch rather than as a comment. Two of those dead blocks had typos that
+// would have become bugs the moment anyone uncommented them, which is its own argument against
+// keeping code in comments: BC_radius wrote nh3_cloud[0] from nh3[2] rather than nh3_cloud[2],
+// and BC_theta wrote v[i][0][k] from v.x[3][3][k] rather than v.x[i][3][k].
 namespace {
     constexpr double bc_dis_min = 1.0e-10;   // matches TurbulenceSat::dis_min and the RK4 floor
 }
@@ -40,909 +63,192 @@ void BC_Sat::bcRadius() { m.BC_radius(); }
 void BC_Sat::bcTheta()  { m.BC_theta(); }
 void BC_Sat::bcPhi()    { m.BC_phi(); }
 
+
+// ---------------------------------------------------------------------------
+// Deep boundary i=0 and model top i=im-1.
+// ---------------------------------------------------------------------------
 void cSaturnModel::BC_radius(){
-//    cout << endl << "      ATSAT: BC_radius" << endl;
+    // 3-point cubic extrapolation, inward from each radial wall.
+    Array* fields[] = {
+        &t, &u, &v, &w,
+        &ch4, &ch4_cloud, &ch4_ice,
+        &h2o, &h2o_cloud, &h2o_ice,
+        &h2s,
+        &nh3, &nh3_cloud, &nh3_ice,
+        &nh4sh,
+        &j_h2s,  &j_nh3,  &j_nh4sh,
+        &jT_h2s, &jT_nh3, &jT_nh4sh,
+        &w_h2s,  &w_nh3,  &w_nh4sh,
+        &massflux_h2s, &massflux_nh3, &massflux_nh4sh,
+        &difflux_h2s,  &difflux_nh3,  &difflux_nh4sh,
+        &fluxlim_nh4sh,
+        &thermalmassflux,
+        &CoriolisForce, &CentrifugalForce, &BuoyancyForce, &PresGradForce,
+        &Q_Latent, &Q_Sensible
+    };
+    const int nf = (int)(sizeof(fields) / sizeof(fields[0]));
 
-//    auto begin = std::chrono::high_resolution_clock::now();
-
+    // k*, dis*, nue* at the deep boundary and the model top: 2-point Neumann and a floor, for
+    // the reasons in the note at the top of this file.
+    Array* turb[] = { &tke, &dis, &nue };
+    const double turb_floor[] = { 0.0, bc_dis_min, 0.0 };
+    const int nt = (int)(sizeof(turb) / sizeof(turb[0]));
     const bool turb_bc = turb_active;
 
   #pragma omp parallel for
     for(int j = 1; j < jm-1; j++){
         for(int k = 1; k < km-1; k++){
-/*
-            u.x[0][j][k] = c43 * u.x[1][j][k] - c13 * u.x[2][j][k];
-            v.x[0][j][k] = c43 * v.x[1][j][k] - c13 * v.x[2][j][k];
-            w.x[0][j][k] = c43 * w.x[1][j][k] - c13 * w.x[2][j][k];
-
-            u.x[0][j][k] = 0.0;
-            v.x[0][j][k] = 0.0;
-            w.x[0][j][k] = 0.0;
-
-            u.x[im-1][j][k] = c43 * u.x[im-2][j][k] - c13 * u.x[im-3][j][k];
-            v.x[im-1][j][k] = c43 * v.x[im-2][j][k] - c13 * v.x[im-3][j][k];
-            w.x[im-1][j][k] = c43 * w.x[im-2][j][k] - c13 * w.x[im-3][j][k];
-*/
-
-
-            t.x[0][j][k] = t.x[3][j][k] 
-                - 3.0 * t.x[2][j][k] + 3.0 * t.x[1][j][k];  // extrapolation
-            u.x[0][j][k] = u.x[3][j][k] 
-                - 3.0 * u.x[2][j][k] + 3.0 * u.x[1][j][k];  // extrapolation
-            v.x[0][j][k] = v.x[3][j][k] 
-                - 3.0 * v.x[2][j][k] + 3.0 * v.x[1][j][k];  // extrapolation
-            w.x[0][j][k] = w.x[3][j][k] 
-                - 3.0 * w.x[2][j][k] + 3.0 * w.x[1][j][k];  // extrapolation
-
-            t.x[im-1][j][k] = t.x[im-4][j][k] 
-                - 3.0 * t.x[im-3][j][k] + 3.0 * t.x[im-2][j][k];  // extrapolation
-            u.x[im-1][j][k] = u.x[im-4][j][k] 
-                - 3.0 * u.x[im-3][j][k] + 3.0 * u.x[im-2][j][k];  // extrapolation
-            v.x[im-1][j][k] = v.x[im-4][j][k] 
-                - 3.0 * v.x[im-3][j][k] + 3.0 * v.x[im-2][j][k];  // extrapolation
-            w.x[im-1][j][k] = w.x[im-4][j][k] 
-                 - 3.0 * w.x[im-3][j][k] + 3.0 * w.x[im-2][j][k];  // extrapolation
-
-
-            ch4.x[0][j][k] = ch4.x[3][j][k]
-                - 3.0 * ch4.x[2][j][k] + 3.0 * ch4.x[1][j][k];  // extrapolation
-            ch4_cloud.x[0][j][k] = ch4_cloud.x[3][j][k]
-                - 3.0 * ch4_cloud.x[2][j][k] + 3.0 * ch4_cloud.x[1][j][k];  // extrapolation
-            ch4_ice.x[0][j][k] = ch4_ice.x[3][j][k]
-                - 3.0 * ch4_ice.x[2][j][k] + 3.0 * ch4_ice.x[1][j][k];  // extrapolation
-
-            ch4.x[im-1][j][k] = ch4.x[im-4][j][k]
-                - 3.0 * ch4.x[im-3][j][k] + 3.0 * ch4.x[im-2][j][k];  // extrapolation
-            ch4_cloud.x[im-1][j][k] = ch4_cloud.x[im-4][j][k]
-                - 3.0 * ch4_cloud.x[im-3][j][k] + 3.0 * ch4_cloud.x[im-2][j][k];  // extrapolation
-            ch4_ice.x[im-1][j][k] = ch4_ice.x[im-4][j][k]
-                 - 3.0 * ch4_ice.x[im-3][j][k] + 3.0 * ch4_ice.x[im-2][j][k];  // extrapolation
-
-
-            h2o.x[0][j][k] = h2o.x[3][j][k]
-                - 3.0 * h2o.x[2][j][k] + 3.0 * h2o.x[1][j][k];  // extrapolation
-            h2o_cloud.x[0][j][k] = h2o_cloud.x[3][j][k]
-                - 3.0 * h2o_cloud.x[2][j][k] + 3.0 * h2o_cloud.x[1][j][k];  // extrapolation
-            h2o_ice.x[0][j][k] = h2o_ice.x[3][j][k]
-                - 3.0 * h2o_ice.x[2][j][k] + 3.0 * h2o_ice.x[1][j][k];  // extrapolation
-
-            h2o.x[im-1][j][k] = h2o.x[im-4][j][k] 
-                - 3.0 * h2o.x[im-3][j][k] + 3.0 * h2o.x[im-2][j][k];  // extrapolation
-            h2o_cloud.x[im-1][j][k] = h2o_cloud.x[im-4][j][k] 
-                - 3.0 * h2o_cloud.x[im-3][j][k] + 3.0 * h2o_cloud.x[im-2][j][k];  // extrapolation
-            h2o_ice.x[im-1][j][k] = h2o_ice.x[im-4][j][k] 
-                 - 3.0 * h2o_ice.x[im-3][j][k] + 3.0 * h2o_ice.x[im-2][j][k];  // extrapolation
-
-
-            h2s.x[0][j][k] = h2s.x[3][j][k] 
-                - 3.0 * h2s.x[2][j][k] + 3.0 * h2s.x[1][j][k];  // extrapolation
-            h2s.x[im-1][j][k] = h2s.x[im-4][j][k] 
-                - 3.0 * h2s.x[im-3][j][k] + 3.0 * h2s.x[im-2][j][k];  // extrapolation
-
-
-            nh3.x[0][j][k] = nh3.x[3][j][k] 
-                - 3.0 * nh3.x[2][j][k] + 3.0 * nh3.x[1][j][k];  // extrapolation
-            nh3_cloud.x[0][j][k] = nh3_cloud.x[3][j][k] 
-                - 3.0 * nh3_cloud.x[2][j][k] + 3.0 * nh3_cloud.x[1][j][k];  // extrapolation
-            nh3_ice.x[0][j][k] = nh3_ice.x[3][j][k] 
-                - 3.0 * nh3_ice.x[2][j][k] + 3.0 * nh3_ice.x[1][j][k];  // extrapolation
-
-            nh3.x[im-1][j][k] = nh3.x[im-4][j][k] 
-                - 3.0 * nh3.x[im-3][j][k] + 3.0 * nh3.x[im-2][j][k];  // extrapolation
-            nh3_cloud.x[im-1][j][k] = nh3_cloud.x[im-4][j][k] 
-                - 3.0 * nh3_cloud.x[im-3][j][k] + 3.0 * nh3_cloud.x[im-2][j][k];  // extrapolation
-            nh3_ice.x[im-1][j][k] = nh3_ice.x[im-4][j][k] 
-                 - 3.0 * nh3_ice.x[im-3][j][k] + 3.0 * nh3_ice.x[im-2][j][k];  // extrapolation
-
-
-            nh4sh.x[0][j][k] = nh4sh.x[3][j][k] 
-                - 3.0 * nh4sh.x[2][j][k] + 3.0 * nh4sh.x[1][j][k];  // extrapolation
-            nh4sh.x[im-1][j][k] = nh4sh.x[im-4][j][k] 
-                - 3.0 * nh4sh.x[im-3][j][k] + 3.0 * nh4sh.x[im-2][j][k];  // extrapolation
-
-
-
-/*
-            h2o.x[0][j][k] = c43 * h2o.x[1][j][k] - c13 * h2o.x[2][j][k];
-            h2o_cloud.x[0][j][k] = c43 * h2o_cloud.x[1][j][k] - c13 * h2o_cloud.x[2][j][k];
-            h2o_ice.x[0][j][k] = c43 * h2o_ice.x[1][j][k] - c13 * h2o_ice.x[2][j][k];
-
-            h2o.x[im-1][j][k] = c43 * h2o.x[im-2][j][k] - c13 * h2o.x[im-3][j][k];
-            h2o_cloud.x[im-1][j][k] = c43 * h2o_cloud.x[im-2][j][k] - c13 * h2o_cloud.x[im-3][j][k];
-            h2o_ice.x[im-1][j][k] = c43 * h2o_ice.x[im-2][j][k] - c13 * h2o_ice.x[im-3][j][k];
-
-            h2s.x[0][j][k] = c43 * h2s.x[1][j][k] - c13 * h2s.x[2][j][k];
-            h2s_cloud.x[0][j][k] = c43 * h2s_cloud.x[1][j][k] - c13 * h2s_cloud.x[2][j][k];
-            h2s_ice.x[0][j][k] = c43 * h2s_ice.x[1][j][k] - c13 * h2s_ice.x[2][j][k];
-
-            h2s.x[im-1][j][k] = c43 * h2s.x[im-2][j][k] - c13 * h2s.x[im-3][j][k];
-            h2s_cloud.x[im-1][j][k] = c43 * h2s_cloud.x[im-2][j][k] - c13 * h2s_cloud.x[im-3][j][k];
-            h2s_ice.x[im-1][j][k] = c43 * h2s_ice.x[im-2][j][k] - c13 * h2s_ice.x[im-3][j][k];
-
-            nh3.x[0][j][k] = c43 * nh3.x[1][j][k] - c13 * nh3.x[2][j][k];
-            nh3_cloud.x[0][j][k] = c43 * nh3_cloud.x[1][j][k] - c13 * nh3.x[2][j][k];
-            nh3_ice.x[0][j][k] = c43 * nh3_ice.x[1][j][k] - c13 * nh3_ice.x[2][j][k];
-
-            nh3.x[im-1][j][k] = c43 * nh3.x[im-2][j][k] - c13 * nh3.x[im-3][j][k];
-            nh3_cloud.x[im-1][j][k] = c43 * nh3_cloud.x[im-2][j][k] - c13 * nh3_cloud.x[im-3][j][k];
-            nh3_ice.x[im-1][j][k] = c43 * nh3_ice.x[im-2][j][k] - c13 * nh3_ice.x[im-3][j][k];
-
-
-            nh4sh.x[0][j][k] = c43 * nh4sh.x[1][j][k] - c13 * nh4sh.x[2][j][k];
-//            nh4sh_cloud.x[0][j][k] = c43 * nh4sh_cloud.x[1][j][k] - c13 * nh4sh.x[2][j][k];
-//            nh4sh_ice.x[0][j][k] = c43 * nh4sh_ice.x[1][j][k] - c13 * nh4sh_ice.x[2][j][k];
-
-            nh4sh.x[im-1][j][k] = c43 * nh4sh.x[im-2][j][k] - c13 * nh4sh.x[im-3][j][k];
-//            nh4sh_cloud.x[im-1][j][k] = c43 * nh4sh_cloud.x[im-2][j][k] - c13 * nh4sh_cloud.x[im-3][j][k];
-//            nh4sh_ice.x[im-1][j][k] = c43 * nh4sh_ice.x[im-2][j][k] - c13 * nh4sh_ice.x[im-3][j][k];
-
-//            h2.x[0][j][k] = c43 * h2.x[1][j][k] - c13 * nh4sh.x[2][j][k];
-//            he.x[0][j][k] = c43 * he.x[1][j][k] - c13 * he.x[2][j][k];
-
-//            h2.x[im-1][j][k] = c43 * h2.x[im-2][j][k] - c13 * h2.x[im-3][j][k];
-//            he.x[im-1][j][k] = c43 * he.x[im-2][j][k] - c13 * he.x[im-3][j][k];
-*/
-
-
-            j_h2s.x[0][j][k] = j_h2s.x[3][j][k] 
-                - 3.0 * j_h2s.x[2][j][k] + 3.0 * j_h2s.x[1][j][k];  // extrapolation
-            j_h2s.x[im-1][j][k] = j_h2s.x[im-4][j][k] 
-                - 3.0 * j_h2s.x[im-3][j][k] + 3.0 * j_h2s.x[im-2][j][k];  // extrapolation
-
-
-            j_nh3.x[0][j][k] = j_nh3.x[3][j][k] 
-                - 3.0 * j_nh3.x[2][j][k] + 3.0 * j_nh3.x[1][j][k];  // extrapolation
-            j_nh3.x[im-1][j][k] = j_nh3.x[im-4][j][k] 
-                - 3.0 * j_nh3.x[im-3][j][k] + 3.0 * j_nh3.x[im-2][j][k];  // extrapolation
-
-
-            j_nh4sh.x[0][j][k] = j_nh4sh.x[3][j][k] 
-                - 3.0 * j_nh4sh.x[2][j][k] + 3.0 * j_nh4sh.x[1][j][k];  // extrapolation
-            j_nh4sh.x[im-1][j][k] = j_nh4sh.x[im-4][j][k] 
-                - 3.0 * j_nh4sh.x[im-3][j][k] + 3.0 * j_nh4sh.x[im-2][j][k];  // extrapolation
-
-
-            jT_h2s.x[0][j][k] = jT_h2s.x[3][j][k] 
-                - 3.0 * jT_h2s.x[2][j][k] + 3.0 * jT_h2s.x[1][j][k];  // extrapolation
-            jT_h2s.x[im-1][j][k] = jT_h2s.x[im-4][j][k] 
-                - 3.0 * jT_h2s.x[im-3][j][k] + 3.0 * jT_h2s.x[im-2][j][k];  // extrapolation
-
-
-            jT_nh3.x[0][j][k] = jT_nh3.x[3][j][k] 
-                - 3.0 * jT_nh3.x[2][j][k] + 3.0 * jT_nh3.x[1][j][k];  // extrapolation
-            jT_nh3.x[im-1][j][k] = jT_nh3.x[im-4][j][k] 
-                - 3.0 * jT_nh3.x[im-3][j][k] + 3.0 * jT_nh3.x[im-2][j][k];  // extrapolation
-
-
-            jT_nh4sh.x[0][j][k] = jT_nh4sh.x[3][j][k] 
-                - 3.0 * jT_nh4sh.x[2][j][k] + 3.0 * jT_nh4sh.x[1][j][k];  // extrapolation
-            jT_nh4sh.x[im-1][j][k] = jT_nh4sh.x[im-4][j][k] 
-                - 3.0 * jT_nh4sh.x[im-3][j][k] + 3.0 * jT_nh4sh.x[im-2][j][k];  // extrapolation
-
-
-/*
-            j_h2s.x[0][j][k] = c43 * j_h2s.x[1][j][k] - c13 * j_h2s.x[2][j][k];
-            j_h2s.x[im-1][j][k] = c43 * j_h2s.x[im-2][j][k] - c13 * j_h2s.x[im-3][j][k];
-
-            j_nh3.x[0][j][k] = c43 * j_nh3.x[1][j][k] - c13 * j_nh3.x[2][j][k];
-            j_nh3.x[im-1][j][k] = c43 * j_nh3.x[im-2][j][k] - c13 * j_nh3.x[im-3][j][k];
-
-            j_nh4sh.x[0][j][k] = c43 * j_nh4sh.x[1][j][k] - c13 * j_nh4sh.x[2][j][k];
-            j_nh4sh.x[im-1][j][k] = c43 * j_nh4sh.x[im-2][j][k] - c13 * j_nh4sh.x[im-3][j][k];
-
-            jT_h2s.x[0][j][k] = c43 * jT_h2s.x[1][j][k] - c13 * jT_h2s.x[2][j][k];
-            jT_h2s.x[im-1][j][k] = c43 * jT_h2s.x[im-2][j][k] - c13 * jT_h2s.x[im-3][j][k];
-
-            jT_nh3.x[0][j][k] = c43 * jT_nh3.x[1][j][k] - c13 * jT_nh3.x[2][j][k];
-            jT_nh3.x[im-1][j][k] = c43 * jT_nh3.x[im-2][j][k] - c13 * jT_nh3.x[im-3][j][k];
-
-            jT_nh4sh.x[0][j][k] = c43 * jT_nh4sh.x[1][j][k] - c13 * jT_nh4sh.x[2][j][k];
-            jT_nh4sh.x[im-1][j][k] = c43 * jT_nh4sh.x[im-2][j][k] - c13 * jT_nh4sh.x[im-3][j][k];
-*/
-
-
-            w_h2s.x[0][j][k] = w_h2s.x[3][j][k] 
-                - 3.0 * w_h2s.x[2][j][k] + 3.0 * w_h2s.x[1][j][k];  // extrapolation
-            w_h2s.x[im-1][j][k] = w_h2s.x[im-4][j][k] 
-                - 3.0 * w_h2s.x[im-3][j][k] + 3.0 * w_h2s.x[im-2][j][k];  // extrapolation
-
-            w_nh3.x[0][j][k] = w_nh3.x[3][j][k] 
-                - 3.0 * w_nh3.x[2][j][k] + 3.0 * w_nh3.x[1][j][k];  // extrapolation
-            w_nh3.x[im-1][j][k] = w_nh3.x[im-4][j][k] 
-                - 3.0 * w_nh3.x[im-3][j][k] + 3.0 * w_nh3.x[im-2][j][k];  // extrapolation
-
-            w_nh4sh.x[0][j][k] = w_nh4sh.x[3][j][k] 
-                - 3.0 * w_nh4sh.x[2][j][k] + 3.0 * w_nh4sh.x[1][j][k];  // extrapolation
-            w_nh4sh.x[im-1][j][k] = w_nh4sh.x[im-4][j][k] 
-                - 3.0 * w_nh4sh.x[im-3][j][k] + 3.0 * w_nh4sh.x[im-2][j][k];  // extrapolation
-
-
-            massflux_h2s.x[0][j][k] = massflux_h2s.x[3][j][k] 
-                - 3.0 * massflux_h2s.x[2][j][k] + 3.0 * massflux_h2s.x[1][j][k];  // extrapolation
-            massflux_h2s.x[im-1][j][k] = massflux_h2s.x[im-4][j][k] 
-                - 3.0 * massflux_h2s.x[im-3][j][k] + 3.0 * massflux_h2s.x[im-2][j][k];  // extrapolation
-
-            massflux_nh3.x[0][j][k] = massflux_nh3.x[3][j][k] 
-                - 3.0 * massflux_nh3.x[2][j][k] + 3.0 * massflux_nh3.x[1][j][k];  // extrapolation
-            massflux_nh3.x[im-1][j][k] = massflux_nh3.x[im-4][j][k] 
-                - 3.0 * massflux_nh3.x[im-3][j][k] + 3.0 * massflux_nh3.x[im-2][j][k];  // extrapolation
-
-            massflux_nh4sh.x[0][j][k] = massflux_nh4sh.x[3][j][k] 
-                - 3.0 * massflux_nh4sh.x[2][j][k] + 3.0 * massflux_nh4sh.x[1][j][k];  // extrapolation
-            massflux_nh4sh.x[im-1][j][k] = massflux_nh4sh.x[im-4][j][k] 
-                - 3.0 * massflux_nh4sh.x[im-3][j][k] + 3.0 * massflux_nh4sh.x[im-2][j][k];  // extrapolation
-
-
-
-            difflux_h2s.x[0][j][k] = difflux_h2s.x[3][j][k] 
-                - 3.0 * difflux_h2s.x[2][j][k] + 3.0 * difflux_h2s.x[1][j][k];  // extrapolation
-            difflux_h2s.x[im-1][j][k] = difflux_h2s.x[im-4][j][k] 
-                - 3.0 * difflux_h2s.x[im-3][j][k] + 3.0 * difflux_h2s.x[im-2][j][k];  // extrapolation
-
-            difflux_nh3.x[0][j][k] = difflux_nh3.x[3][j][k] 
-                - 3.0 * difflux_nh3.x[2][j][k] + 3.0 * difflux_nh3.x[1][j][k];  // extrapolation
-            difflux_nh3.x[im-1][j][k] = difflux_nh3.x[im-4][j][k] 
-                - 3.0 * difflux_nh3.x[im-3][j][k] + 3.0 * difflux_nh3.x[im-2][j][k];  // extrapolation
-
-            difflux_nh4sh.x[0][j][k] = difflux_nh4sh.x[3][j][k]
-                - 3.0 * difflux_nh4sh.x[2][j][k] + 3.0 * difflux_nh4sh.x[1][j][k];  // extrapolation
-            difflux_nh4sh.x[im-1][j][k] = difflux_nh4sh.x[im-4][j][k]
-                - 3.0 * difflux_nh4sh.x[im-3][j][k] + 3.0 * difflux_nh4sh.x[im-2][j][k];  // extrapolation
-
-            fluxlim_nh4sh.x[0][j][k] = fluxlim_nh4sh.x[3][j][k]
-                - 3.0 * fluxlim_nh4sh.x[2][j][k] + 3.0 * fluxlim_nh4sh.x[1][j][k];  // extrapolation
-            fluxlim_nh4sh.x[im-1][j][k] = fluxlim_nh4sh.x[im-4][j][k]
-                - 3.0 * fluxlim_nh4sh.x[im-3][j][k] + 3.0 * fluxlim_nh4sh.x[im-2][j][k];  // extrapolation
-
-
-            thermalmassflux.x[0][j][k] = thermalmassflux.x[3][j][k]
-                - 3.0 * thermalmassflux.x[2][j][k] + 3.0 * thermalmassflux.x[1][j][k];  // extrapolation
-            thermalmassflux.x[im-1][j][k] = thermalmassflux.x[im-4][j][k] 
-                - 3.0 * thermalmassflux.x[im-3][j][k] + 3.0 * thermalmassflux.x[im-2][j][k];  // extrapolation
-
-            CoriolisForce.x[0][j][k] = CoriolisForce.x[3][j][k] 
-                - 3.0 * CoriolisForce.x[2][j][k] + 3.0 * CoriolisForce.x[1][j][k];  // extrapolation
-            CoriolisForce.x[im-1][j][k] = CoriolisForce.x[im-4][j][k] 
-                - 3.0 * CoriolisForce.x[im-3][j][k] + 3.0 * CoriolisForce.x[im-2][j][k];  // extrapolation
-
-            CentrifugalForce.x[0][j][k] = CentrifugalForce.x[3][j][k] 
-                - 3.0 * CentrifugalForce.x[2][j][k] + 3.0 * CentrifugalForce.x[1][j][k];  // extrapolation
-            CentrifugalForce.x[im-1][j][k] = CentrifugalForce.x[im-4][j][k] 
-                - 3.0 * CentrifugalForce.x[im-3][j][k] + 3.0 * CentrifugalForce.x[im-2][j][k];  // extrapolation
-
-            BuoyancyForce.x[0][j][k] = BuoyancyForce.x[3][j][k] 
-                - 3.0 * BuoyancyForce.x[2][j][k] + 3.0 * BuoyancyForce.x[1][j][k];  // extrapolation
-            BuoyancyForce.x[im-1][j][k] = BuoyancyForce.x[im-4][j][k] 
-                - 3.0 * BuoyancyForce.x[im-3][j][k] + 3.0 * BuoyancyForce.x[im-2][j][k];  // extrapolation
-
-            PresGradForce.x[0][j][k] = PresGradForce.x[3][j][k] 
-                - 3.0 * PresGradForce.x[2][j][k] + 3.0 * PresGradForce.x[1][j][k];  // extrapolation
-            PresGradForce.x[im-1][j][k] = PresGradForce.x[im-4][j][k] 
-                - 3.0 * PresGradForce.x[im-3][j][k] + 3.0 * PresGradForce.x[im-2][j][k];  // extrapolation
-
-            Q_Latent.x[0][j][k] = Q_Latent.x[3][j][k] 
-                - 3.0 * Q_Latent.x[2][j][k] + 3.0 * Q_Latent.x[1][j][k];  // extrapolation
-            Q_Latent.x[im-1][j][k] = Q_Latent.x[im-4][j][k] 
-                - 3.0 * Q_Latent.x[im-3][j][k] + 3.0 * Q_Latent.x[im-2][j][k];  // extrapolation
-
-            Q_Sensible.x[0][j][k] = Q_Sensible.x[3][j][k] 
-                - 3.0 * Q_Sensible.x[2][j][k] + 3.0 * Q_Sensible.x[1][j][k];  // extrapolation
-            Q_Sensible.x[im-1][j][k] = Q_Sensible.x[im-4][j][k] 
-                - 3.0 * Q_Sensible.x[im-3][j][k] + 3.0 * Q_Sensible.x[im-2][j][k];  // extrapolation
-
-
-            // k*, dis*, nue* at the deep boundary and the model top (see the note at the top
-            // of this file for why the form and the clamps differ from the fields above).
-            if(turb_bc){
-                tke.x[0][j][k] = std::max(0.0,
-                    c43 * tke.x[1][j][k] - c13 * tke.x[2][j][k]);
-                dis.x[0][j][k] = std::max(bc_dis_min,
-                    c43 * dis.x[1][j][k] - c13 * dis.x[2][j][k]);
-                nue.x[0][j][k] = std::max(0.0,
-                    c43 * nue.x[1][j][k] - c13 * nue.x[2][j][k]);
-
-                tke.x[im-1][j][k] = std::max(0.0,
-                    c43 * tke.x[im-2][j][k] - c13 * tke.x[im-3][j][k]);
-                dis.x[im-1][j][k] = std::max(bc_dis_min,
-                    c43 * dis.x[im-2][j][k] - c13 * dis.x[im-3][j][k]);
-                nue.x[im-1][j][k] = std::max(0.0,
-                    c43 * nue.x[im-2][j][k] - c13 * nue.x[im-3][j][k]);
+            for(int f = 0; f < nf; f++){
+                Array& F = *fields[f];
+                F.x[0][j][k] = F.x[3][j][k]
+                    - 3.0 * F.x[2][j][k] + 3.0 * F.x[1][j][k];  // extrapolation
+                F.x[im-1][j][k] = F.x[im-4][j][k]
+                    - 3.0 * F.x[im-3][j][k] + 3.0 * F.x[im-2][j][k];  // extrapolation
             }
 
-
-/*
-            w_h2s.x[0][j][k] = c43 * w_h2s.x[1][j][k] - c13 * w_h2s.x[2][j][k];
-            w_h2s.x[im-1][j][k] = c43 * w_h2s.x[im-2][j][k] - c13 * w_h2s.x[im-3][j][k];
-
-            w_nh3.x[0][j][k] = c43 * w_nh3.x[1][j][k] - c13 * w_nh3.x[2][j][k];
-            w_nh3.x[im-1][j][k] = c43 * w_nh3.x[im-2][j][k] - c13 * w_nh3.x[im-3][j][k];
-
-            w_nh4sh.x[0][j][k] = c43 * w_nh4sh.x[1][j][k] - c13 * w_nh4sh.x[2][j][k];
-            w_nh4sh.x[im-1][j][k] = c43 * w_nh4sh.x[im-2][j][k] - c13 * w_nh4sh.x[im-3][j][k];
-
-
-            massflux_h2s.x[0][j][k] = c43 * massflux_h2s.x[1][j][k] - c13 * massflux_h2s.x[2][j][k];
-            massflux_h2s.x[im-1][j][k] = c43 * massflux_h2s.x[im-2][j][k] - c13 * massflux_h2s.x[im-3][j][k];
-
-            massflux_nh3.x[0][j][k] = c43 * massflux_nh3.x[1][j][k] - c13 * massflux_nh3.x[2][j][k];
-            massflux_nh3.x[im-1][j][k] = c43 * massflux_nh3.x[im-2][j][k] - c13 * massflux_nh3.x[im-3][j][k];
-
-            massflux_nh4sh.x[0][j][k] = c43 * massflux_nh4sh.x[1][j][k] - c13 * massflux_nh4sh.x[2][j][k];
-            massflux_nh4sh.x[im-1][j][k] = c43 * massflux_nh4sh.x[im-2][j][k] - c13 * massflux_nh4sh.x[im-3][j][k];
-
-            difflux_h2s.x[0][j][k] = c43 * difflux_h2s.x[1][j][k] - c13 * difflux_h2s.x[2][j][k];
-            difflux_h2s.x[im-1][j][k] = c43 * difflux_h2s.x[im-2][j][k] - c13 * difflux_h2s.x[im-3][j][k];
-
-            difflux_nh3.x[0][j][k] = c43 * difflux_nh3.x[1][j][k] - c13 * difflux_nh3.x[2][j][k];
-            difflux_nh3.x[im-1][j][k] = c43 * difflux_nh3.x[im-2][j][k] - c13 * difflux_nh3.x[im-3][j][k];
-
-            difflux_nh4sh.x[0][j][k] = c43 * difflux_nh4sh.x[1][j][k] - c13 * difflux_nh4sh.x[2][j][k];
-            difflux_nh4sh.x[im-1][j][k] = c43 * difflux_nh4sh.x[im-2][j][k] - c13 * difflux_nh4sh.x[im-3][j][k];
-
-            thermalmassflux.x[0][j][k] = c43 * thermalmassflux.x[1][j][k] - c13 * thermalmassflux.x[2][j][k];
-            thermalmassflux.x[im-1][j][k] = c43 * thermalmassflux.x[im-2][j][k] - c13 * thermalmassflux.x[im-3][j][k];
-
-            CoriolisForce.x[0][j][k] = c43 * CoriolisForce.x[1][j][k] - c13 * CoriolisForce.x[2][j][k];
-            CoriolisForce.x[im-1][j][k] = c43 * CoriolisForce.x[im-2][j][k] - c13 * CoriolisForce.x[im-3][j][k];
-
-            BuoyancyForce.x[0][j][k] = c43 * BuoyancyForce.x[1][j][k] - c13 * BuoyancyForce.x[2][j][k];
-            BuoyancyForce.x[im-1][j][k] = c43 * BuoyancyForce.x[im-2][j][k] - c13 * BuoyancyForce.x[im-3][j][k];
-
-            PresGradForce.x[0][j][k] = c43 * PresGradForce.x[1][j][k] - c13 * PresGradForce.x[2][j][k];
-            PresGradForce.x[im-1][j][k] = c43 * PresGradForce.x[im-2][j][k] - c13 * PresGradForce.x[im-3][j][k];
-*/
+            if(turb_bc){
+                for(int f = 0; f < nt; f++){
+                    Array& F = *turb[f];
+                    F.x[0][j][k] = std::max(turb_floor[f],
+                        c43 * F.x[1][j][k] - c13 * F.x[2][j][k]);
+                    F.x[im-1][j][k] = std::max(turb_floor[f],
+                        c43 * F.x[im-2][j][k] - c13 * F.x[im-3][j][k]);
+                }
+            }
         }
     }
 
-//    auto end = std::chrono::high_resolution_clock::now();
-//    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
-//    printf(" time measured: %.3f seconds for BC_radius\n", elapsed.count() * 1e-9);
-
-//    cout << "      ATSAT: BC_radius ended" << endl;
     return;
 }
-
-
+/*
+*
+*/
+// ---------------------------------------------------------------------------
+// The two poles, j=0 and j=jm-1.
+// ---------------------------------------------------------------------------
 void cSaturnModel::BC_theta(){
-//    cout << endl << "      ATSAT: BC_theta" << endl;
+    // v, w and the nh4sh flux limiter are pinned to zero at both poles rather than extrapolated:
+    // the meridional and zonal velocities have no meaning on the axis, and the limiter is a
+    // correction to an advective flux that does not exist there.
+    Array* zero_fields[] = { &v, &w, &fluxlim_nh4sh };
+    const int nz = (int)(sizeof(zero_fields) / sizeof(zero_fields[0]));
 
-//    auto begin = std::chrono::high_resolution_clock::now();
+    // Everything else takes the same 3-point cubic used at the radial walls. Note that u IS
+    // extrapolated here and v, w are not — the radial component is tangential to the pole.
+    Array* fields[] = {
+        &t, &u,
+        &ch4, &ch4_cloud, &ch4_ice,
+        &h2o, &h2o_cloud, &h2o_ice,
+        &h2s,
+        &nh3, &nh3_cloud, &nh3_ice,
+        &nh4sh,
+        &j_h2s,  &j_nh3,  &j_nh4sh,
+        &jT_h2s, &jT_nh3, &jT_nh4sh,
+        &w_h2s,  &w_nh3,  &w_nh4sh,
+        &massflux_h2s, &massflux_nh3, &massflux_nh4sh,
+        &difflux_h2s,  &difflux_nh3,  &difflux_nh4sh,
+        &thermalmassflux,
+        &CoriolisForce, &CentrifugalForce, &BuoyancyForce, &PresGradForce,
+        &Q_Latent, &Q_Sensible
+    };
+    const int nf = (int)(sizeof(fields) / sizeof(fields[0]));
 
+    // k*, dis*, nue* at the two poles (see the note at the top of this file).
+    Array* turb[] = { &tke, &dis, &nue };
+    const double turb_floor[] = { 0.0, bc_dis_min, 0.0 };
+    const int nt = (int)(sizeof(turb) / sizeof(turb[0]));
     const bool turb_bc = turb_active;
 
     #pragma omp parallel for
     for(int k = 1; k < km-1; k++){
         for(int i = 1; i < im-1; i++){
-/*
-            t.x[i][0][k] = c43 * t.x[i][1][k] - c13 * t.x[i][2][k];
-            t.x[i][jm-1][k] = c43 * t.x[i][jm-2][k] - c13 * t.x[i][jm-3][k];
-
-            u.x[i][0][k] = c43 * u.x[i][1][k] - c13 * u.x[i][2][k];
-            u.x[i][jm-1][k] = c43 * u.x[i][jm-2][k] - c13 * u.x[i][jm-3][k];
-
-            v.x[i][0][k] = c43 * v.x[i][1][k] - c13 * v.x[i][2][k];
-            v.x[i][jm-1][k] = c43 * v.x[i][jm-2][k] - c13 * v.x[i][jm-3][k];
-
-            w.x[i][0][k] = c43 * w.x[i][1][k] - c13 * w.x[i][2][k];
-            w.x[i][jm-1][k] = c43 * w.x[i][jm-2][k] - c13 * w.x[i][jm-3][k];
-*/
-
-//            u.x[i][0][k] = 0.0;
-//            u.x[i][jm-1][k] = 0.0;
-            v.x[i][0][k] = 0.0;
-            v.x[i][jm-1][k] = 0.0;
-            w.x[i][0][k] = 0.0;
-            w.x[i][jm-1][k] = 0.0;
-
-
-            t.x[i][0][k] = t.x[i][3][k] 
-                - 3.0 * t.x[i][2][k] + 3.0 * t.x[i][1][k];  // extrapolation
-            u.x[i][0][k] = u.x[i][3][k] 
-                - 3.0 * u.x[i][2][k] + 3.0 * u.x[i][1][k];  // extrapolation
-/*
-            v.x[i][0][k] = v.x[3][3][k] 
-                - 3.0 * v.x[i][2][k] + 3.0 * v.x[i][1][k];  // extrapolation
-            w.x[i][0][k] = w.x[3][3][k] 
-                - 3.0 * w.x[i][2][k] + 3.0 * w.x[i][1][k];  // extrapolation
-*/
-            t.x[i][jm-1][k] = t.x[i][jm-4][k] 
-                - 3.0 * t.x[i][jm-3][k] + 3.0 * t.x[i][jm-2][k];  // extrapolation
-            u.x[i][jm-1][k] = u.x[i][jm-4][k] 
-                - 3.0 * u.x[i][jm-3][k] + 3.0 * u.x[i][jm-2][k];  // extrapolation
-/*
-            v.x[i][jm-1][k] = v.x[i][jm-4][k] 
-                - 3.0 * v.x[i][jm-3][k] + 3.0 * v.x[i][jm-2][k];  // extrapolation
-            w.x[i][jm-1][k] = w.x[i][jm-4][k] 
-                 - 3.0 * w.x[i][jm-3][k] + 3.0 * w.x[i][jm-2][k];  // extrapolation
-*/
-
-            ch4.x[i][0][k] = ch4.x[i][3][k]
-                - 3.0 * ch4.x[i][2][k] + 3.0 * ch4.x[i][1][k];  // extrapolation
-            ch4.x[i][jm-1][k] = ch4.x[i][jm-4][k]
-                - 3.0 * ch4.x[i][jm-3][k] + 3.0 * ch4.x[i][jm-2][k];  // extrapolation
-
-            ch4_cloud.x[i][0][k] = ch4_cloud.x[i][3][k]
-                - 3.0 * ch4_cloud.x[i][2][k] + 3.0 * ch4_cloud.x[i][1][k];  // extrapolation
-            ch4_cloud.x[i][jm-1][k] = ch4_cloud.x[i][jm-4][k]
-                - 3.0 * ch4_cloud.x[i][jm-3][k] + 3.0 * ch4_cloud.x[i][jm-2][k];  // extrapolation
-
-            ch4_ice.x[i][0][k] = ch4_ice.x[i][3][k]
-                - 3.0 * ch4_ice.x[i][2][k] + 3.0 * ch4_ice.x[i][1][k];  // extrapolation
-            ch4_ice.x[i][jm-1][k] = ch4_ice.x[i][jm-4][k]
-                - 3.0 * ch4_ice.x[i][jm-3][k] + 3.0 * ch4_ice.x[i][jm-2][k];  // extrapolation
-
-
-            h2o.x[i][0][k] = h2o.x[i][3][k]
-                - 3.0 * h2o.x[i][2][k] + 3.0 * h2o.x[i][1][k];  // extrapolation
-            h2o.x[i][jm-1][k] = h2o.x[i][jm-4][k]
-                - 3.0 * h2o.x[i][jm-3][k] + 3.0 * h2o.x[i][jm-2][k];  // extrapolation
-
-            h2o_cloud.x[i][0][k] = h2o_cloud.x[i][3][k] 
-                - 3.0 * h2o_cloud.x[i][2][k] + 3.0 * h2o_cloud.x[i][1][k];  // extrapolation
-            h2o_cloud.x[i][jm-1][k] = h2o_cloud.x[i][jm-4][k] 
-                - 3.0 * h2o_cloud.x[i][jm-3][k] + 3.0 * h2o_cloud.x[i][jm-2][k];  // extrapolation
-
-            h2o_ice.x[i][0][k] = h2o_ice.x[i][3][k] 
-                - 3.0 * h2o_ice.x[i][2][k] + 3.0 * h2o_ice.x[i][1][k];  // extrapolation
-            h2o_ice.x[i][jm-1][k] = h2o_ice.x[i][jm-4][k] 
-                - 3.0 * h2o_ice.x[i][jm-3][k] + 3.0 * h2o_ice.x[i][jm-2][k];  // extrapolation
-
-
-            h2s.x[i][0][k] = h2s.x[i][3][k] 
-                - 3.0 * h2s.x[i][2][k] + 3.0 * h2s.x[i][1][k];  // extrapolation
-            h2s.x[i][jm-1][k] = h2s.x[i][jm-4][k] 
-                - 3.0 * h2s.x[i][jm-3][k] + 3.0 * h2s.x[i][jm-2][k];  // extrapolation
-
-
-            nh3.x[i][0][k] = nh3.x[i][3][k] 
-                - 3.0 * nh3.x[i][2][k] + 3.0 * nh3.x[i][1][k];  // extrapolation
-            nh3.x[i][jm-1][k] = nh3.x[i][jm-4][k] 
-                - 3.0 * nh3.x[i][jm-3][k] + 3.0 * nh3.x[i][jm-2][k];  // extrapolation
-
-            nh3_cloud.x[i][0][k] = nh3_cloud.x[i][3][k] 
-                - 3.0 * nh3_cloud.x[i][2][k] + 3.0 * nh3_cloud.x[i][1][k];  // extrapolation
-            nh3_cloud.x[i][jm-1][k] = nh3_cloud.x[i][jm-4][k] 
-                - 3.0 * nh3_cloud.x[i][jm-3][k] + 3.0 * nh3_cloud.x[i][jm-2][k];  // extrapolation
-
-            nh3_ice.x[i][0][k] = nh3_ice.x[i][3][k] 
-                - 3.0 * nh3_ice.x[i][2][k] + 3.0 * nh3_ice.x[i][1][k];  // extrapolation
-            nh3_ice.x[i][jm-1][k] = nh3_ice.x[i][jm-4][k] 
-                - 3.0 * nh3_ice.x[i][jm-3][k] + 3.0 * nh3_ice.x[i][jm-2][k];  // extrapolation
-
-
-            nh4sh.x[i][0][k] = nh4sh.x[i][3][k] 
-                - 3.0 * nh4sh.x[i][2][k] + 3.0 * nh4sh.x[i][1][k];  // extrapolation
-            nh4sh.x[i][jm-1][k] = nh4sh.x[i][jm-4][k] 
-                - 3.0 * nh4sh.x[i][jm-3][k] + 3.0 * nh4sh.x[i][jm-2][k];  // extrapolation
-
-
-            j_h2s.x[i][0][k] = j_h2s.x[i][3][k] 
-                - 3.0 * j_h2s.x[i][2][k] + 3.0 * j_h2s.x[i][1][k];  // extrapolation
-            j_h2s.x[i][jm-1][k] = j_h2s.x[i][jm-4][k] 
-                - 3.0 * j_h2s.x[i][jm-3][k] + 3.0 * j_h2s.x[i][jm-2][k];  // extrapolation
-
-            j_nh3.x[i][0][k] = j_nh3.x[i][3][k] 
-                - 3.0 * j_nh3.x[i][2][k] + 3.0 * j_nh3.x[i][1][k];  // extrapolation
-            j_nh3.x[i][jm-1][k] = j_nh3.x[i][jm-4][k] 
-                - 3.0 * j_nh3.x[i][jm-3][k] + 3.0 * j_nh3.x[i][jm-2][k];  // extrapolation
-
-            j_nh4sh.x[i][0][k] = j_nh4sh.x[i][3][k] 
-                - 3.0 * j_nh4sh.x[i][2][k] + 3.0 * j_nh4sh.x[i][1][k];  // extrapolation
-            j_nh4sh.x[i][jm-1][k] = j_nh4sh.x[i][jm-4][k] 
-                - 3.0 * j_nh4sh.x[i][jm-3][k] + 3.0 * j_nh4sh.x[i][jm-2][k];  // extrapolation
-
-
-            jT_h2s.x[i][0][k] = jT_h2s.x[i][3][k] 
-                - 3.0 * jT_h2s.x[i][2][k] + 3.0 * jT_h2s.x[i][1][k];  // extrapolation
-            jT_h2s.x[i][jm-1][k] = jT_h2s.x[i][jm-4][k] 
-                - 3.0 * jT_h2s.x[i][jm-3][k] + 3.0 * jT_h2s.x[i][jm-2][k];  // extrapolation
-
-            jT_nh3.x[i][0][k] = jT_nh3.x[i][3][k] 
-                - 3.0 * jT_nh3.x[i][2][k] + 3.0 * jT_nh3.x[i][1][k];  // extrapolation
-            jT_nh3.x[i][jm-1][k] = jT_nh3.x[i][jm-4][k] 
-                - 3.0 * jT_nh3.x[i][jm-3][k] + 3.0 * jT_nh3.x[i][jm-2][k];  // extrapolation
-
-            jT_nh4sh.x[i][0][k] = jT_nh4sh.x[i][3][k] 
-                - 3.0 * jT_nh4sh.x[i][2][k] + 3.0 * jT_nh4sh.x[i][1][k];  // extrapolation
-            jT_nh4sh.x[i][jm-1][k] = jT_nh4sh.x[i][jm-4][k] 
-                - 3.0 * jT_nh4sh.x[i][jm-3][k] + 3.0 * jT_nh4sh.x[i][jm-2][k];  // extrapolation
-
-
-            w_h2s.x[i][0][k] = w_h2s.x[i][3][k] 
-                - 3.0 * w_h2s.x[i][2][k] + 3.0 * w_h2s.x[i][1][k];  // extrapolation
-            w_h2s.x[i][jm-1][k] = w_h2s.x[i][jm-4][k] 
-                - 3.0 * w_h2s.x[i][jm-3][k] + 3.0 * w_h2s.x[i][jm-2][k];  // extrapolation
-
-            w_nh3.x[i][0][k] = w_nh3.x[i][3][k] 
-                - 3.0 * w_nh3.x[i][2][k] + 3.0 * w_nh3.x[i][1][k];  // extrapolation
-            w_nh3.x[i][jm-1][k] = w_nh3.x[i][jm-4][k] 
-                - 3.0 * w_nh3.x[i][jm-3][k] + 3.0 * w_nh3.x[i][jm-2][k];  // extrapolation
-
-            w_nh4sh.x[i][0][k] = w_nh4sh.x[i][3][k] 
-                - 3.0 * w_nh4sh.x[i][2][k] + 3.0 * w_nh4sh.x[i][1][k];  // extrapolation
-            w_nh4sh.x[i][jm-1][k] = w_nh4sh.x[i][jm-4][k] 
-                - 3.0 * w_nh4sh.x[i][jm-3][k] + 3.0 * w_nh4sh.x[i][jm-2][k];  // extrapolation
-
-
-            massflux_h2s.x[i][0][k] = massflux_h2s.x[i][3][k] 
-                - 3.0 * massflux_h2s.x[i][2][k] + 3.0 * massflux_h2s.x[i][1][k];  // extrapolation
-            massflux_h2s.x[i][jm-1][k] = massflux_h2s.x[i][jm-4][k] 
-                - 3.0 * massflux_h2s.x[i][jm-3][k] + 3.0 * massflux_h2s.x[i][jm-2][k];  // extrapolation
-
-            massflux_nh3.x[i][0][k] = massflux_nh3.x[i][3][k] 
-                - 3.0 * massflux_nh3.x[i][2][k] + 3.0 * massflux_nh3.x[i][1][k];  // extrapolation
-            massflux_nh3.x[i][jm-1][k] = massflux_nh3.x[i][jm-4][k] 
-                - 3.0 * massflux_nh3.x[i][jm-3][k] + 3.0 * massflux_nh3.x[i][jm-2][k];  // extrapolation
-
-            massflux_nh4sh.x[i][0][k] = massflux_nh4sh.x[i][3][k] 
-                - 3.0 * massflux_nh4sh.x[i][2][k] + 3.0 * massflux_nh4sh.x[i][1][k];  // extrapolation
-            massflux_nh4sh.x[i][jm-1][k] = massflux_nh4sh.x[i][jm-4][k] 
-                - 3.0 * massflux_nh4sh.x[i][jm-3][k] + 3.0 * massflux_nh4sh.x[i][jm-2][k];  // extrapolation
-
-
-            difflux_h2s.x[i][0][k] = difflux_h2s.x[i][3][k] 
-                - 3.0 * difflux_h2s.x[i][2][k] + 3.0 * difflux_h2s.x[i][1][k];  // extrapolation
-            difflux_h2s.x[i][jm-1][k] = difflux_h2s.x[i][jm-4][k] 
-                - 3.0 * difflux_h2s.x[i][jm-3][k] + 3.0 * difflux_h2s.x[i][jm-2][k];  // extrapolation
-
-            difflux_nh3.x[i][0][k] = difflux_nh3.x[i][3][k] 
-                - 3.0 * difflux_nh3.x[i][2][k] + 3.0 * difflux_nh3.x[i][1][k];  // extrapolation
-            difflux_nh3.x[i][jm-1][k] = difflux_nh3.x[i][jm-4][k] 
-                - 3.0 * difflux_nh3.x[i][jm-3][k] + 3.0 * difflux_nh3.x[i][jm-2][k];  // extrapolation
-
-            difflux_nh4sh.x[i][0][k] = difflux_nh4sh.x[i][3][k]
-                - 3.0 * difflux_nh4sh.x[i][2][k] + 3.0 * difflux_nh4sh.x[i][1][k];  // extrapolation
-            difflux_nh4sh.x[i][jm-1][k] = difflux_nh4sh.x[i][jm-4][k]
-                - 3.0 * difflux_nh4sh.x[i][jm-3][k] + 3.0 * difflux_nh4sh.x[i][jm-2][k];  // extrapolation
-
-            fluxlim_nh4sh.x[i][0][k] = 0.0;
-            fluxlim_nh4sh.x[i][jm-1][k] = 0.0;
-
-
-            thermalmassflux.x[i][0][k] = thermalmassflux.x[i][3][k] 
-                - 3.0 * thermalmassflux.x[i][2][k] + 3.0 * thermalmassflux.x[i][1][k];  // extrapolation
-            thermalmassflux.x[i][jm-1][k] = thermalmassflux.x[i][jm-4][k] 
-                - 3.0 * thermalmassflux.x[i][jm-3][k] + 3.0 * thermalmassflux.x[i][jm-2][k];  // extrapolation
-
-
-            CoriolisForce.x[i][0][k] = CoriolisForce.x[i][3][k] 
-                - 3.0 * CoriolisForce.x[i][2][k] + 3.0 * CoriolisForce.x[i][1][k];  // extrapolation
-            CoriolisForce.x[i][jm-1][k] = CoriolisForce.x[i][jm-4][k] 
-                - 3.0 * CoriolisForce.x[i][jm-3][k] + 3.0 * CoriolisForce.x[i][jm-2][k];  // extrapolation
-
-            CentrifugalForce.x[i][0][k] = CentrifugalForce.x[i][3][k] 
-                - 3.0 * CentrifugalForce.x[i][2][k] + 3.0 * CentrifugalForce.x[i][1][k];  // extrapolation
-            CentrifugalForce.x[i][jm-1][k] = CentrifugalForce.x[i][jm-4][k] 
-                - 3.0 * CentrifugalForce.x[i][jm-3][k] + 3.0 * CentrifugalForce.x[i][jm-2][k];  // extrapolation
-
-            BuoyancyForce.x[i][0][k] = BuoyancyForce.x[i][3][k] 
-                - 3.0 * BuoyancyForce.x[i][2][k] + 3.0 * BuoyancyForce.x[i][1][k];  // extrapolation
-            BuoyancyForce.x[i][jm-1][k] = BuoyancyForce.x[i][jm-4][k] 
-                - 3.0 * BuoyancyForce.x[i][jm-3][k] + 3.0 * BuoyancyForce.x[i][jm-2][k];  // extrapolation
-
-            PresGradForce.x[i][0][k] = PresGradForce.x[i][3][k] 
-                - 3.0 * PresGradForce.x[i][2][k] + 3.0 * PresGradForce.x[i][1][k];  // extrapolation
-            PresGradForce.x[i][jm-1][k] = PresGradForce.x[i][jm-4][k] 
-                - 3.0 * PresGradForce.x[i][jm-3][k] + 3.0 * PresGradForce.x[i][jm-2][k];  // extrapolation
-
-            Q_Latent.x[i][0][k] = Q_Latent.x[i][3][k] 
-                - 3.0 * Q_Latent.x[i][2][k] + 3.0 * Q_Latent.x[i][1][k];  // extrapolation
-            Q_Latent.x[i][jm-1][k] = Q_Latent.x[i][jm-4][k] 
-                - 3.0 * Q_Latent.x[i][jm-3][k] + 3.0 * Q_Latent.x[i][jm-2][k];  // extrapolation
-
-            Q_Sensible.x[i][0][k] = Q_Sensible.x[i][3][k] 
-                - 3.0 * Q_Sensible.x[i][2][k] + 3.0 * Q_Sensible.x[i][1][k];  // extrapolation
-            Q_Sensible.x[i][jm-1][k] = Q_Sensible.x[i][jm-4][k] 
-                - 3.0 * Q_Sensible.x[i][jm-3][k] + 3.0 * Q_Sensible.x[i][jm-2][k];  // extrapolation
-
-
-            // k*, dis*, nue* at the two poles (see the note at the top of this file).
-            if(turb_bc){
-                tke.x[i][0][k] = std::max(0.0,
-                    c43 * tke.x[i][1][k] - c13 * tke.x[i][2][k]);
-                dis.x[i][0][k] = std::max(bc_dis_min,
-                    c43 * dis.x[i][1][k] - c13 * dis.x[i][2][k]);
-                nue.x[i][0][k] = std::max(0.0,
-                    c43 * nue.x[i][1][k] - c13 * nue.x[i][2][k]);
-
-                tke.x[i][jm-1][k] = std::max(0.0,
-                    c43 * tke.x[i][jm-2][k] - c13 * tke.x[i][jm-3][k]);
-                dis.x[i][jm-1][k] = std::max(bc_dis_min,
-                    c43 * dis.x[i][jm-2][k] - c13 * dis.x[i][jm-3][k]);
-                nue.x[i][jm-1][k] = std::max(0.0,
-                    c43 * nue.x[i][jm-2][k] - c13 * nue.x[i][jm-3][k]);
+            for(int f = 0; f < nz; f++){
+                Array& F = *zero_fields[f];
+                F.x[i][0][k] = 0.0;
+                F.x[i][jm-1][k] = 0.0;
             }
 
+            for(int f = 0; f < nf; f++){
+                Array& F = *fields[f];
+                F.x[i][0][k] = F.x[i][3][k]
+                    - 3.0 * F.x[i][2][k] + 3.0 * F.x[i][1][k];  // extrapolation
+                F.x[i][jm-1][k] = F.x[i][jm-4][k]
+                    - 3.0 * F.x[i][jm-3][k] + 3.0 * F.x[i][jm-2][k];  // extrapolation
+            }
 
-
-/*
-            h2o.x[i][0][k] = c43 * h2o.x[i][1][k] - c13 * h2o.x[i][2][k];
-            h2o.x[i][jm-1][k] = c43 * h2o.x[i][jm-2][k] - c13 * h2o.x[i][jm-3][k];
-
-            h2o_cloud.x[i][0][k] = c43 * h2o_cloud.x[i][1][k] - c13 * h2o_cloud.x[i][2][k];
-            h2o_cloud.x[i][jm-1][k] = c43 * h2o_cloud.x[i][jm-2][k] - c13 * h2o_cloud.x[i][jm-3][k];
-
-            h2o_ice.x[i][0][k] = c43 * h2o_ice.x[i][1][k] - c13 * h2o_ice.x[i][2][k];
-            h2o_ice.x[i][jm-1][k] = c43 * h2o_ice.x[i][jm-2][k] - c13 * h2o_ice.x[i][jm-3][k];
-
-            h2s.x[i][0][k] = c43 * h2s.x[i][1][k] - c13 * h2s.x[i][2][k];
-            h2s.x[i][jm-1][k] = c43 * h2s.x[i][jm-2][k] - c13 * h2s.x[i][jm-3][k];
-
-            nh3.x[i][0][k] = c43 * nh3.x[i][1][k] - c13 * nh3.x[i][2][k];
-            nh3.x[i][jm-1][k] = c43 * nh3.x[i][jm-2][k] - c13 * nh3.x[i][jm-3][k];
-
-            nh3_cloud.x[i][0][k] = c43 * nh3_cloud.x[i][1][k] - c13 * nh3_cloud.x[i][2][k];
-            nh3_cloud.x[i][jm-1][k] = c43 * nh3_cloud.x[i][jm-2][k] - c13 * nh3_cloud.x[i][jm-3][k];
-
-            nh3_ice.x[i][0][k] = c43 * nh3_ice.x[i][1][k] - c13 * nh3_ice.x[i][2][k];
-            nh3_ice.x[i][jm-1][k] = c43 * nh3_ice.x[i][jm-2][k] - c13 * nh3_ice.x[i][jm-3][k];
-
-            nh4sh.x[i][0][k] = c43 * nh4sh.x[i][1][k] - c13 * nh4sh.x[i][2][k];
-            nh4sh.x[i][jm-1][k] = c43 * nh4sh.x[i][jm-2][k] - c13 * nh4sh.x[i][jm-3][k];
-
-
-            j_h2s.x[i][0][k] = c43 * j_h2s.x[i][1][k] - c13 * j_h2s.x[i][2][k];
-            j_h2s.x[i][jm-1][k] = c43 * j_h2s.x[i][jm-2][k] - c13 * j_h2s.x[i][jm-3][k];
-
-            j_nh3.x[i][0][k] = c43 * j_nh3.x[i][1][k] - c13 * j_nh3.x[i][2][k];
-            j_nh3.x[i][jm-1][k] = c43 * j_nh3.x[i][jm-2][k] - c13 * j_nh3.x[i][jm-3][k];
-
-            j_nh4sh.x[i][0][k] = c43 * j_nh4sh.x[i][1][k] - c13 * j_nh4sh.x[i][2][k];
-            j_nh4sh.x[i][jm-1][k] = c43 * j_nh4sh.x[i][jm-2][k] - c13 * j_nh4sh.x[i][jm-3][k];
-
-
-            jT_h2s.x[i][0][k] = c43 * jT_h2s.x[i][1][k] - c13 * jT_h2s.x[i][2][k];
-            jT_h2s.x[i][jm-1][k] = c43 * jT_h2s.x[i][jm-2][k] - c13 * jT_h2s.x[i][jm-3][k];
-
-            jT_nh3.x[i][0][k] = c43 * jT_nh3.x[i][1][k] - c13 * jT_nh3.x[i][2][k];
-            jT_nh3.x[i][jm-1][k] = c43 * jT_nh3.x[i][jm-2][k] - c13 * jT_nh3.x[i][jm-3][k];
-
-            jT_nh4sh.x[i][0][k] = c43 * jT_nh4sh.x[i][1][k] - c13 * jT_nh4sh.x[i][2][k];
-            jT_nh4sh.x[i][jm-1][k] = c43 * jT_nh4sh.x[i][jm-2][k] - c13 * jT_nh4sh.x[i][jm-3][k];
-
-
-            w_h2s.x[i][0][k] = c43 * w_h2s.x[i][1][k] - c13 * w_h2s.x[i][2][k];
-            w_h2s.x[i][jm-1][k] = c43 * w_h2s.x[i][jm-2][k] - c13 * w_h2s.x[i][jm-3][k];
-
-            w_nh3.x[i][0][k] = c43 * w_nh3.x[i][1][k] - c13 * w_nh3.x[i][2][k];
-            w_nh3.x[i][jm-1][k] = c43 * w_nh3.x[i][jm-2][k] - c13 * w_nh3.x[i][jm-3][k];
-
-            w_nh4sh.x[i][0][k] = c43 * w_nh4sh.x[i][1][k] - c13 * w_nh4sh.x[i][2][k];
-            w_nh4sh.x[i][jm-1][k] = c43 * w_nh4sh.x[i][jm-2][k] - c13 * w_nh4sh.x[i][jm-3][k];
-
-
-            massflux_h2s.x[i][0][k] = c43 * massflux_h2s.x[i][1][k] - c13 * massflux_h2s.x[i][2][k];
-            massflux_h2s.x[i][jm-1][k] = c43 * massflux_h2s.x[i][jm-2][k] - c13 * massflux_h2s.x[i][jm-3][k];
-
-            massflux_nh3.x[i][0][k] = c43 * massflux_nh3.x[i][1][k] - c13 * massflux_nh3.x[i][2][k];
-            massflux_nh3.x[i][jm-1][k] = c43 * massflux_nh3.x[i][jm-2][k] - c13 * massflux_nh3.x[i][jm-3][k];
-
-            massflux_nh4sh.x[i][0][k] = c43 * massflux_nh4sh.x[i][1][k] - c13 * massflux_nh4sh.x[i][2][k];
-            massflux_nh4sh.x[i][jm-1][k] = c43 * massflux_nh4sh.x[i][jm-2][k] - c13 * massflux_nh4sh.x[i][jm-3][k];
-
-            difflux_h2s.x[i][0][k] = c43 * difflux_h2s.x[i][1][k] - c13 * difflux_h2s.x[i][2][k];
-            difflux_h2s.x[i][jm-1][k] = c43 * difflux_h2s.x[i][jm-2][k] - c13 * difflux_h2s.x[i][jm-3][k];
-
-            difflux_nh3.x[i][0][k] = c43 * difflux_nh3.x[i][1][k] - c13 * difflux_nh3.x[i][2][k];
-            difflux_nh3.x[i][jm-1][k] = c43 * difflux_nh3.x[i][jm-2][k] - c13 * difflux_nh3.x[i][jm-3][k];
-
-            difflux_nh4sh.x[i][0][k] = c43 * difflux_nh4sh.x[i][1][k] - c13 * difflux_nh4sh.x[i][2][k];
-            difflux_nh4sh.x[i][jm-1][k] = c43 * difflux_nh4sh.x[i][jm-2][k] - c13 * difflux_nh4sh.x[i][jm-3][k];
-
-            thermalmassflux.x[i][0][k] = c43 * thermalmassflux.x[i][1][k] - c13 * thermalmassflux.x[i][2][k];
-            thermalmassflux.x[i][jm-1][k] = c43 * thermalmassflux.x[i][jm-2][k] - c13 * thermalmassflux.x[i][jm-3][k];
-
-            CoriolisForce.x[i][0][k] = c43 * CoriolisForce.x[i][1][k] - c13 * CoriolisForce.x[i][2][k];
-            CoriolisForce.x[i][jm-1][k] = c43 * CoriolisForce.x[i][jm-2][k] - c13 * CoriolisForce.x[i][jm-3][k];
-
-            BuoyancyForce.x[i][0][k] = c43 * BuoyancyForce.x[i][1][k] - c13 * BuoyancyForce.x[i][2][k];
-            BuoyancyForce.x[i][jm-1][k] = c43 * BuoyancyForce.x[i][jm-2][k] - c13 * BuoyancyForce.x[i][jm-3][k];
-
-            PresGradForce.x[i][0][k] = c43 * PresGradForce.x[i][1][k] - c13 * PresGradForce.x[i][2][k];
-            PresGradForce.x[i][jm-1][k] = c43 * PresGradForce.x[i][jm-2][k] - c13 * PresGradForce.x[i][jm-3][k];
-*/
+            if(turb_bc){
+                for(int f = 0; f < nt; f++){
+                    Array& F = *turb[f];
+                    F.x[i][0][k] = std::max(turb_floor[f],
+                        c43 * F.x[i][1][k] - c13 * F.x[i][2][k]);
+                    F.x[i][jm-1][k] = std::max(turb_floor[f],
+                        c43 * F.x[i][jm-2][k] - c13 * F.x[i][jm-3][k]);
+                }
+            }
         }
     }
 
-//    auto end = std::chrono::high_resolution_clock::now();
-//    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
-//    printf(" time measured: %.3f seconds for BC_theta\n", elapsed.count() * 1e-9)//;
-
-//    cout << "      ATSAT: BC_theta ended" << endl;
     return;
 }
-
-
+/*
+*
+*/
+// ---------------------------------------------------------------------------
+// The phi seam, k=0 and k=km-1.
+// ---------------------------------------------------------------------------
 void cSaturnModel::BC_phi(){
-//    cout << endl << "      ATSAT: BC_phi" << endl;
+    // k=0 and k=km-1 are the SAME meridian, so this is not a boundary condition in the sense of
+    // the two above: each face is extrapolated from its own side and the two are then averaged
+    // and set equal, because a jump between them is a discontinuity in the middle of the domain.
+    Array* fields[] = {
+        &t, &u, &v, &w,
+        &ch4, &ch4_cloud, &ch4_ice,
+        &h2o, &h2o_cloud, &h2o_ice,
+        &h2s,
+        &nh3, &nh3_cloud, &nh3_ice,
+        &nh4sh,
+        &j_h2s,  &j_nh3,  &j_nh4sh,
+        &jT_h2s, &jT_nh3, &jT_nh4sh,
+        &w_h2s,  &w_nh3,  &w_nh4sh,
+        &massflux_h2s, &massflux_nh3, &massflux_nh4sh,
+        &difflux_h2s,  &difflux_nh3,  &difflux_nh4sh,
+        &fluxlim_nh4sh,
+        &thermalmassflux,
+        &CoriolisForce, &CentrifugalForce, &PresGradForce, &BuoyancyForce,
+        &Q_Latent, &Q_Sensible
+    };
+    const int nf = (int)(sizeof(fields) / sizeof(fields[0]));
 
-//    auto begin = std::chrono::high_resolution_clock::now();
-
+    // k*, dis*, nue* across the phi seam (see the note at the top of this file). The two faces
+    // are averaged and set equal, as every other field here is; the floor is applied to the
+    // average rather than to each face, so the two stay exactly equal.
+    Array* turb[] = { &tke, &dis, &nue };
+    const double turb_floor[] = { 0.0, bc_dis_min, 0.0 };
+    const int nt = (int)(sizeof(turb) / sizeof(turb[0]));
     const bool turb_bc = turb_active;
 
     #pragma omp parallel for
     for(int i = 0; i < im; i++){
         for(int j = 0; j < jm; j++){
-            t.x[i][j][0] = c43 * t.x[i][j][1] - c13 * t.x[i][j][2];
-            t.x[i][j][km-1] = c43 * t.x[i][j][km-2] - c13 * t.x[i][j][km-3];
-            t.x[i][j][0] = t.x[i][j][km-1] = (t.x[i][j][0] + t.x[i][j][km-1])/2.0;
+            for(int f = 0; f < nf; f++){
+                Array& F = *fields[f];
+                F.x[i][j][0] = c43 * F.x[i][j][1] - c13 * F.x[i][j][2];
+                F.x[i][j][km-1] = c43 * F.x[i][j][km-2] - c13 * F.x[i][j][km-3];
+                F.x[i][j][0] = F.x[i][j][km-1] = (F.x[i][j][0] + F.x[i][j][km-1])/2.0;
+            }
 
-            u.x[i][j][0] = c43 * u.x[i][j][1] - c13 * u.x[i][j][2];
-            u.x[i][j][km-1] = c43 * u.x[i][j][km-2] - c13 * u.x[i][j][km-3];
-            u.x[i][j][0] = u.x[i][j][km-1] = (u.x[i][j][0] + u.x[i][j][km-1])/2.0;
-
-            v.x[i][j][0] = c43 * v.x[i][j][1] - c13 * v.x[i][j][2];
-            v.x[i][j][km-1] = c43 * v.x[i][j][km-2] - c13 * v.x[i][j][km-3];
-            v.x[i][j][0] = v.x[i][j][km-1] = (v.x[i][j][0] + v.x[i][j][km-1])/2.0;
-
-            w.x[i][j][0] = c43 * w.x[i][j][1] - c13 * w.x[i][j][2];
-            w.x[i][j][km-1] = c43 * w.x[i][j][km-2] - c13 * w.x[i][j][km-3];
-            w.x[i][j][0] = w.x[i][j][km-1] = (w.x[i][j][0] + w.x[i][j][km-1])/2.0;
-
-            ch4.x[i][j][0] = c43 * ch4.x[i][j][1] - c13 * ch4.x[i][j][2];
-            ch4.x[i][j][km-1] = c43 * ch4.x[i][j][km-2] - c13 * ch4.x[i][j][km-3];
-            ch4.x[i][j][0] = ch4.x[i][j][km-1] = (ch4.x[i][j][0] + ch4.x[i][j][km-1])/2.0;
-
-            ch4_cloud.x[i][j][0] = c43 * ch4_cloud.x[i][j][1] - c13 * ch4_cloud.x[i][j][2];
-            ch4_cloud.x[i][j][km-1] = c43 * ch4_cloud.x[i][j][km-2] - c13 * ch4_cloud.x[i][j][km-3];
-            ch4_cloud.x[i][j][0] = ch4_cloud.x[i][j][km-1] = (ch4_cloud.x[i][j][0] + ch4_cloud.x[i][j][km-1])/2.0;
-
-            ch4_ice.x[i][j][0] = c43 * ch4_ice.x[i][j][1] - c13 * ch4_ice.x[i][j][2];
-            ch4_ice.x[i][j][km-1] = c43 * ch4_ice.x[i][j][km-2] - c13 * ch4_ice.x[i][j][km-3];
-            ch4_ice.x[i][j][0] = ch4_ice.x[i][j][km-1] = (ch4_ice.x[i][j][0] + ch4_ice.x[i][j][km-1])/2.0;
-
-            h2o.x[i][j][0] = c43 * h2o.x[i][j][1] - c13 * h2o.x[i][j][2];
-            h2o.x[i][j][km-1] = c43 * h2o.x[i][j][km-2] - c13 * h2o.x[i][j][km-3];
-            h2o.x[i][j][0] = h2o.x[i][j][km-1] = (h2o.x[i][j][0] + h2o.x[i][j][km-1])/2.0;
-
-            h2o_cloud.x[i][j][0] = c43 * h2o_cloud.x[i][j][1] - c13 * h2o_cloud.x[i][j][2];
-            h2o_cloud.x[i][j][km-1] = c43 * h2o_cloud.x[i][j][km-2] - c13 * h2o_cloud.x[i][j][km-3];
-            h2o_cloud.x[i][j][0] = h2o_cloud.x[i][j][km-1] = (h2o_cloud.x[i][j][0] + h2o_cloud.x[i][j][km-1])/2.0;
-
-            h2o_ice.x[i][j][0] = c43 * h2o_ice.x[i][j][1] - c13 * h2o_ice.x[i][j][2];
-            h2o_ice.x[i][j][km-1] = c43 * h2o_ice.x[i][j][km-2] - c13 * h2o_ice.x[i][j][km-3];
-            h2o_ice.x[i][j][0] = h2o_ice.x[i][j][km-1] = (h2o_ice.x[i][j][0] + h2o_ice.x[i][j][km-1])/2.0;
-
-            h2s.x[i][j][0] = c43 * h2s.x[i][j][1] - c13 * h2s.x[i][j][2];
-            h2s.x[i][j][km-1] = c43 * h2s.x[i][j][km-2] - c13 * h2s.x[i][j][km-3];
-            h2s.x[i][j][0] = h2s.x[i][j][km-1] = (h2s.x[i][j][0] + h2s.x[i][j][km-1])/2.0;
-
-            nh3.x[i][j][0] = c43 * nh3.x[i][j][1] - c13 * nh3.x[i][j][2];
-            nh3.x[i][j][km-1] = c43 * nh3.x[i][j][km-2] - c13 * nh3.x[i][j][km-3];
-            nh3.x[i][j][0] = nh3.x[i][j][km-1] = (nh3.x[i][j][0] + nh3.x[i][j][km-1])/2.0;
-
-            nh3_cloud.x[i][j][0] = c43 * nh3_cloud.x[i][j][1] - c13 * nh3_cloud.x[i][j][2];
-            nh3_cloud.x[i][j][km-1] = c43 * nh3_cloud.x[i][j][km-2] - c13 * nh3_cloud.x[i][j][km-3];
-            nh3_cloud.x[i][j][0] = nh3_cloud.x[i][j][km-1] = (nh3_cloud.x[i][j][0] + nh3_cloud.x[i][j][km-1])/2.0;
-
-            nh3_ice.x[i][j][0] = c43 * nh3_ice.x[i][j][1] - c13 * nh3_ice.x[i][j][2];
-            nh3_ice.x[i][j][km-1] = c43 * nh3_ice.x[i][j][km-2] - c13 * nh3_ice.x[i][j][km-3];
-            nh3_ice.x[i][j][0] = nh3_ice.x[i][j][km-1] = (nh3_ice.x[i][j][0] + nh3_ice.x[i][j][km-1])/2.0;
-
-            nh4sh.x[i][j][0] = c43 * nh4sh.x[i][j][1] - c13 * nh4sh.x[i][j][2];
-            nh4sh.x[i][j][km-1] = c43 * nh4sh.x[i][j][km-2] - c13 * nh4sh.x[i][j][km-3];
-            nh4sh.x[i][j][0] = nh4sh.x[i][j][km-1] = (nh4sh.x[i][j][0] + nh4sh.x[i][j][km-1])/2.0;
-
-            j_h2s.x[i][j][0] = c43 * j_h2s.x[i][j][1] - c13 * j_h2s.x[i][j][2];
-            j_h2s.x[i][j][km-1] = c43 * j_h2s.x[i][j][km-2] - c13 * j_h2s.x[i][j][km-3];
-            j_h2s.x[i][j][0] = j_h2s.x[i][j][km-1] = (j_h2s.x[i][j][0] + j_h2s.x[i][j][km-1])/2.0;
-
-            j_nh3.x[i][j][0] = c43 * j_nh3.x[i][j][1] - c13 * j_nh3.x[i][j][2];
-            j_nh3.x[i][j][km-1] = c43 * j_nh3.x[i][j][km-2] - c13 * j_nh3.x[i][j][km-3];
-            j_nh3.x[i][j][0] = j_nh3.x[i][j][km-1] = (j_nh3.x[i][j][0] + j_nh3.x[i][j][km-1])/2.0;
-
-            j_nh4sh.x[i][j][0] = c43 * j_nh4sh.x[i][j][1] - c13 * j_nh4sh.x[i][j][2];
-            j_nh4sh.x[i][j][km-1] = c43 * j_nh4sh.x[i][j][km-2] - c13 * j_nh4sh.x[i][j][km-3];
-            j_nh4sh.x[i][j][0] = j_nh4sh.x[i][j][km-1] = (j_nh4sh.x[i][j][0] + j_nh4sh.x[i][j][km-1])/2.0;
-
-            jT_h2s.x[i][j][0] = c43 * jT_h2s.x[i][j][1] - c13 * jT_h2s.x[i][j][2];
-            jT_h2s.x[i][j][km-1] = c43 * jT_h2s.x[i][j][km-2] - c13 * jT_h2s.x[i][j][km-3];
-            jT_h2s.x[i][j][0] = jT_h2s.x[i][j][km-1] = (jT_h2s.x[i][j][0] + jT_h2s.x[i][j][km-1])/2.0;
-
-            jT_nh3.x[i][j][0] = c43 * jT_nh3.x[i][j][1] - c13 * jT_nh3.x[i][j][2];
-            jT_nh3.x[i][j][km-1] = c43 * jT_nh3.x[i][j][km-2] - c13 * jT_nh3.x[i][j][km-3];
-            jT_nh3.x[i][j][0] = jT_nh3.x[i][j][km-1] = (jT_nh3.x[i][j][0] + jT_nh3.x[i][j][km-1])/2.0;
-
-            jT_nh4sh.x[i][j][0] = c43 * jT_nh4sh.x[i][j][1] - c13 * jT_nh4sh.x[i][j][2];
-            jT_nh4sh.x[i][j][km-1] = c43 * jT_nh4sh.x[i][j][km-2] - c13 * jT_nh4sh.x[i][j][km-3];
-            jT_nh4sh.x[i][j][0] = jT_nh4sh.x[i][j][km-1] = (jT_nh4sh.x[i][j][0] + jT_nh4sh.x[i][j][km-1])/2.0;
-
-            w_h2s.x[i][j][0] = c43 * w_h2s.x[i][j][1] - c13 * w_h2s.x[i][j][2];
-            w_h2s.x[i][j][km-1] = c43 * w_h2s.x[i][j][km-2] - c13 * w_h2s.x[i][j][km-3];
-            w_h2s.x[i][j][0] = w_h2s.x[i][j][km-1] = (w_h2s.x[i][j][0] + w_h2s.x[i][j][km-1])/2.0;
-
-            w_nh3.x[i][j][0] = c43 * w_nh3.x[i][j][1] - c13 * w_nh3.x[i][j][2];
-            w_nh3.x[i][j][km-1] = c43 * w_nh3.x[i][j][km-2] - c13 * w_nh3.x[i][j][km-3];
-            w_nh3.x[i][j][0] = w_nh3.x[i][j][km-1] = (w_nh3.x[i][j][0] + w_nh3.x[i][j][km-1])/2.0;
-
-            w_nh4sh.x[i][j][0] = c43 * w_nh4sh.x[i][j][1] - c13 * w_nh4sh.x[i][j][2];
-            w_nh4sh.x[i][j][km-1] = c43 * w_nh4sh.x[i][j][km-2] - c13 * w_nh4sh.x[i][j][km-3];
-            w_nh4sh.x[i][j][0] = w_nh4sh.x[i][j][km-1] = (w_nh4sh.x[i][j][0] + w_nh4sh.x[i][j][km-1])/2.0;
-
-            massflux_h2s.x[i][j][0] = c43 * massflux_h2s.x[i][j][1] - c13 * massflux_h2s.x[i][j][2];
-            massflux_h2s.x[i][j][km-1] = c43 * massflux_h2s.x[i][j][km-2] - c13 * massflux_h2s.x[i][j][km-3];
-            massflux_h2s.x[i][j][0] = massflux_h2s.x[i][j][km-1] = (massflux_h2s.x[i][j][0] + massflux_h2s.x[i][j][km-1])/2.0;
-
-            massflux_nh3.x[i][j][0] = c43 * massflux_nh3.x[i][j][1] - c13 * massflux_nh3.x[i][j][2];
-            massflux_nh3.x[i][j][km-1] = c43 * massflux_nh3.x[i][j][km-2] - c13 * massflux_nh3.x[i][j][km-3];
-            massflux_nh3.x[i][j][0] = massflux_nh3.x[i][j][km-1] = (massflux_nh3.x[i][j][0] + massflux_nh3.x[i][j][km-1])/2.0;
-
-            massflux_nh4sh.x[i][j][0] = c43 * massflux_nh4sh.x[i][j][1] - c13 * massflux_nh4sh.x[i][j][2];
-            massflux_nh4sh.x[i][j][km-1] = c43 * massflux_nh4sh.x[i][j][km-2] - c13 * massflux_nh4sh.x[i][j][km-3];
-            massflux_nh4sh.x[i][j][0] = massflux_nh4sh.x[i][j][km-1] = (massflux_nh4sh.x[i][j][0] + massflux_nh4sh.x[i][j][km-1])/2.0;
-
-            difflux_h2s.x[i][j][0] = c43 * difflux_h2s.x[i][j][1] - c13 * difflux_h2s.x[i][j][2];
-            difflux_h2s.x[i][j][km-1] = c43 * difflux_h2s.x[i][j][km-2] - c13 * difflux_h2s.x[i][j][km-3];
-            difflux_h2s.x[i][j][0] = difflux_h2s.x[i][j][km-1] = (difflux_h2s.x[i][j][0] + difflux_h2s.x[i][j][km-1])/2.0;
-
-            difflux_nh3.x[i][j][0] = c43 * difflux_nh3.x[i][j][1] - c13 * difflux_nh3.x[i][j][2];
-            difflux_nh3.x[i][j][km-1] = c43 * difflux_nh3.x[i][j][km-2] - c13 * difflux_nh3.x[i][j][km-3];
-            difflux_nh3.x[i][j][0] = difflux_nh3.x[i][j][km-1] = (difflux_nh3.x[i][j][0] + difflux_nh3.x[i][j][km-1])/2.0;
-
-            difflux_nh4sh.x[i][j][0] = c43 * difflux_nh4sh.x[i][j][1] - c13 * difflux_nh4sh.x[i][j][2];
-            difflux_nh4sh.x[i][j][km-1] = c43 * difflux_nh4sh.x[i][j][km-2] - c13 * difflux_nh4sh.x[i][j][km-3];
-            difflux_nh4sh.x[i][j][0] = difflux_nh4sh.x[i][j][km-1] = (difflux_nh4sh.x[i][j][0] + difflux_nh4sh.x[i][j][km-1])/2.0;
-
-            fluxlim_nh4sh.x[i][j][0] = c43 * fluxlim_nh4sh.x[i][j][1] - c13 * fluxlim_nh4sh.x[i][j][2];
-            fluxlim_nh4sh.x[i][j][km-1] = c43 * fluxlim_nh4sh.x[i][j][km-2] - c13 * fluxlim_nh4sh.x[i][j][km-3];
-            fluxlim_nh4sh.x[i][j][0] = fluxlim_nh4sh.x[i][j][km-1] = (fluxlim_nh4sh.x[i][j][0] + fluxlim_nh4sh.x[i][j][km-1])/2.0;
-
-            thermalmassflux.x[i][j][0] = c43 * thermalmassflux.x[i][j][1] - c13 * thermalmassflux.x[i][j][2];
-            thermalmassflux.x[i][j][km-1] = c43 * thermalmassflux.x[i][j][km-2] - c13 * thermalmassflux.x[i][j][km-3];
-            thermalmassflux.x[i][j][0] = thermalmassflux.x[i][j][km-1] = (thermalmassflux.x[i][j][0] + thermalmassflux.x[i][j][km-1])/2.0;
-
-            CoriolisForce.x[i][j][0] = c43 * CoriolisForce.x[i][j][1] - c13 * CoriolisForce.x[i][j][2];
-            CoriolisForce.x[i][j][km-1] = c43 * CoriolisForce.x[i][j][km-2] - c13 * CoriolisForce.x[i][j][km-3];
-            CoriolisForce.x[i][j][0] = CoriolisForce.x[i][j][km-1] = (CoriolisForce.x[i][j][0] + CoriolisForce.x[i][j][km-1])/2.0;
-
-            CentrifugalForce.x[i][j][0] = c43 * CentrifugalForce.x[i][j][1] - c13 * CentrifugalForce.x[i][j][2];
-            CentrifugalForce.x[i][j][km-1] = c43 * CentrifugalForce.x[i][j][km-2] - c13 * CentrifugalForce.x[i][j][km-3];
-            CentrifugalForce.x[i][j][0] = CentrifugalForce.x[i][j][km-1] = (CentrifugalForce.x[i][j][0] + CentrifugalForce.x[i][j][km-1])/2.0;
-
-            PresGradForce.x[i][j][0] = c43 * PresGradForce.x[i][j][1] - c13 * PresGradForce.x[i][j][2];
-            PresGradForce.x[i][j][km-1] = c43 * PresGradForce.x[i][j][km-2] - c13 * PresGradForce.x[i][j][km-3];
-            PresGradForce.x[i][j][0] = PresGradForce.x[i][j][km-1] = (PresGradForce.x[i][j][0] + PresGradForce.x[i][j][km-1])/2.0;
-
-            BuoyancyForce.x[i][j][0] = c43 * BuoyancyForce.x[i][j][1] - c13 * BuoyancyForce.x[i][j][2];
-            BuoyancyForce.x[i][j][km-1] = c43 * BuoyancyForce.x[i][j][km-2] - c13 * BuoyancyForce.x[i][j][km-3];
-            BuoyancyForce.x[i][j][0] = BuoyancyForce.x[i][j][km-1] = (BuoyancyForce.x[i][j][0] + BuoyancyForce.x[i][j][km-1])/2.0;
-
-            Q_Latent.x[i][j][0] = c43 * Q_Latent.x[i][j][1] - c13 * Q_Latent.x[i][j][2];
-            Q_Latent.x[i][j][km-1] = c43 * Q_Latent.x[i][j][km-2] - c13 * Q_Latent.x[i][j][km-3];
-            Q_Latent.x[i][j][0] = Q_Latent.x[i][j][km-1] = (Q_Latent.x[i][j][0] + Q_Latent.x[i][j][km-1])/2.0;
-
-            Q_Sensible.x[i][j][0] = c43 * Q_Sensible.x[i][j][1] - c13 * Q_Sensible.x[i][j][2];
-            Q_Sensible.x[i][j][km-1] = c43 * Q_Sensible.x[i][j][km-2] - c13 * Q_Sensible.x[i][j][km-3];
-            Q_Sensible.x[i][j][0] = Q_Sensible.x[i][j][km-1] = (Q_Sensible.x[i][j][0] + Q_Sensible.x[i][j][km-1])/2.0;
-
-            // k*, dis*, nue* across the phi seam (see the note at the top of this file). The two
-            // faces are averaged and set equal, as every other field here is: 0 and km-1 are the
-            // same meridian, so a jump between them is a discontinuity in the middle of the
-            // domain, not a boundary.
             if(turb_bc){
-                tke.x[i][j][0] = c43 * tke.x[i][j][1] - c13 * tke.x[i][j][2];
-                tke.x[i][j][km-1] = c43 * tke.x[i][j][km-2] - c13 * tke.x[i][j][km-3];
-                tke.x[i][j][0] = tke.x[i][j][km-1] =
-                    std::max(0.0, (tke.x[i][j][0] + tke.x[i][j][km-1])/2.0);
-
-                dis.x[i][j][0] = c43 * dis.x[i][j][1] - c13 * dis.x[i][j][2];
-                dis.x[i][j][km-1] = c43 * dis.x[i][j][km-2] - c13 * dis.x[i][j][km-3];
-                dis.x[i][j][0] = dis.x[i][j][km-1] =
-                    std::max(bc_dis_min, (dis.x[i][j][0] + dis.x[i][j][km-1])/2.0);
-
-                nue.x[i][j][0] = c43 * nue.x[i][j][1] - c13 * nue.x[i][j][2];
-                nue.x[i][j][km-1] = c43 * nue.x[i][j][km-2] - c13 * nue.x[i][j][km-3];
-                nue.x[i][j][0] = nue.x[i][j][km-1] =
-                    std::max(0.0, (nue.x[i][j][0] + nue.x[i][j][km-1])/2.0);
+                for(int f = 0; f < nt; f++){
+                    Array& F = *turb[f];
+                    F.x[i][j][0] = c43 * F.x[i][j][1] - c13 * F.x[i][j][2];
+                    F.x[i][j][km-1] = c43 * F.x[i][j][km-2] - c13 * F.x[i][j][km-3];
+                    F.x[i][j][0] = F.x[i][j][km-1] =
+                        std::max(turb_floor[f], (F.x[i][j][0] + F.x[i][j][km-1])/2.0);
+                }
             }
         }
     }
 
-//    auto end = std::chrono::high_resolution_clock::now();
-//    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
-//    printf(" time measured: %.3f seconds for BC_phi\n", elapsed.count() * 1e-9);
-
-//    cout << "      ATSAT: BC_phi ended" << endl;
     return;
 }
 /*
@@ -1092,16 +398,16 @@ void cSaturnModel::init_tropopause_layers(){
     for(int j=j_half; j>=0; j--){
 
         double x = coeff_pole * (1.0 - (double)(j_half-j)/(double)j_half);
-        tropopause_layers[j] = AtomUtils::Agnesi(tropopause_equator, x); 
-        tropopause_layers[j] = round(tropopause_layers[j] 
-           /L_atm * (double)i_max); 
+        tropopause_layers[j] = AtomUtils::Agnesi(tropopause_equator, x);
+        tropopause_layers[j] = round(tropopause_layers[j]
+           /L_atm * (double)i_max);
 
         tropopause_layers[j] = tropopause_equator/L_atm * (double)i_max;
 
 /*
-    cout << "   j = " << j << "   x = " << x 
-        << "   Agnesi = " << AtomUtils::Agnesi(tropopause_equator, x) 
-        << "   tropopause_equator = " << tropopause_equator 
+    cout << "   j = " << j << "   x = " << x
+        << "   Agnesi = " << AtomUtils::Agnesi(tropopause_equator, x)
+        << "   tropopause_equator = " << tropopause_equator
         << "   tropopause_pole = " << tropopause_pole
         << "   tropopause_layers = " << round(tropopause_layers[j]) << endl;
 */
