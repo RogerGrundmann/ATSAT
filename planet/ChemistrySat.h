@@ -25,11 +25,62 @@ public:
 
         const int im = m.im, jm = m.jm, km = m.km;
 
-        // reaction constants are the same for all cells
+        // reaction constants are the same for all cells.
+        //
+        // NOTE A and B DIFFER FROM ATJUP'S — 1500/-0.3 here against 15000/-0.5 there, an order of
+        // magnitude in the prefactor, with the same dissociation temperature. Neither file records
+        // which is Saturn's and which is inherited. That is a calibration question, it is NOT
+        // touched by either knob below, and it has to be settled before the two chemistries can
+        // share an implementation.
         const double keq = m.m_nh4sh / (m.m_nh3 * m.m_h2s);
         const double A   = 1500.0;
         const double B   = -0.3;
         const double T_d = 3020.0;
+
+        // ====================================================================================
+        // TWO DEFECTS PORTED FROM ATJUP AS KNOBS, both default 0 = exactly what ATSAT does today.
+        // ATJUP ships (1) ON, on Jupiter evidence; whether that evidence transfers to Saturn is
+        // what these are here to measure. ATJUP's own notes are at ChemistryJup.h:45.
+        //
+        // (1) ATSAT_CHEM_GATE_ZERO — the temperature gate has no else branch. w_nh3, w_h2s and
+        //     w_nh4sh are only assigned inside `if(t_00 <= t_u <= t_0)`, and they are persistent
+        //     Arrays, so a cell that LEAVES the formation window keeps the last rate it ever had
+        //     and goes on applying it to the tendency every iteration for the rest of the run.
+        //     On ATJUP every NH4SH hot spot sat OUTSIDE the window, i.e. was made entirely of
+        //     frozen rates, and enabling this dropped them by a factor ~20. Set to 1 to zero the
+        //     three rates outside the window instead of freezing them.
+        //
+        // (2) ATSAT_CHEM_MOLAR_CONC — which concentration the quadratic rate law uses. ATSAT and
+        //     ATJUP do not merely differ here, they are three different things, so this knob has
+        //     three values rather than ATJUP's two:
+        //
+        //       0  (default)  c_x = w_x / m_x                  — ATSAT today: NO density factor
+        //       1             c_x = rho_mix * w_x / m_x        — the plain molar concentration
+        //                                                        [kmol/m3]; ATJUP's =1
+        //       2             c_x = (r_mix / sum_c) * w_x/m_x  — ATJUP's DEFAULT normalisation,
+        //                                                        sum_c over nh3, h2s, nh4sh
+        //
+        //     Value 2 is provided to make the two models comparable, NOT because it is right:
+        //     ATJUP's note records that it forces c_nh3 + c_h2s + c_nh4sh = r_mix, i.e. rescales
+        //     three trace species to carry the entire mixture density, and that NH4SH then holds
+        //     99.99 % of sum_c so the back reaction saturates and the rate law stops seeing its
+        //     own product. It is also a unit mismatch. Value 1 is the dimensionally correct one.
+        //
+        //     rho_mix is filled by computeMixtureDensity(), which runs AFTER this routine on the
+        //     first call, so fall back to the scalar r_mix then — as ATJUP does for the same
+        //     reason.
+        //
+        // A THIRD DIFFERENCE, DELIBERATELY NOT MADE A KNOB HERE because it is not ATJUP's: ATSAT
+        // divides both rates by m.dt (see react_rate_ordinary). ATJUP does not. That makes the
+        // "rate" timestep-dependent — the chemistry applies a fixed INCREMENT per step rather
+        // than a rate — so halving dt does not halve the chemical change per unit time. It is
+        // flagged, not settled, and it is the reason a straight A/B against ATJUP's numbers would
+        // not mean what it looks like.
+        // ====================================================================================
+        static const int gate_zero  = [](){
+            const char* e = getenv("ATSAT_CHEM_GATE_ZERO");  return e ? atoi(e) : 0; }();
+        static const int molar_conc = [](){
+            const char* e = getenv("ATSAT_CHEM_MOLAR_CONC"); return e ? atoi(e) : 0; }();
 
         #pragma omp parallel for collapse(3) schedule(static)
         for(int k = 1; k < km-1; k++){
@@ -40,8 +91,15 @@ public:
                     double kb = kf / keq;
 
                     if((t_u <= m.t_0_nh4sh) && (t_u >= m.t_00_nh4sh))
-                        react_rate_ordinary(i, j, k, kf, kb,
+                        react_rate_ordinary(i, j, k, kf, kb, molar_conc,
                             m.nh3, m.h2s, m.nh4sh, m.w_nh3, m.w_h2s, m.w_nh4sh);
+                    else if(gate_zero){
+                        // Outside the formation window there is no reaction, so the rates are
+                        // zero — not "whatever they were the last time this cell was inside it".
+                        m.w_nh3.x[i][j][k]   = 0.0;
+                        m.w_h2s.x[i][j][k]   = 0.0;
+                        m.w_nh4sh.x[i][j][k] = 0.0;
+                    }
 
                     m.massflux_h2s.x[i][j][k]   = m.w_h2s.x[i][j][k]   - m.difflux_h2s.x[i][j][k];
                     m.massflux_nh3.x[i][j][k]   = m.w_nh3.x[i][j][k]   - m.difflux_nh3.x[i][j][k];
@@ -378,13 +436,27 @@ private:
 
     // -----------------------------------------------------------------------
     void react_rate_ordinary(int i, int j, int k,
-        double &f, double &b,
+        double &f, double &b, int molar_conc,
         Array &molecule_nh3, Array &molecule_h2s, Array &molecule_nh4sh,
         Array &mass_nh3,     Array &mass_h2s,     Array &mass_nh4sh)
     {
-        double c_nh3   = molecule_nh3.x[i][j][k]   / m.m_nh3;
-        double c_h2s   = molecule_h2s.x[i][j][k]   / m.m_h2s;
-        double c_nh4sh = molecule_nh4sh.x[i][j][k] / m.m_nh4sh;
+        // ATSAT_CHEM_MOLAR_CONC — see the note in ChemMassRateSat(). denom = 1.0 is ATSAT's own
+        // form and multiplying by it is exact, so the default path is bit-identical.
+        double denom = 1.0;
+        if(molar_conc == 1){
+            double rho = m.rho_mix.x[i][j][k];
+            if(!(rho > 0.0)) rho = m.r_mix;   // first call: computeMixtureDensity has not run
+            denom = rho;
+        }else if(molar_conc == 2){
+            const double sum_c = molecule_nh3.x[i][j][k]   / m.m_nh3
+                               + molecule_h2s.x[i][j][k]   / m.m_h2s
+                               + molecule_nh4sh.x[i][j][k] / m.m_nh4sh;
+            denom = (sum_c == 0.0) ? 0.0 : m.r_mix / sum_c;
+        }
+
+        double c_nh3   = molecule_nh3.x[i][j][k]   / m.m_nh3   * denom;
+        double c_h2s   = molecule_h2s.x[i][j][k]   / m.m_h2s   * denom;
+        double c_nh4sh = molecule_nh4sh.x[i][j][k] / m.m_nh4sh * denom;
 
         double Rf = f * (c_nh3 * c_h2s) / m.dt;
         double Rb = b * c_nh4sh         / m.dt;
