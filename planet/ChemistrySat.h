@@ -95,16 +95,25 @@ public:
         //     subtracts a tendency that should be added, and the multicomponent diffusion acts as
         //     an ANTI-diffusion, sharpening every species gradient instead of smoothing it.
         //
-        //     WHAT THE KNOB CANNOT FIX. Both passes take std::abs() of the theta component, so
-        //     the meridional contribution is unconditionally positive whatever the field is
-        //     doing. Along theta this is neither a divergence nor a Laplacian and no choice of
-        //     sign makes it one. =1 repairs r and phi and leaves theta incoherent — a PARTIAL
-        //     repair, which is also why the measured growth below cannot be attributed to the
-        //     sign alone.
+        //     WHAT THE KNOB CANNOT FIX, and this is larger than it first looked. difflux_* is not
+        //     a divergence at all: pass 1 SUMS the three components of grad(c) into a scalar, so
+        //     j_* is a scalar rather than a flux vector, and pass 2 differentiates that scalar and
+        //     sums again. A spherical divergence carries (1/r^2) d(r^2 F_r)/dr and
+        //     (1/(r sinthe)) d(F_the sinthe)/dthe; none of those metric factors are present. The
+        //     std::abs() on the theta component is deliberate and documented at DiffMassFluxSat —
+        //     it symmetrises an otherwise pole-antisymmetric term — not an oversight.
         //
-        //     THE REAL FIX, left as its own change: give pass 1 Fick's minus, drop both abs()
-        //     calls, and the two passes become a genuine -div(-D grad c) needing no knob. That
-        //     moves results at the default and wants its own measurement.
+        //     So =1 flips the sign of a quantity that is not the diffusive tendency in the first
+        //     place. It is worth having as a diagnostic, and the growth measured below is real,
+        //     but it cannot be read as "the diffusion now has the right sign".
+        //
+        //     THE ACTUAL FIX is ATSAT_CHEM_DIFFLUX_LAPLACIAN=1, which replaces the two-pass scalar
+        //     with a real D * grad^2(c) — ATJUP's formulation. The physically correct combination
+        //     is that knob AND this one:
+        //         ATSAT_CHEM_DIFFLUX_LAPLACIAN=1 ATSAT_CHEM_DIFFLUX_PLUS=1
+        //     An earlier version of this comment said the fix was "Fick's minus plus dropping the
+        //     abs()". That was wrong: neither change turns a summed-components scalar into a
+        //     Laplacian.
         //
         //     Why it survived unnoticed in both models: the coefficient is tiny. D_x is built as
         //     mue_x/(rg_x*sc_x) with rg_h2s the density of the CONDENSED phase rather than the
@@ -168,10 +177,41 @@ public:
     void FluxLimiterNH4SH(){ FluxLimiter<cSaturnModel>(m).nh4sh(); }
 
     // -----------------------------------------------------------------------
+    // ATSAT_CHEM_DIFFLUX_LAPLACIAN — what difflux_* actually is. Default 0 = unchanged.
+    //
+    // WHAT THE DEFAULT COMPUTES, and it is worth being exact because it is easy to misread as a
+    // divergence. Pass 1 builds a SCALAR per species,
+    //     dc = dc/dr + |dc/dthe|/rm + dc/dphi/(rm*sinthe)
+    // by SUMMING the three components of grad(c) as if they were scalars — the |.| is deliberate
+    // and documented below, to symmetrise an otherwise pole-antisymmetric term. j_* is then that
+    // scalar, not a flux vector. Pass 2 differentiates j_* and sums the components the same way.
+    //
+    // So difflux_* is neither grad nor div: a spherical divergence carries (1/r^2) d(r^2 F_r)/dr
+    // and (1/(r sinthe)) d(F_the sinthe)/dthe, and none of those metric factors appear. Adding
+    // Fick's missing minus sign or dropping the |.| would replace one ill-defined scalar with a
+    // different ill-defined scalar; neither turns this into a Laplacian.
+    //
+    // WHAT =1 COMPUTES: difflux_x = D_x * laplacian_spherical(c_x), a real spherical Laplacian
+    // with all five terms including 2/rm * dc/dr and cotthe/rm^2 * dc/dthe. This is ATJUP's
+    // formulation, ported unchanged apart from asking metricRadius() for rm. It is the diffusive
+    // TENDENCY, so it belongs with ATSAT_CHEM_DIFFLUX_PLUS=1: the pair
+    //     ATSAT_CHEM_DIFFLUX_LAPLACIAN=1 ATSAT_CHEM_DIFFLUX_PLUS=1
+    // is the physically correct combination, and either alone is not. They are kept as separate
+    // knobs rather than one because they answer separate questions — what the term IS, and which
+    // way it enters — and collapsing them would make the measurement unattributable.
+    //
+    // Pass 1 and thermalmassflux are untouched either way: j_* still feeds the thermal term.
+    //
+    // This is also what blocks sharing DiffMassFlux with ATJUP, which forms D*laplacian directly
+    // and carries Lewis-number groups. The two routines overlap 25 % line-for-line today; with
+    // this knob on they would agree about the quantity, which is the first of several steps.
     void DiffMassFluxSat()
     {
         using namespace std;
         cout << endl << "      ATSAT: DiffMassFluxSat" << endl;
+
+        static const int difflux_laplacian = [](){
+            const char* e = getenv("ATSAT_CHEM_DIFFLUX_LAPLACIAN"); return e ? atoi(e) : 0; }();
 
         auto begin = chrono::high_resolution_clock::now();
 
@@ -243,9 +283,16 @@ public:
                     derivative_1_order(i, j, k, dj_nh3dr,   dj_nh3dthe,   dj_nh3dphi,   m.j_nh3);
                     derivative_1_order(i, j, k, dj_nh4shdr, dj_nh4shdthe, dj_nh4shdphi, m.j_nh4sh);
 
-                    m.difflux_h2s.x[i][j][k]   = dj_h2sdr   + std::abs(dj_h2sdthe)/rm   + dj_h2sdphi/rmsinthe;
-                    m.difflux_nh3.x[i][j][k]   = dj_nh3dr   + std::abs(dj_nh3dthe)/rm   + dj_nh3dphi/rmsinthe;
-                    m.difflux_nh4sh.x[i][j][k] = dj_nh4shdr + std::abs(dj_nh4shdthe)/rm + dj_nh4shdphi/rmsinthe;
+                    if(difflux_laplacian){
+                        // A genuine D * grad^2(c). See the note above this routine.
+                        m.difflux_h2s.x[i][j][k]   = m.D_h2s   * laplacian_spherical(i, j, k, m.h2s);
+                        m.difflux_nh3.x[i][j][k]   = m.D_nh3   * laplacian_spherical(i, j, k, m.nh3);
+                        m.difflux_nh4sh.x[i][j][k] = m.D_nh4sh * laplacian_spherical(i, j, k, m.nh4sh);
+                    }else{
+                        m.difflux_h2s.x[i][j][k]   = dj_h2sdr   + std::abs(dj_h2sdthe)/rm   + dj_h2sdphi/rmsinthe;
+                        m.difflux_nh3.x[i][j][k]   = dj_nh3dr   + std::abs(dj_nh3dthe)/rm   + dj_nh3dphi/rmsinthe;
+                        m.difflux_nh4sh.x[i][j][k] = dj_nh4shdr + std::abs(dj_nh4shdthe)/rm + dj_nh4shdphi/rmsinthe;
+                    }
 
                     m.thermalmassflux.x[i][j][k] =
                          (m.j_nh3.x[i][j][k]   * m.cp_nh3
@@ -384,6 +431,43 @@ private:
     }
 
     // -----------------------------------------------------------------------
+    // Spherical Laplacian, ported from ATJUP's ChemistryJup::laplacian_spherical. Used only when
+    // ATSAT_CHEM_DIFFLUX_LAPLACIAN is set; see the note above DiffMassFluxSat.
+    //
+    // Two ATSAT adaptations, both deliberate:
+    //   rm comes from metricRadius(), so the term follows ATSAT_METRIC_RADIUS like everything else
+    //   here. coord_stretching is false in ATSAT, so exp_rm folds to 1 — the branch is kept so the
+    //   file stays a faithful port and would still be right if that ever changed.
+    //
+    //   sinthe is floored at 0.4, as ATJUP floors it, because d2c/dphi2 / (rm*sinthe)^2 diverges
+    //   at the pole otherwise. NOTE this is a LOCAL floor and NOT cSaturnModel::sinthe_min(),
+    //   which defaults to 0.0 — ATSAT deliberately has no global polar floor. Using the global
+    //   one here would make this term blow up at the default, so the local 0.4 matches both ATJUP
+    //   and FluxLimiter.h. That the two floors disagree is a real question for ATSAT's polar
+    //   treatment, and it is flagged rather than settled.
+    double laplacian_spherical(int i, int j, int k, Array& c)
+    {
+        const double rm       = m.metricRadius(m.rad.z[i]);
+        const double exp_rm   = m.coord_stretching ? 1.0 / (rm + 1.0) : 1.0;
+        const double exp_2_rm = exp_rm * exp_rm;
+        const double sinthe   = sin(m.the.z[j]);
+        const double costhe   = cos(m.the.z[j]);
+        const double rmsinthe = rm * std::max(sinthe, 0.4);
+
+        const double d2cdr2   = (c.x[i+1][j][k] - 2.0*c.x[i][j][k] + c.x[i-1][j][k]) / (m.dr   * m.dr) * exp_2_rm;
+        const double d2cdthe2 = (c.x[i][j+1][k] - 2.0*c.x[i][j][k] + c.x[i][j-1][k]) / (m.dthe * m.dthe);
+        const double d2cdphi2 = (c.x[i][j][k+1] - 2.0*c.x[i][j][k] + c.x[i][j][k-1]) / (m.dphi * m.dphi);
+
+        const double dcdr   = (c.x[i+1][j][k] - c.x[i-1][j][k]) / (2.0 * m.dr) * exp_rm;
+        const double dcdthe = (c.x[i][j+1][k] - c.x[i][j-1][k]) / (2.0 * m.dthe);
+
+        return d2cdr2
+             + 2.0 / rm * dcdr
+             + d2cdthe2 / (rm * rm)
+             + costhe / (rm * rmsinthe) * dcdthe
+             + d2cdphi2 / (rmsinthe * rmsinthe);
+    }
+
     void react_rate_ordinary(int i, int j, int k,
         double &f, double &b, int molar_conc,
         Array &molecule_nh3, Array &molecule_h2s, Array &molecule_nh4sh,
