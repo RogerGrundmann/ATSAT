@@ -8,6 +8,7 @@
  * class to prepare the boundary and initial conditions for diverse variables
 */
 #include "cSaturnModel.h"
+#include "ATPhys.h"   // saturation_vapour_pressure
 #include "Utils.h"
 
 using namespace std;
@@ -336,7 +337,7 @@ void cSaturnModel::init_vapour(std::string gas,
 
                 t_u = t.x[i][j][k] * t_ref;
                 p_u = p_stat.x[i][j][k];
-                E_Rain = cSaturnModel::saturation_vapour_pressure
+                E_Rain = ATPhys::saturation_vapour_pressure
                     (t_u, C, L0, R, del_alf, del_bet);  // saturation water vapour pressure for the water phase at t > 0°C in bar
 //                q_Rain = ep * E_Rain/(p_u - E_Rain);  // species vapour amount at saturation with species formation in kg/kg
                 q_Rain = ep * E_Rain/p_u;  // species vapour amount at saturation with species formation in kg/kg
@@ -465,7 +466,7 @@ void cSaturnModel::init_vapour_cloud_ice(std::string gas,
                 p_u = p_stat.x[i][j][k];
 
 //                E_Rain = 1e3 * cSaturnModel::Clausius_Clapeyron(t_u, coeff_A, coeff_B);  // saturation species vapour pressure for the liquid phase at t > 0°C in bar
-                E_Rain = cSaturnModel::saturation_vapour_pressure
+                E_Rain = ATPhys::saturation_vapour_pressure
                     (t_u, C, L0, R, del_alf, del_bet);
 
 //                q_Rain = ep * E_Rain/(p_u - E_Rain);  // species vapour amount at saturation with species formation in kg/kg
@@ -576,7 +577,7 @@ void cSaturnModel::init_h2s(std::string gas,
                 p_u = p_stat.x[i][j][k];
 
 //                E_Rain = 1e3 * cSaturnModel::Clausius_Clapeyron(t_u, coeff_A, coeff_B);  // saturation species vapour pressure for the liquid phase at t > 0°C in bar
-                E_Rain = cSaturnModel::saturation_vapour_pressure
+                E_Rain = ATPhys::saturation_vapour_pressure
                     (t_u, C, L0, R, del_alf, del_bet);
 
 //                q_Rain = ep * E_Rain/(p_u - E_Rain);  // species vapour amount at saturation with species formation in kg/kg
@@ -673,7 +674,7 @@ void cSaturnModel::init_nh4sh(std::string gas, double &c_tropopause,
 //                if((t_u <= t_0_nh4sh)&&(t_u >= t_00_nh4sh)){
 //                if((p_u <= p_00_nh4sh)&&(p_u >= p_0_nh4sh)){
 //                    E_Rain = 1e3 * cSaturnModel::Clausius_Clapeyron(t_u, coeff_A, coeff_B);  // saturation water vapour pressure for the water phase at t > 0°C in bar
-                    E_Rain = cSaturnModel::saturation_vapour_pressure
+                    E_Rain = ATPhys::saturation_vapour_pressure
                         (t_u, C, L0, R, del_alf, del_bet);  // saturation water vapour pressure for the water phase at t > 0°C in bar
 
 //                    q_Rain = ep * E_Rain/(p_u - E_Rain);  // water vapour amount at saturation with water formation in kg/kg = non-dimensional

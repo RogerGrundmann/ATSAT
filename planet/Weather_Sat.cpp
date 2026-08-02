@@ -8,6 +8,7 @@
  * class to prepare the boundary and initial conditions for diverse variables
 */
 #include "cSaturnModel.h"
+#include "ATPhys.h"   // saturation_vapour_pressure
 #include "SaturationAdjustmentSat.h"
 #include "Utils.h"
 
@@ -109,9 +110,9 @@ void cSaturnModel::Saturation_Adjustment(std::string gas,
 //                E_Rain = 1e3 * cNeptuneModel::Clausius_Clapeyron(T, coeff_A, coeff_B);  // saturation vapour pressure for the liquid phase at t > 0°C in bar
 //                E_Ice = 1e3 * cNeptuneModel::Clausius_Clapeyron(T, coeff_A_i, coeff_B_i);  // saturation vapour pressure for the ice phase in bar
 
-                E_Rain = cSaturnModel::saturation_vapour_pressure
+                E_Rain = ATPhys::saturation_vapour_pressure
                     (t_u, C, L0, R, del_alf, del_bet);
-                E_Ice = cSaturnModel::saturation_vapour_pressure
+                E_Ice = ATPhys::saturation_vapour_pressure
                     (t_u, C, L0, R, del_alf, del_bet);
 
 //                q_Rain = ep * E_Rain/(p_u - E_Rain); // relativ vapour contents in kg/m³
@@ -164,9 +165,9 @@ void cSaturnModel::Saturation_Adjustment(std::string gas,
 //                        E_Rain = 1e3 * cNeptuneModel::Clausius_Clapeyron(T, coeff_A, coeff_B);  // saturation vapour pressure for the liquid phase at t > 0°C in bar
 //                        E_Ice = 1e3 * cNeptuneModel::Clausius_Clapeyron(T, coeff_A_i, coeff_B_i);  // saturation vapour pressure for the ice phase in bar
 
-                        E_Rain = cSaturnModel::saturation_vapour_pressure
+                        E_Rain = ATPhys::saturation_vapour_pressure
                             (t_u, C, L0, R, del_alf, del_bet);
-                        E_Ice = cSaturnModel::saturation_vapour_pressure
+                        E_Ice = ATPhys::saturation_vapour_pressure
                             (t_u, C, L0, R, del_alf, del_bet);
 
 //                        q_Rain = ep * E_Rain/(p_u - E_Rain); // relativ vapour contents in kg/m³
@@ -681,10 +682,6 @@ double cSaturnModel::Humility_critical(double &x, double Hu_cr_max,
 /*
 *
 */
-double cSaturnModel::saturation_vapour_pressure(double &T_K,  
-    double &C, double &L0, double &R, double &del_alf, double &del_bet){
-    return exp(C + (- L0/T_K + del_alf * log(T_K) + del_bet * T_K)/(1e-3 * R));
-}
 /*
 *
 */

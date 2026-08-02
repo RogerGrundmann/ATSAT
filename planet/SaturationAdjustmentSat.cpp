@@ -105,7 +105,7 @@ void SaturationAdjustmentSat::run_mirrored(const std::string& gas,
                 // by the same small rho so more vapour reads as supersaturated.
                 const double rho_c = m.rho_at(i, j, k);
 
-                const double E_Rain_0 = saturation_vapour_pressure(t_u, C, L0, R,
+                const double E_Rain_0 = ATPhys::saturation_vapour_pressure(t_u, C, L0, R,
                                                                    del_alf, del_bet);
                 const double q_Rain_0 = rho_c * ep * E_Rain_0 / p_u;
 
@@ -145,9 +145,9 @@ void SaturationAdjustmentSat::run_mirrored(const std::string& gas,
                     // AT THE UPDATED TEMPERATURE T, not at the entry temperature. This is the
                     // feedback the scheme exists to resolve: latent heat raises T, which raises
                     // the saturation vapour pressure, which limits further condensation.
-                    const double E_Rain = saturation_vapour_pressure(T, C,   L0,   R,
+                    const double E_Rain = ATPhys::saturation_vapour_pressure(T, C,   L0,   R,
                                                                      del_alf,   del_bet);
-                    const double E_Ice  = saturation_vapour_pressure(T, C_i, L0_i, R,
+                    const double E_Ice  = ATPhys::saturation_vapour_pressure(T, C_i, L0_i, R,
                                                                      del_alf_i, del_bet_i);
                     const double q_Rain = rho_c * ep * E_Rain / p_u;
                     const double q_Ice  = rho_c * ep * E_Ice  / p_u;

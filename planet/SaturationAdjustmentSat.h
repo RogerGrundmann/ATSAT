@@ -92,6 +92,7 @@
 #pragma once
 
 #include "cSaturnModel.h"
+#include "ATPhys.h"   // saturation_vapour_pressure, clausius_clapeyron
 
 #include <cmath>
 #include <chrono>
@@ -149,21 +150,11 @@ public:
              double &del_alf,   double &del_bet,  double &m_mol,
              Array &c, Array &cloud, Array &ice);
 
-    // ---- Static helpers, usable without an instance (mirrors ATJUP) ----
-    static double clausius_clapeyron(double T_K, double A, double B){
-        return std::exp(A / T_K + B);
-    }
-
-    static double saturation_vapour_pressure(double T_K,
-            double C, double L0, double R, double del_alf, double del_bet){
-        return std::exp(C
-            + (-L0 / T_K + del_alf * std::log(T_K) + del_bet * T_K)
-            / (1e-3 * R));
-    }
-
-    static double humility_critical(double x, double Hu_cr_max, double Hu_cr_mid){
-        return (Hu_cr_max - Hu_cr_mid) * (x * x - 2.0 * x) + Hu_cr_max;
-    }
+    // The three static helpers that used to sit here are gone. saturation_vapour_pressure and
+    // clausius_clapeyron are ATPhys:: functions now — one implementation for every planet instead
+    // of a copy per class — and humility_critical had no caller in either model, which is why it
+    // was deleted rather than moved: a shared header is the wrong place to preserve dead code.
+    // (cSaturnModel::Humility_critical, capital H, is a DIFFERENT function and is still live.)
 
 private:
     cSaturnModel& m;

@@ -732,9 +732,6 @@ private:
     void steadyQuery();
     void restoreVar(double coeff);
 
-    double saturation_vapour_pressure(double &T_K, double &C, 
-        double &L0, double &R,
-        double &del_alf, double &del_bet);
 
     double Clausius_Clapeyron(double &T_K, double &A, double &B);  // temperature in °K
     double Humility_critical(double &x, double Hu_cr_max, double Hu_cr_mid);

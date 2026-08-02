@@ -10,7 +10,7 @@
 # manifest in ALL of them (md5sum planet/ConvectiveAdjustment.h > planet/SHARED.md5 keeping this
 # header), and rebuild each. If that ever becomes tedious enough to resent, that is the signal to
 # promote them to a shared repository.
-acea4e01774950f43b7717ccdca20bf4  planet/ATPhys.h
+8ab73b6adb9fb9b5316a928092698cfd  planet/ATPhys.h
 691bc6241978223d6421f228aabc731b  planet/ConvectiveAdjustment.h
 7a5f2ed1c4687db310c07a573f717d0d  planet/Turbulence.h
 17957559c41bdc64b2cd240ef19bc77a  planet/Precipitation.h
