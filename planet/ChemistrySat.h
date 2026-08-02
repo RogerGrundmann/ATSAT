@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cSaturnModel.h"
+#include "ATPhys.h"
 #include "FluxLimiter.h"
 
 #include <cmath>
@@ -452,7 +453,8 @@ private:
         const double exp_2_rm = exp_rm * exp_rm;
         const double sinthe   = sin(m.the.z[j]);
         const double costhe   = cos(m.the.z[j]);
-        const double rmsinthe = rm * std::max(sinthe, 0.4);
+        const double rmsinthe = rm * std::max(sinthe,
+                                    ATPhys::polar_divisor_floor<cSaturnModel>());
 
         const double d2cdr2   = (c.x[i+1][j][k] - 2.0*c.x[i][j][k] + c.x[i-1][j][k]) / (m.dr   * m.dr) * exp_2_rm;
         const double d2cdthe2 = (c.x[i][j+1][k] - 2.0*c.x[i][j][k] + c.x[i][j-1][k]) / (m.dthe * m.dthe);

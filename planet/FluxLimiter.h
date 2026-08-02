@@ -50,6 +50,8 @@
 
 #pragma once
 
+#include "ATPhys.h"
+
 #include <cmath>
 #include <chrono>
 #include <cstdio>
@@ -96,7 +98,6 @@ void FluxLimiter<Planet>::nh4sh()
     const double dr   = m.dr;
     const double dthe = m.dthe;
     const double dphi = m.dphi;
-    constexpr double sinthe_min = 0.4;
     constexpr double eps = 1.0e-12;
 
     #pragma omp parallel for collapse(3) schedule(static)
@@ -117,7 +118,8 @@ void FluxLimiter<Planet>::nh4sh()
                 const double w = m.w.x[i][j][k];
 
                 const double rm           = m.metricRadius(m.rad.z[i]);
-                const double sinthe       = max(sinthe_min, abs(sin(m.the.z[j])));
+                const double sinthe       = max(ATPhys::polar_divisor_floor<Planet>(),
+                                                abs(sin(m.the.z[j])));
                 const double inv_rm       = 1.0 / rm;
                 const double inv_rmsinthe = 1.0 / (rm * sinthe);
 

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <string>
@@ -60,6 +61,35 @@ inline double saturation_vapour_pressure(double T_K, double C, double L0, double
 // one live and one ornamental copy.
 inline double clausius_clapeyron(double T_K, double A, double B){
     return std::exp(A / T_K + B);
+}
+
+// The floor applied to sin(theta) by terms that DIVIDE by (r*sin(theta))^2 — the TVD flux limiter
+// and the spherical Laplacian in the chemistry. Without one they are infinite at the pole.
+//
+// THIS USED TO BE THE LITERAL 0.4, WRITTEN OUT AT FOUR SITES, and the comment beside two of them
+// said "matches sinthe_min in RungeKutta". It did, once: ATJUP's metric floor WAS 0.4 before it was
+// raised to 0.55 to stop a long-run polar blow-up, and the copies never followed. They are fossils
+// of a single concept that drifted, not a second concept — which is why this is one accessor and
+// not four constants.
+//
+//   <TAG>_SINTHE_TRACK=0  (default)  the historical literal 0.4, i.e. unchanged in both models
+//   <TAG>_SINTHE_TRACK=1             follow the model's own metric floor, max(sinthe_min(), 0.4)
+//
+// WHAT THAT DOES TO EACH MODEL, which is not symmetric:
+//   ATSAT  sinthe_min() defaults to 0.0, so max(0.0, 0.4) = 0.4 and the knob is INERT. It only
+//          begins to matter if ATSAT adopts a metric floor, which is the open question — ATSAT's
+//          RK integrates to j=2 where 1/sin^2 reaches 820, against the 3.3 ATJUP allows itself.
+//   ATJUP  sinthe_min() is 0.55, so =1 moves these terms 0.4 -> 0.55 and makes the chemistry agree
+//          with the momentum equations for the first time since the floor was raised. That CHANGES
+//          ATJUP's results, which is why it is off by default rather than simply corrected.
+//
+// The 0.4 lower bound is kept under the max() deliberately: it guarantees the divisors stay finite
+// even for a model that declares no metric floor at all, which is exactly ATSAT's position.
+template<class Planet>
+inline double polar_divisor_floor(){
+    static const int    track = env_int(Planet::planet_tag(), "SINTHE_TRACK", 0);
+    static const double v     = track ? std::max(Planet::sinthe_min(), 0.4) : 0.4;
+    return v;
 }
 
 }  // namespace ATPhys
