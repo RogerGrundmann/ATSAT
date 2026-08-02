@@ -78,6 +78,14 @@ namespace {
     // (7) Form of the radial-wall extrapolation in BC_radius. See the note at the call site.
     inline int radius_copy(){ static const int v = knob("BC_RADIUS_COPY", 0); return v; }
 
+    // (6) Hold t at the model top fixed. See the note at the call site.
+    inline int t_lid_pin(){ static const int v = knob("BC_T_LID_PIN", 0); return v; }
+    inline double t_lid_K(){
+        static const double v = ATPhys::env_double(cSaturnModel::planet_tag(),
+                                                   "BC_T_LID_K", 0.0);
+        return v;
+    }
+
     // The three extrapolation forms these knobs select between, written once. `s` is the
     // boundary slot being filled and a,b,c are the first three interior neighbours inward.
     //   FORM_CUBIC   3-point, f[s] = f[c] - 3f[b] + 3f[a]   — what ATSAT has always used
@@ -154,6 +162,33 @@ void cSaturnModel::BC_radius(){
     // this file, so u at both walls is whatever this extrapolation makes it.
     const int radial_form = radius_copy();
 
+    // --- (6) Lid temperature pin. ATSAT_BC_T_LID_PIN, default 0 (off). ---
+    //
+    //   ATSAT_BC_T_LID_PIN=1                       hold the lid at its initial-condition value
+    //   ATSAT_BC_T_LID_PIN=1 ATSAT_BC_T_LID_K=120  hold it at a PRESCRIBED temperature in kelvin
+    //
+    // The snapshot is taken on the FIRST call, before the extrapolation below overwrites
+    // t.x[im-1]: the first BC_radius() runs after all initialisation, so it captures the initial
+    // condition. Done serially, outside the parallel region, and only when the knob is on — an
+    // untaken snapshot costs one empty-vector test per iteration.
+    //
+    // WHY IT IS OFF BY DEFAULT, and why the ATJUP reasoning had to be re-checked rather than
+    // copied: ATJUP pins nothing because it MEASURED its lid drifting only +1.2 K over 100
+    // iterations and concluded its cold top is an initial-condition problem, not a boundary one.
+    // Pinning to the IC snapshot would freeze that cold top and stop the radiation coupling from
+    // ever warming it — the opposite of what is wanted. ATSAT's own drift is reported in the
+    // commit message; the prescribed-kelvin mode exists because it is the version that serves a
+    // warm-top goal, where mode 1 only serves to isolate whether the lid drifts at all.
+    const bool do_t_pin = t_lid_pin() != 0;
+    if(do_t_pin && (int)t_top_init.size() != jm){
+        const double t_K = t_lid_K();
+        t_top_init.assign(jm, std::vector<double>(km, 0.0));
+        for(int j = 0; j < jm; j++)
+            for(int k = 0; k < km; k++)
+                t_top_init[j][k] = (t_K > 0.0) ? (t_K / t_ref) : t.x[im-1][j][k];
+    }
+    const bool pin_t_top = do_t_pin && ((int)t_top_init.size() == jm);
+
   #pragma omp parallel for
     for(int j = 1; j < jm-1; j++){
         for(int k = 1; k < km-1; k++){
@@ -175,6 +210,16 @@ void cSaturnModel::BC_radius(){
                 }
             }
         }
+    }
+
+    // (6) Override the lid temperature extrapolation with the pinned value. Its own loop over the
+    // FULL j,k range, for the same reason the taper below has one: the loop above runs
+    // j = 1..jm-2, k = 1..km-2, and a pinned lid with four unpinned edges is not a pinned lid.
+    if(pin_t_top){
+      #pragma omp parallel for
+        for(int j = 0; j < jm; j++)
+            for(int k = 0; k < km; k++)
+                t.x[im-1][j][k] = t_top_init[j][k];
     }
 
     // --- (2) Taper the HORIZONTAL velocities to a quiet grid ceiling. ATSAT_BC_TOP_TAPER=1. ---

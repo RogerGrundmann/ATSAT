@@ -742,6 +742,12 @@ private:
 
 
     std::vector<int> im_tropopause; // keep the tropopause layer index
+
+    // Snapshot of the lid temperature t.x[im-1][j][k], taken from the initial condition on the
+    // first BC_radius() call. Empty until then, and filled only when ATSAT_BC_T_LID_PIN is set;
+    // see the discussion at its call site in BC_Sat.cpp.
+    std::vector<std::vector<double> > t_top_init;
+
     std::vector<float> m_layer_heights;
     std::vector<double> cloud_loc; // lateral cloudwater distribution
     std::vector<double> r_max; // lateral r_max distribution
