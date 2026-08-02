@@ -78,6 +78,10 @@ namespace {
     // (7) Form of the radial-wall extrapolation in BC_radius. See the note at the call site.
     inline int radius_copy(){ static const int v = knob("BC_RADIUS_COPY", 0); return v; }
 
+    // (1) Rigid radial walls on u. See the note at the call site for why there are two names.
+    inline int rigid_lid(){ static const int v = knob("BC_RIGID_LID", 0); return v; }
+    inline int lid_u(){ static const int v = knob("BC_LID_U", rigid_lid()); return v; }
+
     // (6) Hold t at the model top fixed. See the note at the call site.
     inline int t_lid_pin(){ static const int v = knob("BC_T_LID_PIN", 0); return v; }
     inline double t_lid_K(){
@@ -208,6 +212,55 @@ void cSaturnModel::BC_radius(){
                     F.x[im-1][j][k] = std::max(turb_floor[f],
                         c43 * F.x[im-2][j][k] - c13 * F.x[im-3][j][k]);
                 }
+            }
+        }
+    }
+
+    // --- (1) Rigid radial walls on the RADIAL velocity u. ATSAT_BC_RIGID_LID / ATSAT_BC_LID_U. ---
+    //
+    // u is the wall-normal component at i=0 and i=im-1, and the modelled shell is closed: no mass
+    // crosses the model top, and none crosses the deep boundary either — RadiationSat injects the
+    // interior heat flux F_int at i=0 as ENERGY, not as mass. The extrapolation above is correct
+    // only for the TANGENTIAL v,w; applied to u it lets the wall-normal velocity be whatever the
+    // interior profile extrapolates to, which both admits a spurious mass flux through a closed
+    // boundary and feeds back through the i=1 and i=im-2 d/dr stencils.
+    //
+    // It also bears on whether the pressure problem is well posed. PressureSolverSat is
+    // all-Neumann, so with no condition pinning the wall-normal velocity the column-mean vertical
+    // velocity is an undetermined, freely drifting constant.
+    //
+    // TWO NAMES, because ATSAT and ATJUP had drifted apart here and the gap list recorded this as
+    // closed when only half of it was:
+    //
+    //   ATSAT_BC_RIGID_LID  the master, default 0. ALSO read by the shared PressureSolver.h,
+    //                       which applies the matching condition to aux_u inside the projection.
+    //                       Setting it to 1 turns on BOTH halves, which is exactly what the one
+    //                       ATJUP_BC_RIGID_LID does in ATJUP, so the two models stay comparable.
+    //   ATSAT_BC_LID_U      this half alone, defaulting to whatever the master says. It exists so
+    //                       the halves can be separated when attributing a measurement:
+    //                         BC_RIGID_LID=1                 both (ATJUP parity)
+    //                         BC_RIGID_LID=1 BC_LID_U=0      projection only
+    //                         BC_LID_U=1                     velocity only
+    //
+    // Until now ATSAT had only the projection half — ATSAT_BC_RIGID_LID reached PressureSolver.h
+    // and nothing else — so u at both radial walls was whatever BC_RADIUS_COPY's extrapolation
+    // made it, with no rigid-lid option at all. Default stays 0: ATSAT's i=0 is the deep interior
+    // of a gas giant rather than a floor, and whether a lid belongs there is the modelling
+    // question the port did not get to settle. It is now at least askable.
+    //
+    // un is NOT written here: restoreVar(1.0) copies u -> un after all three BC routines run
+    // (cSaturnModel.cpp:586), so the next Runge-Kutta step already starts from the wall value.
+    // Verified, not assumed — ATJUP's comment says the same of its own loop and this file has
+    // already found two ATJUP comments that describe arithmetic their code does not do.
+    //
+    // Its own full-range loop, like the pin and the taper: the main loop above covers
+    // j = 1..jm-2, k = 1..km-2, and a closed wall with four open edges is not a closed wall.
+    if(lid_u() != 0){
+      #pragma omp parallel for
+        for(int j = 0; j < jm; j++){
+            for(int k = 0; k < km; k++){
+                u.x[0][j][k] = 0.0;
+                u.x[im-1][j][k] = 0.0;
             }
         }
     }
