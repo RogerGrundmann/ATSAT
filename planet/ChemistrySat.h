@@ -77,10 +77,54 @@ public:
         // flagged, not settled, and it is the reason a straight A/B against ATJUP's numbers would
         // not mean what it looks like.
         // ====================================================================================
+        // (3) ATSAT_CHEM_DIFFLUX_PLUS — the sign of the diffusive term in massflux_*.
+        //
+        //     WHAT ATSAT COMPUTES, which is NOT what ATJUP computes. ATJUP forms difflux_* in one
+        //     step as D_x * laplacian_spherical(c_x), the diffusive tendency directly. ATSAT does
+        //     it in two passes (DiffMassFluxSat, this file, lines ~298 and ~325):
+        //         pass 1   j_x       = (c_mix/r_mix) * (m_x * D_x * grad_x - jT_x)
+        //         pass 2   difflux_x = dj_x/dr + |dj_x/dthe|/rm + dj_x/dphi/(rm*sinthe)
+        //     so difflux_* here is the DIVERGENCE OF A FLUX, not a Laplacian. Do not read ATJUP's
+        //     description of its own difflux_* onto this one.
+        //
+        //     WHY THE SIGN IS STILL WRONG IN r AND phi. Fick's law is j = -D grad(c) and the
+        //     tendency is -div(j) = +D lap(c). Pass 1 builds j as +D grad(c) — Fick's minus is
+        //     missing — and pass 2 takes +div of it, so the two compose to +D lap(c), the same
+        //     quantity ATJUP's difflux_* holds. massflux_* = w_* MINUS difflux_* therefore
+        //     subtracts a tendency that should be added, and the multicomponent diffusion acts as
+        //     an ANTI-diffusion, sharpening every species gradient instead of smoothing it.
+        //
+        //     WHAT THE KNOB CANNOT FIX. Both passes take std::abs() of the theta component, so
+        //     the meridional contribution is unconditionally positive whatever the field is
+        //     doing. Along theta this is neither a divergence nor a Laplacian and no choice of
+        //     sign makes it one. =1 repairs r and phi and leaves theta incoherent — a PARTIAL
+        //     repair, which is also why the measured growth below cannot be attributed to the
+        //     sign alone.
+        //
+        //     THE REAL FIX, left as its own change: give pass 1 Fick's minus, drop both abs()
+        //     calls, and the two passes become a genuine -div(-D grad c) needing no knob. That
+        //     moves results at the default and wants its own measurement.
+        //
+        //     Why it survived unnoticed in both models: the coefficient is tiny. D_x is built as
+        //     mue_x/(rg_x*sc_x) with rg_h2s the density of the CONDENSED phase rather than the
+        //     gas, giving D ~ 1e-8 m2/s, and difflux_* prints as 0.000000 against massflux_* of
+        //     order 1e-4. Tiny is not the same as harmless: anti-diffusion is SELF-AMPLIFYING —
+        //     it sharpens a gradient, the sharper gradient raises the Laplacian, which sharpens
+        //     it further — so the right test is whether the difference GROWS, not how big it is
+        //     at one moment. ATJUP measured 1.27 % on nh3 and 1.56 % on nh4sh at 100 iterations.
+        //     The measurement for Saturn is in the commit message.
+        //
+        //     The questionable D_x is left alone: it belongs to a separate question. So does the
+        //     fact that `chemical_reaction` in the RHS multiplies the WHOLE of massflux_*, so
+        //     setting that switch to 0 to disable the chemistry silently disables this diffusion
+        //     as well.
         static const int gate_zero  = [](){
             const char* e = getenv("ATSAT_CHEM_GATE_ZERO");  return e ? atoi(e) : 0; }();
         static const int molar_conc = [](){
             const char* e = getenv("ATSAT_CHEM_MOLAR_CONC"); return e ? atoi(e) : 0; }();
+        static const double dsign = [](){
+            const char* e = getenv("ATSAT_CHEM_DIFFLUX_PLUS");
+            return (e && atoi(e) != 0) ? 1.0 : -1.0; }();
 
         #pragma omp parallel for collapse(3) schedule(static)
         for(int k = 1; k < km-1; k++){
@@ -101,9 +145,12 @@ public:
                         m.w_nh4sh.x[i][j][k] = 0.0;
                     }
 
-                    m.massflux_h2s.x[i][j][k]   = m.w_h2s.x[i][j][k]   - m.difflux_h2s.x[i][j][k];
-                    m.massflux_nh3.x[i][j][k]   = m.w_nh3.x[i][j][k]   - m.difflux_nh3.x[i][j][k];
-                    m.massflux_nh4sh.x[i][j][k] = m.w_nh4sh.x[i][j][k] - m.difflux_nh4sh.x[i][j][k];
+                    // (3) ATSAT_CHEM_DIFFLUX_PLUS — the sign of the multicomponent diffusion.
+                    // See the note above the loop. dsign is +1.0 or -1.0, so the default path is
+                    // the subtraction it always was, exactly.
+                    m.massflux_h2s.x[i][j][k]   = m.w_h2s.x[i][j][k]   + dsign * m.difflux_h2s.x[i][j][k];
+                    m.massflux_nh3.x[i][j][k]   = m.w_nh3.x[i][j][k]   + dsign * m.difflux_nh3.x[i][j][k];
+                    m.massflux_nh4sh.x[i][j][k] = m.w_nh4sh.x[i][j][k] + dsign * m.difflux_nh4sh.x[i][j][k];
                 }
             }
         }
