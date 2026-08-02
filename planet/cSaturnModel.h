@@ -5,6 +5,7 @@
 // instantiate these classes, after cSaturnModel is complete.
 class ChemistrySat;
 class SaturationAdjustmentSat;
+template<class M> class SaturationAdjustment;
 class BC_Sat;
 class VelocityInitializerSat;
 
@@ -61,6 +62,7 @@ class cSaturnModel{
     friend class ChemistrySat;
     template<class M> friend class PressureSolver;
     friend class SaturationAdjustmentSat;
+    template<class M> friend class SaturationAdjustment;
     friend class BC_Sat;
     friend class VelocityInitializerSat;
     friend class ThermalWindDiagSat;
@@ -183,6 +185,15 @@ public:
     // between TurbulenceJup.h and TurbulenceSat.h were this one concept, spelled out inline.
     int  surface_index(int, int) const { return 0; }
     bool is_solid(int, int, int) const { return false; }
+
+    // ---- What the SHARED SaturationAdjustment.h asks of this model ----
+    //
+    // ATSAT's saturation adjustment ends each cell by rewriting p_stat from the adjusted
+    // temperature; ATJUP does not touch p_stat there at all. That is a real disagreement about
+    // where the hydrostatic pressure may respond to latent heating, it was flagged and left
+    // unsettled when the mirrored routine was written, and sharing the file was not the moment to
+    // settle it. Answering true here keeps ATSAT doing exactly what it did.
+    static bool satadj_updates_pstat(){ return true; }
 
     // ---- What the SHARED PressureSolver.h asks of this model ----
     //

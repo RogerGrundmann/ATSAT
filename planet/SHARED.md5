@@ -16,3 +16,4 @@
 17957559c41bdc64b2cd240ef19bc77a  planet/Precipitation.h
 035909ae5e2cb50eb682eb098761b782  planet/Radiation.h
 fc8734f6d8e2579b3045af094f4b12b4  planet/PressureSolver.h
+5643f3828886f0ae0935dec27d002a70  planet/SaturationAdjustment.h

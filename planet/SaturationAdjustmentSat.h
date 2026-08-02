@@ -92,7 +92,7 @@
 #pragma once
 
 #include "cSaturnModel.h"
-#include "ATPhys.h"   // saturation_vapour_pressure, clausius_clapeyron
+#include "SaturationAdjustment.h"   // the SHARED algorithm this class dispatches to
 
 #include <cmath>
 #include <chrono>
@@ -159,16 +159,5 @@ public:
 private:
     cSaturnModel& m;
 
-    // ATJUP's budget and tolerance, not ATSAT's 30 / 1e-4 — see point 9.
-    static constexpr int    iter_prec_end = 15;
-    static constexpr double q_diff_min    = 1.0e-3;
 
-    void run_mirrored(const std::string& gas,
-                      double t_0,       double t_00,
-                      double ep,        double lv,  double ls,
-                      double C,         double L0,  double R,
-                      double del_alf,   double del_bet,
-                      double C_i,       double L0_i,
-                      double del_alf_i, double del_bet_i,
-                      Array& c,         Array& cloud,  Array& ice);
 };
