@@ -7,6 +7,7 @@ class ChemistrySat;
 class SaturationAdjustmentSat;
 template<class M> class SaturationAdjustment;
 class BC_Sat;
+template<class M> class BoundaryConditions;
 class VelocityInitializerSat;
 
 #include <fenv.h>
@@ -37,6 +38,7 @@ class VelocityInitializerSat;
 #include "PythonStream.h"
 #include "Utils.h"
 #include "Config.h"
+#include "BoundaryConditions.h"   // BCForm, and the shared BC template
 
 
 #ifdef _OPENMP
@@ -64,6 +66,7 @@ class cSaturnModel{
     friend class SaturationAdjustmentSat;
     template<class M> friend class SaturationAdjustment;
     friend class BC_Sat;
+    template<class M> friend class BoundaryConditions;
     friend class VelocityInitializerSat;
     friend class ThermalWindDiagSat;
     template<class M> friend class ConvectiveAdjustment;
@@ -185,6 +188,27 @@ public:
     // between TurbulenceJup.h and TurbulenceSat.h were this one concept, spelled out inline.
     int  surface_index(int, int) const { return 0; }
     bool is_solid(int, int, int) const { return false; }
+
+    // ---- What the SHARED BoundaryConditions.h asks of this model ----
+    //
+    // The field lists, the loop margin, the default extrapolation form and each knob's default.
+    // See BoundaryConditions.h for why every one of these is a model fact rather than a variant
+    // of the algorithm. ATSAT works the INTERIOR rows (margin 1) and defaults to the 3-point
+    // cubic; every hardening knob is OFF, because on Saturn none of them is measured yet.
+    static int bc_margin(){ return 1; }
+    static int bc_default_form(){ return BCForm::CUBIC; }
+    static int bc_default_rigid_lid(){ return 0; }
+    static int bc_default_top_taper(){ return 0; }
+    static int bc_default_pole_copy(){ return 0; }
+    static int bc_default_radius_copy(){ return 0; }
+
+    std::vector<Array*> bc_fields_radius();
+    std::vector<Array*> bc_fields_theta_extrap();
+    std::vector<Array*> bc_fields_theta_zero();
+    std::vector<Array*> bc_fields_phi();
+    std::vector<Array*> bc_turb_fields();
+    std::vector<double> bc_turb_floors();
+    bool bc_turb_active() const { return turb_active; }
 
     // ---- What the SHARED SaturationAdjustment.h asks of this model ----
     //
@@ -673,9 +697,6 @@ private:
     void writeResults();
     void writeData();
 
-    void BC_phi();
-    void BC_radius();
-    void BC_theta();
 //    void BC_seamount();
 //    void BC_solidground();
     void resetArrays();
