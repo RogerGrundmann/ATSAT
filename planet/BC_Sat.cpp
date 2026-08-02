@@ -1,5 +1,6 @@
 #include "cSaturnModel.h"
 #include "BC_Sat.h"
+#include "ATPhys.h"   // env_int, for the boundary-hardening knobs below
 
 using namespace std;
 
@@ -57,6 +58,19 @@ using namespace std;
 // and BC_theta wrote v[i][0][k] from v.x[3][3][k] rather than v.x[i][3][k].
 namespace {
     constexpr double bc_dis_min = 1.0e-10;   // matches TurbulenceSat::dis_min and the RK4 floor
+
+    // ===== Boundary-hardening knobs, ported from ATJUP's BCJupKnobs (BC_Jup.h) =====
+    // ATSAT's convention, unlike ATJUP's: every one of these defaults to OFF, so the default
+    // path is byte-identical to the code before the port and each knob is an independently
+    // answerable question rather than a change smuggled in with its neighbours. ATJUP ships
+    // top_taper and pole_copy ON, on Jupiter evidence; whether that evidence transfers to a
+    // 500 km Saturn shell is exactly what these are here to measure.
+    inline int knob(const char* name, int dflt){
+        return ATPhys::env_int(cSaturnModel::planet_tag(), name, dflt);
+    }
+
+    // (2) Taper v,w to zero over the top three layers. See the note at the call site.
+    inline int top_taper(){ static const int v = knob("BC_TOP_TAPER", 0); return v; }
 }
 
 void BC_Sat::bcRadius() { m.BC_radius(); }
@@ -113,6 +127,77 @@ void cSaturnModel::BC_radius(){
                         c43 * F.x[1][j][k] - c13 * F.x[2][j][k]);
                     F.x[im-1][j][k] = std::max(turb_floor[f],
                         c43 * F.x[im-2][j][k] - c13 * F.x[im-3][j][k]);
+                }
+            }
+        }
+    }
+
+    // --- (2) Taper the HORIZONTAL velocities to a quiet grid ceiling. ATSAT_BC_TOP_TAPER=1. ---
+    //
+    // init_v_or_w_above_tropopause() (InitVelocity_Sat.cpp) ramps v and w linearly to zero
+    // between the tropopause and the model top, so the initial condition has v = w = 0 at
+    // i = im-1 by construction. The extrapolation above then copies the interior value straight
+    // back onto the lid and undoes it, dragging the zonal jet up to the ceiling. Ramping the top
+    // three layers by 2/3, 1/3, 0 restores a quiet lid without the one-cell shear shock that a
+    // hard zero at im-1 alone would create.
+    //
+    // TWO FORMS, because ATJUP's rationale for its own does not survive measurement:
+    //
+    //   =1  ATJUP parity. Multiply in place, exactly as BC_Jup.h does.
+    //   =2  Re-derive from the first untapered level each call, so nothing compounds.
+    //
+    // ATJUP's comment claims the multiply cannot run away, "because RK4 integrates i = 1..im-2,
+    // so v,w at im-2 and im-3 are recomputed from tendencies every iteration and the factor is
+    // re-applied to a fresh value rather than to an already-tapered one". That is not what an
+    // incremental integrator does. RK4 forms v = vn + dt*rhs, restoreVar then copies v back into
+    // vn, so the value the factor multiplies at iteration n+1 is the value it already multiplied
+    // at iteration n. The factor compounds geometrically and only the tendency replenishes it.
+    //
+    // MEASURED on ATSAT, 30 iterations, max|w| by level (=0 against =1):
+    //     i=38  0.5717 -> 0.000056        (2/3)^30 = 5.2e-6
+    //     i=39  0.4362 -> 0.0             (1/3)^30 = 5.2e-15
+    //     i=40  0.1505 -> 0.0
+    // So =1 is not a 2/3, 1/3, 0 ramp at all after the first few iterations: it is a hard zero
+    // three layers deep, reached geometrically. It does do the job it was ported for — the |w|
+    // maximum moves off the lid, i=38 (475 km) to i=37 (462 km) — but by emptying the top of the
+    // shell rather than by grading it.
+    //
+    // =2 gets the intended profile and keeps it: v,w at im-2 and im-3 are set to 1/3 and 2/3 of
+    // the first level the taper does not touch, i = im-4, which RK4 refreshes every iteration.
+    // That is a genuine linear ramp from the interior to zero at the lid, re-derived from a fresh
+    // value each call, which is what the ATJUP comment describes and its arithmetic does not do.
+    //
+    // i = im-1 is outside the RK4 range in both forms, so zeroing it is a clean Dirichlet
+    // condition either way.
+    //
+    // WHAT DOES NOT TRANSFER FROM ATJUP. The three tapered layers are 3/40 of the shell in both
+    // models, but ATSAT's shell is 500 km against ATJUP's 140, so this reaches ~37 km down
+    // instead of ~10 km. It is also a far smaller fraction of the ramp it is meant to protect:
+    // ATSAT's tropopause sits at level 10 of 40 (tropopause_equator 125 km of L_atm 500), so the
+    // IC ramp already spans 30 levels and the taper touches only its top tenth.
+    //
+    // Its own loop, over the FULL j,k range, rather than inside the loop above: that loop runs
+    // j = 1..jm-2, k = 1..km-2, and leaving the seam columns untapered would put a discontinuity
+    // at k = 0/km-1 in the middle of the domain. bcRadius() is called last of the three
+    // (cSaturnModel.cpp), so nothing overwrites this afterwards.
+    const int taper = top_taper();
+    if(taper != 0){
+        const int iml = im - 1;
+      #pragma omp parallel for
+        for(int j = 0; j < jm; j++){
+            for(int k = 0; k < km; k++){
+                v.x[iml][j][k] = 0.0;
+                w.x[iml][j][k] = 0.0;
+                if(taper == 2){
+                    v.x[iml-1][j][k] = (1.0/3.0) * v.x[iml-3][j][k];
+                    w.x[iml-1][j][k] = (1.0/3.0) * w.x[iml-3][j][k];
+                    v.x[iml-2][j][k] = (2.0/3.0) * v.x[iml-3][j][k];
+                    w.x[iml-2][j][k] = (2.0/3.0) * w.x[iml-3][j][k];
+                }else{
+                    v.x[iml-1][j][k] *= (1.0/3.0);
+                    w.x[iml-1][j][k] *= (1.0/3.0);
+                    v.x[iml-2][j][k] *= (2.0/3.0);
+                    w.x[iml-2][j][k] *= (2.0/3.0);
                 }
             }
         }
