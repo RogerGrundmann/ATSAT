@@ -104,8 +104,8 @@ void cSaturnModel::printMinMax(){
     searchMinMax_3D(" max 3D presgrad force ", " min 3D presgrad force ", "N/m³", PresGradForce, 1.0);
 
     cout << endl << " Energies " << endl;
-    searchMinMax_3D(" max 3D sensible heat ", " min 3D sensible heat ", "W/m²", Q_Sensible, 1.0);
-    searchMinMax_3D(" max 3D latent heat ", " min 3D latent heat ", "W/m²", Q_Latent, 1.0);
+    searchMinMax_3D(" max 3D sensible heat ", " min 3D sensible heat ", " W/m3", Q_Sensible, 1.0);
+    searchMinMax_3D(" max 3D latent heat ", " min 3D latent heat ", " W/m3", Q_Latent, 1.0);
 
     // Radiation and turbulence diagnostics (ported classes). All identically zero unless the
     // corresponding knob is set, so this block costs nothing when they are off — but without it
