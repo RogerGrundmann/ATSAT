@@ -98,10 +98,10 @@ void cSaturnModel::printMinMax(){
     cout << endl;
 
     cout << endl << " Forces " << endl;
-    searchMinMax_3D(" max 3D Coriolis force ", " min 3D Coriolis force ", "N/m³", CoriolisForce, 1.0);
-    searchMinMax_3D(" max 3D centrifugal force ", " min 3D centrifugal force ", " mN/m³", CentrifugalForce, 1e3);
-    searchMinMax_3D(" max 3D buoyancy force ", " min 3D buoyancy force ", "N/m³", BuoyancyForce, 1.0);
-    searchMinMax_3D(" max 3D presgrad force ", " min 3D presgrad force ", "N/m³", PresGradForce, 1.0);
+    searchMinMax_3D(" max 3D Coriolis force ", " min 3D Coriolis force ", " mN/m3", CoriolisForce, 1e3);
+    searchMinMax_3D(" max 3D centrifugal force ", " min 3D centrifugal force ", " mN/m3", CentrifugalForce, 1e3);
+    searchMinMax_3D(" max 3D buoyancy force ", " min 3D buoyancy force ", " N/m3", BuoyancyForce, 1.0);
+    searchMinMax_3D(" max 3D presgrad force ", " min 3D presgrad force ", " N/m3", PresGradForce, 1.0);
 
     cout << endl << " Energies " << endl;
     searchMinMax_3D(" max 3D sensible heat ", " min 3D sensible heat ", " W/m3", Q_Sensible, 1.0);
