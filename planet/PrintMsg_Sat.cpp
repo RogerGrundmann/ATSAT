@@ -1,38 +1,33 @@
 #include "cSaturnModel.h"
+#include "Reporting.h"
 
 using namespace std;
 
-namespace{
-    string heading_1 = " printout of maximum and minimum values of properties at their locations: latitude, longitude, level";
-    string heading_2 = " results based on three dimensional considerations of the problem";
-    string level = "km";
-
-    struct HemisphereCoords{
-        double lat, lon;
-        string east_or_west, north_or_south;
-    };
-    HemisphereCoords convert_coords(double lon, double lat){
-        HemisphereCoords ret;
-        if(lat > 90){
-            ret.lat = lat - 90;
-            ret.north_or_south = "°S";
-        }else{
-            ret.lat = 90 - lat;
-            ret.north_or_south = "°N";
-        }
-        if(lon > 180){
-            ret.lon = 360 - lon;
-            ret.east_or_west = "°W";
-        }else{
-            ret.lon = lon;
-            ret.east_or_west = "°E";
-        }
-        return ret;
-    }
-}
+/*
+* The min/max report machinery and steadyQuery now live in the SHARED Reporting.h, as
+* Reporting<Planet>. What stayed here is what is genuinely Saturn's: which fields printMinMax
+* lists, in what unit, and the welcome/final text. See Reporting.h for why the split falls there.
+*/
 /*
 *
 */
+/*
+ * UNSETTLED, and left as it stands rather than changed under a refactor: the species units.
+ *
+ * ATJUP prints every species with coefficient 1.0 and labels it kg/m3, having found that its own
+ * 1e3*r_mix factor made the printed number 1.2844x too large — c is already a mass density in
+ * kg/m3. The lines below still carry 1e3*r_mix and the label g/m3, so if ATJUP's reading is right
+ * then every species number in ATSAT's log is 1284x its true value in those units.
+ *
+ * The temperature line has the same shape of problem. It scales t by 273.15 and then subtracts
+ * 273.15, but t is nondimensional and t_ref (134.0) is its scale, so the printed degC is not the
+ * model's temperature. ATJUP corrected exactly this in its own copy (its note: "it printed the
+ * offset from t_ref while labelling it degC — every temperature in the log read ~108 K too
+ * high"). ATSAT_TRACE, which uses t*t_ref, reports a plausible 30-400 K against this block.
+ *
+ * Both are OUTPUT-ONLY — no prognostic field depends on them — which is why correcting them can
+ * wait for its own commit and its own measurement instead of riding along with the sharing.
+ */
 void cSaturnModel::printMinMax(){
 
     cout << endl << endl << " Courant time step   dt = " << dt << endl << endl;
@@ -133,124 +128,24 @@ void cSaturnModel::printMinMax(){
 /*
 *
 */
-void cSaturnModel::searchMinMax_3D(string name_maxValue, string name_minValue, 
-    string name_unitValue, Array &value_D, double coeff, 
+/*
+*
+*/
+// Forwarders to the shared Reporting<cSaturnModel>. The bodies used to be here in full and were
+// the highest-overlap pair between the two models (83.8 % line-for-line).
+void cSaturnModel::searchMinMax_3D(string name_maxValue, string name_minValue,
+    string name_unitValue, Array &value_D, double coeff,
     std::function< double(double) > lambda, bool print_heading){
-    double maxValue = value_D.x[0][0][0];
-    double minValue = value_D.x[0][0][0];
-    int imax = 0;
-    int jmax = 0;
-    int kmax = 0;
-    int imin = 0;
-    int jmin = 0;
-    int kmin = 0;  
-    for(int j = 0; j < jm; j++){
-        for(int k = 0; k < km; k++){
-            for(int i = 0; i < im; i++){
-                if(value_D.x[i][j][k] > maxValue){
-                    maxValue = value_D.x[i][j][k];
-                    imax = i;
-                    jmax = j;
-                    kmax = k;
-                }else if(value_D.x[i][j][k] < minValue){
-                    minValue = value_D.x[i][j][k];
-                    imin = i;
-                    jmin = j;
-                    kmin = k;
-                }
-            }
-        }
-    }
-    int imax_level = imax * (int)L_atm/(im-1);
-    int imin_level = imin * (int)L_atm/(im-1);
-    //  maximum latitude and longitude units recalculated
-    HemisphereCoords coords = convert_coords(kmax, jmax);
-    int jmax_deg = coords.lat;
-    string deg_lat_max = coords.north_or_south;
-    int kmax_deg = coords.lon;
-    string deg_lon_max = coords.east_or_west;
-    //  minimum latitude and longitude units recalculated
-    coords = convert_coords(kmin, jmin);
-    int jmin_deg = coords.lat;
-    string deg_lat_min= coords.north_or_south;
-    int kmin_deg = coords.lon;
-    string deg_lon_min = coords.east_or_west;
-    cout.precision(6);
-    if(print_heading){
-        cout << endl << heading_1 << endl << heading_2 << endl << endl;
-    }
-    maxValue = lambda(maxValue * coeff);
-    minValue = lambda(minValue * coeff);
-    cout << setiosflags(ios::left) << setw(26) << setfill('.') << name_maxValue << " = " << 
-        resetiosflags(ios::left) << setw(12) << fixed << setfill(' ') << maxValue << setw(6) << 
-        name_unitValue << setw(5) << jmax_deg << setw(3) << deg_lat_max << setw(4) << kmax_deg << 
-        setw(3) << deg_lon_max << setw(6) << imax_level << setw(2) << level << "          " << 
-        setiosflags(ios::left) << setw(26) << setfill('.') << name_minValue << " = "<< 
-        resetiosflags(ios::left) << setw(12) << fixed << setfill(' ') << minValue << setw(6) << 
-        name_unitValue << setw(5)  << jmin_deg << setw(3) << deg_lat_min << setw(4) << kmin_deg << 
-        setw(3) << deg_lon_min  << setw(6) << imin_level << setw(2) << level << endl;
+    Reporting<cSaturnModel>(*this).searchMinMax_3D(name_maxValue, name_minValue,
+        name_unitValue, value_D, coeff, lambda, print_heading);
 }
 /*
 *
 */
-void cSaturnModel::searchMinMax_2D(string name_maxValue, string name_minValue, 
+void cSaturnModel::searchMinMax_2D(string name_maxValue, string name_minValue,
     string name_unitValue, Array_2D &value, double coeff){
-    double minValue = value.y[0][0];
-    double maxValue = value.y[0][0];
-    int jmax = 0;
-    int kmax = 0;
-    int jmin = 0;
-    int kmin = 0;  
-    for(int j = 1; j < jm-1; j++){
-        for(int k = 1; k < km-1; k++){
-            if(value.y[j][k] > maxValue){
-                maxValue = value.y[j][k];
-                jmax = j;
-                kmax = k;
-            }else if(value.y[j][k] < minValue){
-                minValue = value.y[j][k];
-                jmin = j;
-                kmin = k;
-            }
-        }
-    }
-    int imax_level = 0;
-    int imin_level = 0;
-    //  maximum latitude and longitude units recalculated
-    HemisphereCoords coords = convert_coords(kmax, jmax);
-    int jmax_deg = coords.lat;
-    string deg_lat_max = coords.north_or_south;
-    int kmax_deg = coords.lon;
-    string deg_lon_max = coords.east_or_west;
-    //  minimum latitude and longitude units recalculated
-    coords = convert_coords(kmin, jmin);
-    int jmin_deg = coords.lat;
-    string deg_lat_min= coords.north_or_south;
-    int kmin_deg = coords.lon;
-    string deg_lon_min = coords.east_or_west;
-    cout.precision(6);
-    maxValue = maxValue * coeff;
-    minValue = minValue * coeff;
-    cout << setiosflags(ios::left) << setw(26) << setfill('.') << name_maxValue << " = " << 
-        resetiosflags(ios::left) << setw(12) << fixed << setfill(' ') << maxValue << setw(6) << 
-        name_unitValue << setw(5) << jmax_deg << setw(3) << deg_lat_max << setw(4) << kmax_deg << 
-        setw(3) << deg_lon_max << setw(6) << imax_level << setw(2) << level << "          " << 
-        setiosflags(ios::left) << setw(26) << setfill('.') << name_minValue << " = "<< 
-        resetiosflags(ios::left) << setw(12) << fixed << setfill(' ') << minValue << setw(6) << 
-        name_unitValue << setw(5)  << jmin_deg << setw(3) << deg_lat_min << setw(4) << kmin_deg << 
-        setw(3) << deg_lon_min  << setw(6) << imin_level << setw(2) << level << endl;
-}
-/*
-*
-*/
-double cSaturnModel::out_maxValue() const{
-    return maxValue;
-}
-/*
-*
-*/
-double cSaturnModel::out_minValue() const{
-    return minValue;
+    Reporting<cSaturnModel>(*this).searchMinMax_2D(name_maxValue, name_minValue,
+        name_unitValue, value, coeff);
 }
 /*
 *
@@ -293,296 +188,8 @@ void cSaturnModel::print_final_msg(){
 /*
 *
 */
-/*
- * How far is the run from a steady state, and WHERE.  Mirrored from ATJUP's steadyQuery.
- *
- * For each prognostic field it reports max|f - f_n| over the grid with the cell it occurs in,
- * f_n being the copy restoreVar() made at the end of the previous iteration — so each number is
- * the largest change that field underwent during ONE iteration. Alongside them, the largest
- * residual of the continuity equation, which is a statement about the pressure projection rather
- * than about convergence in time.
- *
- * IT MUST RUN BEFORE restoreVar(). After it, every f_n equals its f and all thirteen numbers are
- * identically zero.
- *
- * The routine existed in ATJUP, ATSAT, ATNEPT and ATURAN and was called by none of them, so none
- * of this had ever been printed — and in ATSAT it could not have been, because p_dynn was
- * declared and never allocated (a NULL dereference waiting for the first caller). Three further
- * defects, identical in both models:
- *   - the pressure line assigned p_dynn = p_dyn and then differenced against it, so dp was zero
- *     by construction; p_dynn is now allocated and maintained by restoreVar with the other
- *     n-copies, and is back in the restart list;
- *   - the continuity residual compared a magnitude against a signed accumulator;
- *   - min_nh4sh/max_nh4sh were never initialised and case 13 printed stack garbage.
- */
+// See Reporting.h for what this reports and the three defects that were fixed when it was
+// revived. It must run BEFORE restoreVar(), or every number it prints is identically zero.
 void cSaturnModel::steadyQuery(){
-    int i_u, j_u, k_u, i_v, j_v, k_v, i_w, j_w, k_w, i_t, j_t, k_t, i_c, 
-        j_c, k_c, i_cloud, j_cloud, k_cloud, i_ice, j_ice, k_ice, i_nh3, 
-        j_nh3, k_nh3, i_nh3_cloud, j_nh3_cloud, k_nh3_cloud, i_nh3_ice, 
-        j_nh3_ice, k_nh3_ice, i_nh4sh, j_nh4sh, k_nh4sh, i_p, j_p, k_p;
-    int i_loc, j_loc, k_loc, i_loc_level, j_loc_deg, k_loc_deg;
-    double max_u, max_v, max_w, max_t, max_c, max_cloud, max_ice, max_p, 
-        max_nh3, max_nh3_cloud, max_nh3_ice, max_nh4sh;
-    double min_u, min_v, min_w, min_t, min_c, min_cloud, min_ice, 
-        min_nh3, min_nh3_cloud, min_nh3_ice, min_nh4sh, min_p;
-    double Value;
-    string name_Value;
-    string level, deg_north, deg_south, deg_west, deg_east, deg_lat, 
-        deg_lon, heading;
-    min_u = max_u = 0.;
-    min_v = max_v = 0.;
-    min_w = max_w = 0.;
-    min_t = max_t = 0.;
-    min_c = max_c = 0.;
-    min_p = max_p = 0.;
-    min_cloud = max_cloud = 0.;
-    min_ice = max_ice = 0.;
-    min_nh3 = max_nh3 = 0.;
-    min_nh3_cloud = max_nh3_cloud = 0.;
-    min_nh3_ice = max_nh3_ice = 0.;
-    min_nh4sh = max_nh4sh = 0.;   // was never initialised; case 13 read whatever was on the stack
-    double sinthe = 0., costhe = 0., rmsinthe = 0.;
-    double dudr = 0., dvdthe = 0., dwdphi = 0.;
-    double residuum = 0.;
-    double minimum = 0.;
-    for(int i = 1; i < im-1; i++){
-        for(int j = 1; j < jm-1; j++){
-            sinthe = sin(the.z[j]);
-            costhe = cos(the.z[j]);
-            const double rm_met = metricRadius(rad.z[i]);
-            rmsinthe = rm_met * sinthe;
-            for(int k = 1; k < km-1; k++){
-                dudr = (u.x[i+1][j][k] - u.x[i-1][j][k])/(2. * dr);
-                dvdthe = (v.x[i][j+1][k] - v.x[i][j-1][k])/(2. * dthe);
-                dwdphi = (w.x[i][j][k+1] - w.x[i][j][k-1])/(2. * dphi);
-                residuum = dudr + 2. * u.x[i][j][k]/rm_met + dvdthe/rm_met
-                    + costhe/rmsinthe * v.x[i][j][k] + dwdphi/rmsinthe;
-                // fabs on BOTH sides. It used to compare fabs(residuum) against a `minimum`
-                // holding the SIGNED value, so one negative residual made every later cell
-                // compare true and the reported location became the last cell scanned.
-                if(fabs(residuum) >= minimum){
-                    minimum = fabs(residuum);
-                    i_res = i;
-                    j_res = j;
-                    k_res = k;
-                }
-            }
-        }
-    }
-    for(int i = 0; i < im; i++){
-        for(int j = 0; j < jm; j++){
-            for(int k = 0; k < km; k++){
-                max_p = fabs(p_dyn.x[i][j][k] - p_dynn.x[i][j][k]);
-                if(max_p >= min_p){
-                    min_p = max_p;
-                    i_p = i;
-                    j_p = j;
-                    k_p = k;
-                }
-                max_u = fabs(u.x[i][j][k] - un.x[i][j][k]);
-                if(max_u >= min_u){
-                    min_u = max_u;
-                    i_u = i;
-                    j_u = j;
-                    k_u = k;
-                }
-                max_v = fabs(v.x[i][j][k] - vn.x[i][j][k]);
-                if(max_v >= min_v){
-                    min_v = max_v;
-                    i_v = i;
-                    j_v = j;
-                    k_v = k;
-                }
-                max_w = fabs(w.x[i][j][k] - wn.x[i][j][k]);
-                if(max_w >= min_w){
-                    min_w = max_w;
-                    i_w = i;
-                    j_w = j;
-                    k_w = k;
-                }
-                max_t = fabs(t.x[i][j][k] - tn.x[i][j][k]);
-                if(max_t >= min_t){
-                    min_t = max_t;
-                    i_t = i;
-                    j_t = j;
-                    k_t = k;
-                }
-                max_c = fabs(h2o.x[i][j][k] - h2on.x[i][j][k]);
-                if(max_c >= min_c){
-                    min_c = max_c;
-                    i_c = i;
-                    j_c = j;
-                    k_c = k;
-                }
-                max_cloud = fabs(h2o_cloud.x[i][j][k] - h2o_cloudn.x[i][j][k]);
-                if(max_cloud >= min_cloud){
-                    min_cloud = max_cloud;
-                    i_cloud = i;
-                    j_cloud = j;
-                    k_cloud = k;
-                }
-                max_ice = fabs(h2o_ice.x[i][j][k] - h2o_icen.x[i][j][k]);
-                if(max_ice >= min_ice){
-                    min_ice = max_ice;
-                    i_ice = i;
-                    j_ice = j;
-                    k_ice = k;
-                }
-                max_nh3 = fabs(nh3.x[i][j][k] - nh3n.x[i][j][k]);
-                if(max_nh3 >= min_nh3){
-                    min_nh3= max_nh3;
-                    i_nh3 = i;
-                    j_nh3 = j;
-                    k_nh3 = k;
-                }
-                max_nh3_cloud = fabs(nh3_cloud.x[i][j][k] - nh3_cloudn.x[i][j][k]);
-                if(max_nh3_cloud >= min_nh3_cloud){
-                    min_nh3_cloud= max_nh3_cloud;
-                    i_nh3_cloud = i;
-                    j_nh3_cloud = j;
-                    k_nh3_cloud = k;
-                }
-                max_nh3_ice = fabs(nh3_ice.x[i][j][k] - nh3_icen.x[i][j][k]);
-                if(max_nh3_ice >= min_nh3_ice){
-                    min_nh3_ice= max_nh3_ice;
-                    i_nh3_ice = i;
-                    j_nh3_ice = j;
-                    k_nh3_ice = k;
-                }
-                max_nh4sh = fabs(nh4sh.x[i][j][k] - nh4shn.x[i][j][k]);
-                if(max_nh4sh >= min_nh4sh){
-                    min_nh4sh= max_nh4sh;
-                    i_nh4sh = i;
-                    j_nh4sh = j;
-                    k_nh4sh = k;
-                }
-            }
-        }
-    }
-    cout.precision(6);
-    cout.setf(ios::fixed);
-    cout << endl << endl;
-    cout << "      >>>>>>>>>>>>>>>>>>>>>>>>>>>>>    3D    <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<" << endl;
-    cout << "      3D ATSAT iterational process" << endl;
-    cout << "      max total iteration number nm = " << nm << endl;
-    cout << "      iter_n = " << iter_n << endl;
-    cout << endl;
-    heading = " 3D iterational process for the surface boundary conditions\n printout of maximum and minimum absolute and relative errors of the computed values at their locations: level, latitude, longitude";
-    cout << endl << endl << heading << endl << endl;
-    level = "km";
-    deg_north = "°N";
-    deg_south = "°S";
-    deg_west = "°W";
-    deg_east = "°E";
-    int choice = {1};
-    preparation:
-    switch(choice){
-        case 1 :    name_Value = " residuum: continuity equation ";
-                        Value = minimum;
-                        i_loc = i_res;
-                        j_loc = j_res;
-                        k_loc = k_res;
-                        break;
-        case 2 :    name_Value = " dp: pressure Poisson equation ";
-
-                        Value = min_p;
-                        i_loc = i_p;
-                        j_loc = j_p;
-                        k_loc = k_p;
-                        break;
-        case 3 :    name_Value = " du: Navier Stokes equation ";
-                        Value = min_u;
-                        i_loc = i_u;
-                        j_loc = j_u;
-                        k_loc = k_u;
-                        break;
-        case 4 :    name_Value = " dv: Navier Stokes equation ";
-                        Value = min_v;
-                        i_loc = i_v;
-                        j_loc = j_v;
-                        k_loc = k_v;
-                        break;
-        case 5 :    name_Value = " dw: Navier Stokes equation ";
-                        Value = min_w;
-                        i_loc = i_w;
-                        j_loc = j_w;
-                        k_loc = k_w;
-                        break;
-        case 6 :    name_Value = " dt: energy transport equation ";
-                        Value = min_t;
-                        i_loc = i_t;
-                        j_loc = j_t;
-                        k_loc = k_t;
-                        break;
-        case 7 :    name_Value = " dh2o: h2o vap transport equation ";
-                        Value = min_c;
-                        i_loc = i_c;
-                        j_loc = j_c;
-                        k_loc = k_c;
-                        break;
-        case 8 :    name_Value = " dh2oc: h2o cl transport equation ";
-                        Value = min_cloud;
-                        i_loc = i_cloud;
-                        j_loc = j_cloud;
-                        k_loc = k_cloud;
-                        break;
-        case 9 :    name_Value = " dh2oi: h2o ic transport equation ";
-                        Value = min_ice;
-                        i_loc = i_ice;
-                        j_loc = j_ice;
-                        k_loc = k_ice;
-                        break;
-        case 10 :    name_Value = " dnh3: nh3 transport equation ";
-                        Value = min_nh3;
-                        i_loc = i_nh3;
-                        j_loc = j_nh3;
-                        k_loc = k_nh3;
-                        break;
-        case 11 :    name_Value = " dnh3: nh3 cl transport equation ";
-                        Value = min_nh3_cloud;
-                        i_loc = i_nh3_cloud;
-                        j_loc = j_nh3_cloud;
-                        k_loc = k_nh3_cloud;
-                        break;
-        case 12 :    name_Value = " dnh3i: nh3 i transport equation ";
-                        Value = min_nh3_ice;
-                        i_loc = i_nh3_ice;
-                        j_loc = j_nh3_ice;
-                        k_loc = k_nh3_ice;
-                        break;
-        case 13 :    name_Value = " dnh4sh: nh4sh transport equation ";
-                        Value = min_nh4sh;
-                        i_loc = i_nh4sh;
-                        j_loc = j_nh4sh;
-                        k_loc = k_nh4sh;
-                        break;
-        default :     cout << choice << "error in iterationPrintout_3D member function in class Accuracy" << endl;
-    }
-    // The *1.e-3 treated L_atm as METRES. It is kilometres, and i_loc_level is an int, so
-    // every level in this report truncated to 0 and the whole column read "0km" whatever
-    // the cell was — which is exactly how it looked as though every field changed most at
-    // the bottom boundary. searchMinMax_3D twenty lines up has always had it right.
-    i_loc_level = i_loc * (int)L_atm/(im-1);
-    if(j_loc <= 90){
-        j_loc_deg = 90 - j_loc;
-        deg_lat = deg_north;
-    }
-    if(j_loc > 90){
-        j_loc_deg = j_loc - 90;
-        deg_lat = deg_south;
-    }
-    if(k_loc <= 180){
-        k_loc_deg = k_loc;
-        deg_lon = deg_east;
-    }
-    if(k_loc > 180){
-        k_loc_deg = 360 - k_loc;
-        deg_lon = deg_west;
-    }
-    cout << setiosflags(ios::left) << setw(36) << setfill('.') << name_Value << " = " << resetiosflags(ios::left) << setw(12) << fixed << setfill(' ') << Value << setw(5) << j_loc_deg << setw(3) << deg_lat << setw(4) << k_loc_deg << setw(3) << deg_lon << setw(6) << i_loc_level << setw(2) << level << endl;
-    choice++;
-    if(choice <= 13) goto preparation;
-    cout << endl << endl;
-    return;
+    Reporting<cSaturnModel>(*this).steadyQuery();
 }
-

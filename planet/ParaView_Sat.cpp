@@ -9,74 +9,13 @@
 */
 
 #include "cSaturnModel.h"
+#include "ParaViewWriter.h"
 
 using namespace std;
 //using namespace AtomUtils;
 
-namespace ParaViewSaturn{
-    void dump_array(const string &name, Array &a, double multiplier, ofstream &f) {
-        f <<  "    <DataArray type=\"Float32\" Name=\"" << name << "\" format=\"ascii\">\n";
-        for (int k = 0; k < a.km; k++){
-            for (int j = 0; j < a.jm; j++){
-                for (int i = 0; i < a.im; i++){
-                    f << (a.x[i][j][k] * multiplier) << endl;
-                }
-                f << "\n";
-            }
-            f << "\n";
-        }
-        f << "\n";
-        f << "    </DataArray>\n";
-    }
-/*
- * 
-*/
-    void dump_radial(const string &desc, Array &a, double multiplier, int i, ofstream &f){
-        f << "SCALARS " << desc << " float " << 1 << endl;
-        f << "LOOKUP_TABLE default" << endl;
-        for (int j = 0; j < a.jm; j++){
-            for (int k = 0; k < a.km; k++){
-                f << (a.x[i][j][k] * multiplier) << endl;
-            }
-        }
-    }
-/*
- * 
-*/
-    void dump_radial_2d(const string &desc, Array_2D &a, double multiplier, ofstream &f){
-        f << "SCALARS " << desc << " float " << 1 << endl;
-        f << "LOOKUP_TABLE default" << endl;
-        for (int j = 0; j < a.jm; j++){
-            for (int k = 0; k < a.km; k++){
-                f << (a.y[j][k] * multiplier) << endl;
-            }
-        }
-    }
-/*
- * 
-*/
-    void dump_zonal(const string &desc, Array &a, double multiplier, int k, ofstream &f){
-        f <<  "SCALARS " << desc << " float " << 1 << endl;
-        f <<  "LOOKUP_TABLE default" << endl;
-        for(int i = 0; i < a.im; i++){
-            for(int j = 0; j < a.jm; j++){
-                f << (a.x[i][j][k] * multiplier) << endl;
-            }
-        }
-    }
-/*
- * 
-*/
-    void dump_longal(const string &desc, Array &a, double multiplier, int j, ofstream &f){
-        f << "SCALARS " << desc << " float " << 1 << endl;
-        f << "LOOKUP_TABLE default" << endl;
-        for (int i = 0; i < a.im; i++){
-            for (int k = 0; k < a.km; k++){
-                f << (a.x[i][j][k] * multiplier) << endl;
-            }
-        }
-    }
-}
+// The five dumpers moved to the SHARED ParaViewWriter.h, as namespace ParaViewIO.
+// They were already byte-identical in both models; see that header.
 
 // ===== The fields ATJUP's ParaView writes and ATSAT's did not =====
 //
@@ -166,7 +105,7 @@ namespace ParaViewSaturn{
  * 
 */
 void cSaturnModel::paraview_panorama_vts(int n){
-    using namespace ParaViewSaturn;
+    using namespace ParaViewIO;
     double x, y, z, dx, dy, dz;
     string Saturn_panorama_vts_File_Name = output_path + "/Saturn_panorama_" 
         + std::to_string(n) + ".vts";
@@ -293,42 +232,12 @@ void cSaturnModel::paraview_panorama_vts(int n){
  * 
 */
 void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
-    using namespace ParaViewSaturn;
-    double x, y, z, dx, dy;
-    string Saturn_radial_File_Name = output_path + "/Saturn_radial_" 
-        + std::to_string(i_radial) + "_" + std::to_string(n) + ".vtk";
-    string file_name = "Saturn_radial_" 
-        + std::to_string(i_radial) + "_" + std::to_string(n) + ".vtk";
-    ofstream Saturn_vtk_radial_File;
-    Saturn_vtk_radial_File.precision (4);
-    Saturn_vtk_radial_File.setf(ios::fixed);
-    Saturn_vtk_radial_File.open(Saturn_radial_File_Name);
-    if(!Saturn_vtk_radial_File.is_open()){
-        cerr << "ERROR: could not open paraview_vtk file " << __FILE__ 
-            << " at line " << __LINE__ << "\n";
-        abort();
-    }
-    Saturn_vtk_radial_File <<  "# vtk DataFile Version 3.0" << endl;
-    Saturn_vtk_radial_File <<  "Radial_Data_Sat_Circulation\n";
-    Saturn_vtk_radial_File <<  "ASCII" << endl;
-    Saturn_vtk_radial_File <<  "DATASET STRUCTURED_GRID" << endl;
-    Saturn_vtk_radial_File <<  "DIMENSIONS " << km << " "<< jm << " " << 1 << endl;
-    Saturn_vtk_radial_File <<  "POINTS " << jm * km << " float" << endl;
-    x = 0.0;
-    y = 0.0;
-    z = 0.0;
-    dx = 0.1;
-    dy = 0.1;
-    for(int j = 0; j < jm; j++){
-        for(int k = 0; k < km; k++){
-            if(k == 0) y = 0.0;
-            else y = y + dy;
-            Saturn_vtk_radial_File << x << " " << y << " "<< z << endl;
-        }
-        y = 0.0;
-        x = x + dx;
-    }
-    Saturn_vtk_radial_File <<  "POINT_DATA " << jm * km << endl;
+    using namespace ParaViewIO;
+    ofstream Saturn_vtk_radial_File = ParaViewWriter<cSaturnModel>(*this)
+        .open_slice("radial", "Radial", i_radial, n, km, jm, 0.1, false);
+    // Third component of the in-plane vector below. A radial slice is a (j,k) plane, so the
+    // out-of-plane component is flat zero; it used to be the geometry loop's leftover z.
+    const double z = 0.0;
     dump_radial("u-Component", u, u_0, i_radial, Saturn_vtk_radial_File);
     dump_radial("v-Component", v, u_0, i_radial, Saturn_vtk_radial_File);
     dump_radial("w-Component", w, u_0, i_radial, Saturn_vtk_radial_File);
@@ -408,52 +317,17 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
             Saturn_vtk_radial_File << v.x[i_radial][j][k] << " " << w.x[i_radial][j][k] << " " << z << endl;
         }
     }
-    Saturn_vtk_radial_File.close();
-    cout << "   File:  " << "[" <<  file_name << "]_Sat_radial_" 
-        << i_radial << "_" << n << ".vtk" 
-        << "  has been written to Directory:  " << output_path << endl;
+    ParaViewWriter<cSaturnModel>(*this).close_slice(Saturn_vtk_radial_File, "radial", i_radial, n);
     return;
 }
 /*
  * 
 */
 void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
-    using namespace ParaViewSaturn;
-    double x, y, z, dx, dy;
-    string Saturn_zonal_File_Name = output_path + "/Saturn_zonal_" 
-        + std::to_string(k_zonal) + "_" + std::to_string(n) + ".vtk";
-    string file_name = "Saturn_zonal_" 
-        + std::to_string(k_zonal) + "_" + std::to_string(n) + ".vtk";
-    ofstream Saturn_vtk_zonal_File;
-    Saturn_vtk_zonal_File.precision(4);
-    Saturn_vtk_zonal_File.setf(ios::fixed);
-    Saturn_vtk_zonal_File.open(Saturn_zonal_File_Name);
-    if(!Saturn_vtk_zonal_File.is_open()){
-        cerr << "ERROR: could not open vtk_zonal file " << __FILE__ 
-            << " at line " << __LINE__ << "\n";
-        abort();
-    }
-    Saturn_vtk_zonal_File <<  "# vtk DataFile Version 3.0" << endl;
-    Saturn_vtk_zonal_File <<  "Zonal_Data_Sat_Circulation\n";
-    Saturn_vtk_zonal_File <<  "ASCII" << endl;
-    Saturn_vtk_zonal_File <<  "DATASET STRUCTURED_GRID" << endl;
-    Saturn_vtk_zonal_File <<  "DIMENSIONS " << jm << " "<< im << " " << 1 << endl;
-    Saturn_vtk_zonal_File <<  "POINTS " << im * jm << " float" << endl;
-    x = 0.0;
-    y = 0.0;
-    z = 0.0;
-    dx = 0.1;
-    dy = 0.05;
-    for(int i = 0; i < im; i++){
-        for(int j = 0; j < jm; j++){
-            if(j == 0) y = 0.0;
-            else y = y + dy;
-            Saturn_vtk_zonal_File << x << " " << y << " "<< z << endl;
-        }
-        y = 0.0;
-        x = x + dx;
-    }
-    Saturn_vtk_zonal_File <<  "POINT_DATA " << im * jm << endl;
+    using namespace ParaViewIO;
+    ofstream Saturn_vtk_zonal_File = ParaViewWriter<cSaturnModel>(*this)
+        .open_slice("zonal", "Zonal", k_zonal, n, jm, im, 0.05, false);
+    const double z = 0.0;   // out-of-plane component, as in the radial writer
 //    dump_zonal("Seamount", SeaMount, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("u-Component", u, u_0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("v-Component", v, u_0, k_zonal, Saturn_vtk_zonal_File);
@@ -521,55 +395,17 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
             Saturn_vtk_zonal_File << u.x[i][j][k_zonal] << " " << v.x[i][j][k_zonal] << " " << z << endl;
         }
     }
-    Saturn_vtk_zonal_File.close();
-    cout << "   File:  " << "[" << file_name << "]_Sat_zonal_" 
-        << k_zonal << "_" << n << ".vtk" 
-        << "  has been written to Directory:  " << output_path << endl;
+    ParaViewWriter<cSaturnModel>(*this).close_slice(Saturn_vtk_zonal_File, "zonal", k_zonal, n);
     return;
 }
 /*
  * 
 */
 void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
-    using namespace ParaViewSaturn;
-    double x, y, z, dx, dz;
-    string Saturn_longal_File_Name = output_path + "/Saturn_longal_" 
-        + std::to_string(j_longal) + "_" + std::to_string(n) + ".vtk";
-    string file_name = "Saturn_longal_" 
-        + std::to_string(j_longal) + "_" + std::to_string(n) + ".vtk";
-    ofstream Saturn_vtk_longal_File;
-    Saturn_vtk_longal_File.precision(4);
-    Saturn_vtk_longal_File.setf(ios::fixed);
-    Saturn_vtk_longal_File.open(Saturn_longal_File_Name);
-    if(!Saturn_vtk_longal_File.is_open()){
-        cerr << "ERROR: could not open vtk_longal file " 
-            << __FILE__ << " at line " << __LINE__ << "\n";
-        abort();
-    }
-    Saturn_vtk_longal_File <<  "# vtk DataFile Version 3.0" << endl;
-    Saturn_vtk_longal_File <<  "Longitudinal_Data_Sat_Circulation\n";
-    Saturn_vtk_longal_File <<  "ASCII" << endl;
-    Saturn_vtk_longal_File <<  "DATASET STRUCTURED_GRID" << endl;
-    Saturn_vtk_longal_File <<  "DIMENSIONS " << km << " "<< im << " " << 1 << endl;
-    Saturn_vtk_longal_File <<  "POINTS " << im * km << " float" << endl;
-    x = 0.0;
-    y = 0.0;
-    z = 0.0;
-    dx = 0.1;
-    dz = 0.025;
-    for(int i = 0; i < im; i++){
-        for(int k = 0; k < km; k++){
-            if(k == 0){
-                z = 0.0;
-            }else{
-                z = z + dz;
-            }
-            Saturn_vtk_longal_File << x << " " << y << " "<< z << endl;
-        }
-        z = 0.0;
-        x = x + dx;
-    }
-    Saturn_vtk_longal_File <<  "POINT_DATA " << im * km << endl;
+    using namespace ParaViewIO;
+    ofstream Saturn_vtk_longal_File = ParaViewWriter<cSaturnModel>(*this)
+        .open_slice("longal", "Longitudinal", j_longal, n, km, im, 0.025, true);
+    const double y = 0.0;   // out-of-plane component; longal advances z, so y stayed 0
     dump_longal("u-Component", u, u_0, j_longal, Saturn_vtk_longal_File);
     dump_longal("v-Component", v, u_0, j_longal, Saturn_vtk_longal_File);
     dump_longal("w-Component", w, u_0, j_longal, Saturn_vtk_longal_File);
@@ -637,17 +473,14 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
                 << y << " " << w.x[i][j_longal][k] << endl;
         }
     }
-    Saturn_vtk_longal_File.close();
-    cout << "   File:  " << "[" << file_name << "]_Sat_longal_" 
-        << j_longal << "_" << n << ".vtk" 
-        << "  has been written to Directory:  " << output_path << endl;
+    ParaViewWriter<cSaturnModel>(*this).close_slice(Saturn_vtk_longal_File, "longal", j_longal, n);
     return;
 }
 /*
  * 
 */
 void cSaturnModel::paraview_sphere_vts(int n){
-    using namespace ParaViewSaturn;
+    using namespace ParaViewIO;
     double x, y, z, sinthe, sinphi, costhe, cosphi;
     string Saturn_sphere_vts_File_Name = output_path + "/Saturn_sphere_" 
         + std::to_string(n) + ".vts";
@@ -673,10 +506,23 @@ void cSaturnModel::paraview_sphere_vts(int n){
             sinthe = sin(the.z[j]);
             costhe = cos(the.z[j]);
             for(int i = 0; i < im; i++){
-                aux_u.x[i][j][k] = sinthe * cosphi * u.x[i][j][k] + costhe * cosphi * v.x[i][j][k] - sinphi * w.x[i][j][k];
-                aux_v.x[i][j][k] = sinthe * sinphi * u.x[i][j][k] + sinphi * costhe * v.x[i][j][k] + cosphi * w.x[i][j][k];
-                aux_w.x[i][j][k] = costhe * u.x[i][j][k] - sinthe * v.x[i][j][k];
-                Saturn_sphere_vts_File << aux_u.x[i][j][k] << " " << aux_v.x[i][j][k] << " " << aux_w.x[i][j][k]  << endl;
+                // LOCALS, not aux_u/aux_v/aux_w. These are the spherical-to-Cartesian velocity
+                // components and they are wanted only for the line printed immediately below —
+                // but aux_* are not scratch. RHS_Sat_Turb.cpp:760 fills aux_u with the
+                // intermediate velocity rhs_u + dpdr and PressureSolver differentiates it, so
+                // writing them here left the projection reading rendering coordinates.
+                //
+                // MEASURED, and this is why the writer's call site was commented out rather than
+                // the writer fixed: with the call enabled and aux_* used as below, three
+                // iterations gave sat_restart_3.bin = a585481f... against b64cb36f... for the
+                // same run without it. A control with the panorama writing every iteration and
+                // only the sphere disabled reproduced b64cb36f... exactly, so the panorama is
+                // innocent and this loop was the whole difference. An output routine that
+                // changes the answer is worse than no output routine.
+                const double cart_u = sinthe * cosphi * u.x[i][j][k] + costhe * cosphi * v.x[i][j][k] - sinphi * w.x[i][j][k];
+                const double cart_v = sinthe * sinphi * u.x[i][j][k] + sinphi * costhe * v.x[i][j][k] + cosphi * w.x[i][j][k];
+                const double cart_w = costhe * u.x[i][j][k] - sinthe * v.x[i][j][k];
+                Saturn_sphere_vts_File << cart_u << " " << cart_v << " " << cart_w  << endl;
             }
             Saturn_sphere_vts_File <<  "\n"  << endl;
         }
@@ -939,33 +785,10 @@ void cSaturnModel::paraview_sphere_vts(int n){
  * 
 */
 void cSaturnModel::SaturnPlotData(){
-    string Name_PlotData_File = output_path + "/PlotData_Saturn.xyz";
-    ofstream PlotData_File;
-    PlotData_File.precision(4);
-    PlotData_File.setf(ios::fixed);
-    PlotData_File.open(Name_PlotData_File);
-    if(!PlotData_File.is_open()){
-        cerr << "ERROR: could not open PlotData file " << __FILE__ << " at line " << __LINE__ << "\n";
-        abort();
-    }
-    PlotData_File << "lons(deg)" << ", " << "lats(deg)" << ", " 
-        << "topography" << ", " << "v-velocity(m/s)" << ", " 
-        << "w-velocity(m/s)" << ", " << "velocity-mag(m/s)" << ", " 
-        << "temperature(Celsius)" << ", " << "water_vapour(g/kg)" 
-        << ", " << "precipitation(mm)" << ", " 
-        <<  "precipitable water(mm)" << endl;
-    double vel_mag;
-    for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
-            vel_mag = sqrt(pow(v.x[0][j][k] * u_0, 2) + pow(w.x[0][j][k] * u_0, 2));
-            PlotData_File << k << " " << j << " " << SeaMount.x[0][j][k] << " " 
-                << v.x[0][j][k] * u_0 << " " << w.x[0][j][k] * u_0 << " " 
-                << vel_mag << " " << t.x[0][j][k] * t_ref - t_ref << " " 
-                << h2o.x[0][j][k] << " "<< nh3.x[0][j][k] <<  endl;
-        }
-    }
-    PlotData_File.close();
-    return;
+    // The whole body moved to the SHARED ParaViewWriter.h — it was 100 % identical
+    // between the two models apart from the planet name in the file name. The
+    // header-row/column mismatch it carries is described there.
+    ParaViewWriter<cSaturnModel>(*this).plot_data();
 }
 
 

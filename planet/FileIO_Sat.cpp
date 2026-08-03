@@ -45,7 +45,7 @@ void cSaturnModel::writeData(){
     // what they asked for.
     if(paraview_flag && (iter_n % panorama_print == 0 || iter_n % 100 == 0)){
         paraview_panorama_vts(iter_n);
-//        paraview_sphere_vts(iter_n);
+        paraview_sphere_vts(iter_n);
     }
 
     SaturnPlotData();
@@ -248,6 +248,114 @@ void cSaturnModel::writeResults(){
 
     cout << "      ATSAT: writeResults ended" << endl;
 
+}
+/*
+*
+*/
+
+/*
+ * ATSAT_TRACE — one machine-readable line per iteration, off by default.
+ *
+ * Every knob added since 2026-08-02 is unsettled for the same reason: the questions they raise
+ * are about GROWTH over many iterations (does the polar divisor blow up, does w grow at the deep
+ * levels, does a cell ever leave the NH4SH temperature window) and the only per-iteration record
+ * the run keeps is printMinMax at the `checkpoint` cadence — 5 samples in 500 iterations, which
+ * cannot date an onset. Raising the cadence instead is not an option: printMinMax is bundled with
+ * writeData, so per-iteration sampling would also write 7 MB of VTK per step.
+ *
+ * So this is a separate, cheaper instrument: one pass over the fields, no files, one line out.
+ * It is READ-ONLY — it must stay that way, because its whole purpose is to be comparable across
+ * runs that differ only in the knob under test.
+ *
+ * The quantities are chosen one per open question, not for completeness:
+ *
+ *   maxu/maxv/maxw   global extrema with locations, the blow-up watch.
+ *   maxu_np          max|u| with the two polar rows at each end excluded. ATSAT_BC_POLE_COPY was
+ *                    measured at 30 iterations to put the model's global max|u| ON the polar
+ *                    boundary (0.078622 at j=180) while the interior maximum sat at 0.078562;
+ *                    printing both is how one sees whether the boundary formula is pulling away
+ *                    from the interior or merely sitting 0.08 % above it.
+ *   maxw_deep        max|w| over i = 0..2. ATJUP grows w at the deep levels over long runs and
+ *                    that is the open question for ATSAT_BC_RADIUS_COPY; 30 iterations could not
+ *                    say. i=0..2 is the wall slot plus the first two interior levels.
+ *   maxw_top         max|w| over the top three levels, where ATSAT_BC_TOP_TAPER acts. The taper
+ *                    compounds geometrically at =1 ((2/3)^n), so this column is the direct
+ *                    readout of whether it is a taper or a slow-motion zero.
+ *   lidu/botu        area-weighted mean u at i=im-1 and i=0, sin(theta) weighted. This is the
+ *                    rigid-lid leak ATSAT_BC_LID_U closes: a MEAN, not a max, because the finding
+ *                    was that the leak is coherent (+3.26e-4 at the lid, 65 % of mean|u|) rather
+ *                    than large.
+ *   tmin/tmax        in KELVIN, not model units, so they can be read against the window bounds.
+ *   gate_in          interior cells inside [t_00_nh4sh, t_0_nh4sh], the NH4SH formation window.
+ *   gate_cross       cells that CHANGED membership since the previous traced iteration. This is
+ *                    the whole ATSAT_CHEM_GATE_ZERO question: the gate has no else branch, so a
+ *                    cell leaving the window keeps its last rate forever, and at 30 iterations
+ *                    exactly zero of 2,506,179 cells ever left. If that count stays zero to 500
+ *                    the knob is inert on Saturn for reasons of the window's width, not luck.
+ *
+ * gate_cross needs the previous membership, which is the one piece of state kept — a bitmap the
+ * size of the grid, allocated once. Its cost is one byte per cell against the ~8 GB of doubles
+ * the run already holds.
+ */
+void cSaturnModel::trace_line(int iter){
+    static std::vector<unsigned char> was_in;      // previous gate membership, 0/1 per cell
+    const size_t ncell = (size_t)im * jm * km;
+    const bool first = was_in.empty();
+    if(first) was_in.assign(ncell, 2);             // 2 = "no previous iteration", never equal to 0/1
+
+    double maxu = 0.0, maxv = 0.0, maxw = 0.0, maxu_np = 0.0, maxw_deep = 0.0, maxw_top = 0.0;
+    int ui = 0, uj = 0, uk = 0, vi = 0, vj = 0, vk = 0, wi = 0, wj = 0, wk = 0;
+    int npi = 0, npj = 0, npk = 0;
+    double tmin = 1e300, tmax = -1e300;
+    long gate_in = 0, gate_cross = 0;
+    double lidu_num = 0.0, lidu_den = 0.0, botu_num = 0.0, botu_den = 0.0;
+
+    for(int i = 0; i < im; i++)
+        for(int j = 0; j < jm; j++)
+            for(int k = 0; k < km; k++){
+                const double au = std::fabs(u.x[i][j][k]);
+                const double av = std::fabs(v.x[i][j][k]);
+                const double aw = std::fabs(w.x[i][j][k]);
+                if(au > maxu){ maxu = au; ui = i; uj = j; uk = k; }
+                if(av > maxv){ maxv = av; vi = i; vj = j; vk = k; }
+                if(aw > maxw){ maxw = aw; wi = i; wj = j; wk = k; }
+                if(j >= 2 && j <= jm-3 && au > maxu_np){ maxu_np = au; npi = i; npj = j; npk = k; }
+                if(i <= 2 && aw > maxw_deep) maxw_deep = aw;
+                if(i >= im-3 && aw > maxw_top) maxw_top = aw;
+
+                const double t_K = t.x[i][j][k] * t_ref;
+                if(t_K < tmin) tmin = t_K;
+                if(t_K > tmax) tmax = t_K;
+
+                // Membership over the same index range ChemMassRateSat reacts on, so the counts
+                // describe the cells the gate can actually act on, not the boundary planes.
+                const bool interior = (i >= 1 && i < im-1 && j >= 1 && j < jm-1 && k >= 1 && k < km-1);
+                const unsigned char in = (interior && t_K <= t_0_nh4sh && t_K >= t_00_nh4sh) ? 1 : 0;
+                if(in) gate_in++;
+                const size_t idx = ((size_t)i * jm + j) * km + k;
+                if(!first && was_in[idx] != in) gate_cross++;
+                was_in[idx] = in;
+            }
+
+    // Area weight on a lat-lon grid is sin(theta); the radial faces share one radius, so it drops
+    // out of a mean taken over a single i-plane.
+    for(int j = 0; j < jm; j++){
+        const double wgt = std::sin(the.z[j]);
+        for(int k = 0; k < km; k++){
+            lidu_num += wgt * u.x[im-1][j][k];  lidu_den += wgt;
+            botu_num += wgt * u.x[0][j][k];     botu_den += wgt;
+        }
+    }
+
+    printf("TRACE iter=%d maxu=%.9e@%d,%d,%d maxu_np=%.9e@%d,%d,%d maxv=%.9e@%d,%d,%d "
+           "maxw=%.9e@%d,%d,%d maxw_deep=%.9e maxw_top=%.9e lidu=%.9e botu=%.9e "
+           "tmin=%.6f tmax=%.6f gate_in=%ld gate_cross=%ld\n",
+           iter, maxu, ui, uj, uk, maxu_np, npi, npj, npk, maxv, vi, vj, vk,
+           maxw, wi, wj, wk, maxw_deep, maxw_top,
+           lidu_den > 0.0 ? lidu_num/lidu_den : 0.0,
+           botu_den > 0.0 ? botu_num/botu_den : 0.0,
+           tmin, tmax, gate_in, first ? -1L : gate_cross);
+    fflush(stdout);
 }
 /*
 *

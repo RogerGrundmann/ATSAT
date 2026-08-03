@@ -63,14 +63,16 @@ typedef PressureSolver<cSaturnModel> PressureSolverSat;
 class cSaturnModel{
 
     friend class ChemistrySat;
-    template<class M> friend class PressureSolver;
     friend class SaturationAdjustmentSat;
-    template<class M> friend class SaturationAdjustment;
     friend class BC_Sat;
-    template<class M> friend class BoundaryConditions;
-    template<class M> friend class FluxLimiter;
     friend class VelocityInitializerSat;
     friend class ThermalWindDiagSat;
+    template<class M> friend class PressureSolver;
+    template<class M> friend class SaturationAdjustment;
+    template<class M> friend class BoundaryConditions;
+    template<class M> friend class FluxLimiter;
+    template<class M> friend class Reporting;
+    template<class M> friend class ParaViewWriter;
     template<class M> friend class ConvectiveAdjustment;
     template<class M> friend class Radiation;
     template<class M> friend class Precipitation;
@@ -112,7 +114,6 @@ public:
     std::vector<double> v_trans;
     std::vector<double> w_trans;
 
-    double maxValue, minValue;
     /*
      * This function must be called after init_layer_heights()
      * Given a layer index i, return the height of this layer
@@ -178,6 +179,12 @@ public:
     // build their environment-variable names (ATSAT_CONV_ADJ_LAPSE and so on). It is the
     // only thing those files know about which planet they are running on.
     static const char* planet_tag(){ return "ATSAT"; }
+    // Hooks for the shared ParaViewWriter<Planet> (ParaViewWriter.h). planet_name() is the
+    // word in an output FILE name ("Saturn_radial_20_1.vtk", "PlotData_Saturn.xyz");
+    // planet_short() is the abbreviation inside a .vtk title line
+    // ("Radial_Data_Sat_Circulation"). Both models carried both spellings by hand.
+    static const char* planet_name(){ return "Saturn"; }
+    static const char* planet_short(){ return "Sat"; }
 
     // ---- The surface of a column, for the SHARED physics headers ----
     //
@@ -276,6 +283,36 @@ public:
         return v;
     }
 
+    // ---- Hooks for the shared Reporting<Planet> (Reporting.h) ----
+    // Each is a divergence between ATSAT and ATJUP that the shared reporting code would
+    // otherwise have had to choose between. Every default here is ATSAT's existing behaviour,
+    // so adopting the shared header changes no output.
+
+    // ATJUP flips cos(theta) in the southern hemisphere for the continuity residual; ATSAT never
+    // has. Same knob shape as ATJUP's so the two models answer one question rather than differ
+    // by a missing line. Default off = unchanged.
+    static bool costhe_abs(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_COSTHE_ABS"); return e && atoi(e) != 0; }();
+        return v;
+    }
+
+    // Column layout of the min/max report. ATJUP widened its unit column to 12 because its unit
+    // strings are longer (" kg/(m3s)") and separates the max and min halves with three spaces;
+    // ATSAT has always used 6 and ten spaces. Purely cosmetic, and preserved rather than unified
+    // so that sharing the machinery changes no log line. Unifying is a separate decision.
+    static int minmax_unit_width()      { return 6; }
+    static const char *minmax_separator(){ return "          "; }
+
+    static const char *steady_heading(){
+        return " 3D iterational process for the surface boundary conditions\n printout of maximum and minimum absolute and relative errors of the computed values at their locations: level, latitude, longitude";
+    }
+
+    // The iteration line of the steady-state header, including its trailing newlines. ATSAT
+    // counts with iter_n and prints one; ATJUP counts with n and prints two.
+    std::string steady_iter_line() const {
+        return "      iter_n = " + std::to_string(iter_n) + "\n";
+    }
+
     static bool local_rho(){
         static const bool v = [](){
             const char* e = getenv("ATSAT_LOCAL_RHO"); return e && atoi(e) != 0; }();
@@ -309,6 +346,9 @@ public:
     // ---- Numerical safety nets, ported from ATJUP. All off by default. ----
     // ATSAT_NANCHECK: census of non-finite cells, per field, with the index extent.
     bool nan_watch(int iter);
+    // ATSAT_TRACE: one read-only line per iteration, for dating the onset of things the
+    // checkpoint-cadence printMinMax is too coarse to see. See FileIO_Sat.cpp.
+    void trace_line(int iter);
     // ATSAT_VEL_SHAPIRO_INLOOP / ATSAT_SHAPIRO_STRENGTH: 1-2-1 filter on u, v, w.
     void dampVelocities();
 
@@ -648,8 +688,6 @@ private:
  
     std::vector<std::vector<int> > j_ellipse;
     bool has_welcome_msg_printed;
-    double out_maxValue() const;
-    double out_minValue() const;
 
     void init_layer_heights(){
         float h = L_atm/(im-1);

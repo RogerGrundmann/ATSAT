@@ -610,6 +610,15 @@ void cSaturnModel::Run(){
         // iterations in between.
         if(nancheck_on() && iter_n % checkpoint == 0) nan_watch(iter_n);
 
+        // Per-iteration trace, opt-in and read-only. ATSAT_TRACE=n emits a line every n
+        // iterations (1 = every one); 0, the default, emits nothing and costs one integer test.
+        // Placed here, at the end of the iteration alongside the other diagnostics and after
+        // restoreVar, so the line describes the state the NEXT iteration starts from — the same
+        // state save_state would serialise.
+        static const int trace_every = [](){
+            const char* e = getenv("ATSAT_TRACE"); return e ? atoi(e) : 0; }();
+        if(trace_every > 0 && iter_n % trace_every == 0) trace_line(iter_n);
+
         // ---- Binary restart checkpoints ----
         // One explicit dump at checkpoint_save_iter, plus a periodic one every
         // restart_save_stride iterations, which is ATJUP's arrangement and its stride of 100.
