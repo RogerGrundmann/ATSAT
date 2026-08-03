@@ -185,6 +185,11 @@ public:
     // ("Radial_Data_Sat_Circulation"). Both models carried both spellings by hand.
     static const char* planet_name(){ return "Saturn"; }
     static const char* planet_short(){ return "Sat"; }
+    // What the panorama .vts prints in its "Temperature" array. ATSAT writes KELVIN/10 here;
+    // ATJUP writes degrees Celsius (t*t_ref - 273.15). Two different quantities under one
+    // array name, so a ParaView state file coloured for one model mis-scales the other. This
+    // hook names the divergence; settling it belongs with the rest of the units question.
+    double paraview_temperature(double t_nd) const { return t_nd * t_ref / 10.0; }
 
     // ---- The surface of a column, for the SHARED physics headers ----
     //

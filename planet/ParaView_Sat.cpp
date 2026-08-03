@@ -106,53 +106,16 @@ using namespace std;
 */
 void cSaturnModel::paraview_panorama_vts(int n){
     using namespace ParaViewIO;
-    double x, y, z, dx, dy, dz;
-    string Saturn_panorama_vts_File_Name = output_path + "/Saturn_panorama_" 
-        + std::to_string(n) + ".vts";
-    string file_name = "Saturn_sphere_" 
-        + std::to_string(n) + ".vts";
-    ofstream Saturn_panorama_vts_File;
-    Saturn_panorama_vts_File.precision(4);
-    Saturn_panorama_vts_File.setf(ios::fixed);
-    Saturn_panorama_vts_File.open(Saturn_panorama_vts_File_Name);
-    if(!Saturn_panorama_vts_File.is_open()){
-        cerr << "ERROR: could not open shpere_vts file " << __FILE__ 
-            << " at line " << __LINE__ << "\n";
-        abort();
-    }
-    Saturn_panorama_vts_File <<  "<?xml version=\"1.0\"?>\n"  << endl;
-    Saturn_panorama_vts_File <<  "<VTKFile type=\"StructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"  << endl;
-    Saturn_panorama_vts_File <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
-    Saturn_panorama_vts_File <<  "  <Piece Extent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
-    Saturn_panorama_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDynamic PressureStatic CH4 CH4Cloud CH4Ice NH3 NH3Cloud NH3Ice H2O H2OCloud H2OIce Q_Latent Q_Sensible "
-        PANORAMA_EXTRA_SCALARS "BuoyancyForce \">\n"  << endl;
-
-    Saturn_panorama_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" Name=\"Velocity\" format=\"ascii\">\n"  << endl;
-    for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
-            for(int i = 0; i < im; i++){
-                Saturn_panorama_vts_File << u.x[i][j][k] << " " << v.x[i][j][k] << " " << w.x[i][j][k] << endl;
-            }
-            Saturn_panorama_vts_File <<  "\n"  << endl;
-        }
-        Saturn_panorama_vts_File <<  "\n"  << endl;
-    }
-    Saturn_panorama_vts_File <<  "\n"  << endl;
-    Saturn_panorama_vts_File <<  "    </DataArray>\n" << endl;
-    Saturn_panorama_vts_File <<  "    <DataArray type=\"Float32\" Name=\"Temperature\" format=\"ascii\">\n"  << endl;
-    for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
-            for(int i = 0; i < im; i++){
-//                Saturn_panorama_vts_File << t.x[i][j][k] * t_ref - t_ref << endl;
-//                Saturn_panorama_vts_File << t.x[i][j][k] * t_ref << endl;
-                Saturn_panorama_vts_File << t.x[i][j][k] * t_ref/10.0 << endl;
-            }
-            Saturn_panorama_vts_File <<  "\n"  << endl;
-        }
-        Saturn_panorama_vts_File <<  "\n"  << endl;
-    }
-    Saturn_panorama_vts_File <<  "\n"  << endl;
-    Saturn_panorama_vts_File <<  "    </DataArray>\n" << endl;
+    // Header, coordinates, the Velocity array and the Temperature array are the
+    // SHARED ParaViewWriter.h. What stays here is the field list below and the
+    // scalars string that has to agree with it.
+    ParaViewWriter<cSaturnModel> pv(*this);
+    ofstream Saturn_panorama_vts_File = pv.open_panorama(n,
+        "Temperature PressureDynamic PressureStatic CH4 CH4Cloud CH4Ice NH3 NH3Cloud "
+        "NH3Ice H2O H2OCloud H2OIce Q_Latent Q_Sensible "
+        PANORAMA_EXTRA_SCALARS "BuoyancyForce ");
+    pv.panorama_velocity(Saturn_panorama_vts_File);
+    pv.panorama_temperature(Saturn_panorama_vts_File);
 //    dump_array("Seamount", SeaMount, 1.0, Saturn_panorama_vts_File);
     dump_array("u-component", u, u_0, Saturn_panorama_vts_File);
     dump_array("v-component", v, u_0, Saturn_panorama_vts_File);
@@ -193,39 +156,7 @@ void cSaturnModel::paraview_panorama_vts(int n){
 
     DUMP_EXTRA_FIELDS_VTS(Saturn_panorama_vts_File)
 
-    Saturn_panorama_vts_File <<  "   </PointData>\n" << endl;
-    Saturn_panorama_vts_File <<  "   <Points>\n"  << endl;
-    Saturn_panorama_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" format=\"ascii\">\n"  << endl;
-    x = 0.0;
-    y = 0.0;
-    z = 0.0;
-    dx = 0.1;
-    dy = 0.1;
-    dz = 0.1;
-    for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
-            for(int i = 0; i < im; i++){
-                if(k == 0 || j == 0) x = 0.0;
-                else x = x + dx;
-                Saturn_panorama_vts_File << x << " " << y << " " << z  << endl;
-            }
-            x = 0;
-            y = y + dy;
-            Saturn_panorama_vts_File <<  "\n"  << endl;
-        }
-        y = 0.0;
-        z = z + dz;
-        Saturn_panorama_vts_File <<  "\n"  << endl;
-    }
-    Saturn_panorama_vts_File <<  "    </DataArray>\n"  << endl;
-    Saturn_panorama_vts_File <<  "   </Points>\n"  << endl;
-    Saturn_panorama_vts_File <<  "  </Piece>\n"  << endl;
-    Saturn_panorama_vts_File <<  " </StructuredGrid>\n"  << endl;
-    Saturn_panorama_vts_File <<  "</VTKFile>\n"  << endl;
-    Saturn_panorama_vts_File.close();
-    cout << "   File:  " << "[" << file_name << "]_Sat_panorama_" 
-        << n << ".vts" << "  has been written to Directory:  " 
-        << output_path << endl;
+    pv.close_panorama(Saturn_panorama_vts_File, n);
     return;
 }
 /*

@@ -8,8 +8,9 @@
  *
  * ===== WHAT IS HERE, AND THE ONE THING THAT DECIDED THE SPLIT =====
  *
- * Here: the five dumpers, the .vtk slice machinery (open + close), and the PlotData writer. All
- * of it is geometry and file format — no field of either planet appears in it.
+ * Here: the five dumpers, the .vtk slice machinery (open + close), the panorama .vts machinery
+ * (open, the Velocity and Temperature arrays, close) and the PlotData writer. All of it is
+ * geometry and file format — no field of either planet appears in it.
  *
  * NOT here: the field LISTS. Each writer ends in a run of dump_*() calls naming which arrays go
  * into the file with what coefficient, and those lists are where the two models disagree. The
@@ -34,12 +35,21 @@
  * that says HOW to write a ParaView file; what it must still write is the one list saying WHICH
  * of its fields to put in one.
  *
+ * The panorama's scalars string is the one place where that separation needed an argument rather
+ * than a hook: a .vts must name every scalar it carries in ONE attribute string, so the string
+ * and the dump_array() list under it are the same list written twice and have to travel
+ * together. Each planet passes its own into open_panorama(). Nothing checks that the two agree —
+ * ParaView does not report a name it cannot find, it shows an empty array — so they are kept
+ * adjacent in each planet's file for the same reason ATSAT keeps PANORAMA_EXTRA_SCALARS beside
+ * DUMP_EXTRA_FIELDS_VTS.
+ *
  * ===== WHAT IS NOT HERE YET =====
  *
- * paraview_panorama_vts and paraview_sphere_vts keep their own file headers. Both are .vts
- * writers whose header has to name every scalar in one attribute string, so their machinery is
- * bound up with their field list in a way the .vtk slices are not; separating them is a second
- * job. The dumpers and PlotData below are shared by all of them regardless.
+ * paraview_sphere_vts keeps its own file header — 286 lines at 94.4 % overlap, the largest block
+ * still duplicated. It is a .vts writer like the panorama and would separate the same way. It is
+ * left for now because it is the only writer whose two copies are not both exercised: ATSAT's
+ * call is enabled, ATJUP's is still commented out pending its ATJUP_METRIC_RADIUS geometry
+ * problem (cJupiterModel.cpp:335), so a byte-identical-output test can only cover one side.
  */
 
 #pragma once
@@ -205,6 +215,111 @@ public:
         std::cout << "   File:  " << Planet::planet_name() << "_" << kind << "_"
             << idx << "_" << n << ".vtk"
             << "  has been written to Directory:  " << m.output_path << std::endl;
+    }
+
+    /*
+     * The panorama .vts: open the file and write everything up to and including the <PointData>
+     * line, then the Velocity and Temperature arrays. The caller appends its own dump_array()
+     * list and calls close_panorama().
+     *
+     * `scalars` is the one thing the header cannot supply. A .vts must name every scalar it
+     * carries in a single attribute string, and the two models carry different sets, so each
+     * planet passes its own — the same list its dump_array() calls write, which is why both
+     * models keep that string next to the calls rather than here. A name in the string that is
+     * never written (or the reverse) is not an error ParaView reports; it shows an empty array.
+     */
+    std::ofstream open_panorama(int n, const char *scalars) const {
+        const std::string name = m.output_path + "/" + Planet::planet_name() + "_panorama_"
+            + std::to_string(n) + ".vts";
+        std::ofstream f;
+        f.precision(4);
+        f.setf(std::ios::fixed);
+        f.open(name);
+        if(!f.is_open()){
+            std::cerr << "ERROR: could not open panorama_vts file " << __FILE__
+                << " at line " << __LINE__ << "\n";
+            abort();
+        }
+        f <<  "<?xml version=\"1.0\"?>\n"  << std::endl;
+        f <<  "<VTKFile type=\"StructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"  << std::endl;
+        f <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< m.im << " "<< 1 << " " << m.jm << " "<< 1 << " " << m.km << "\">\n"  << std::endl;
+        f <<  "  <Piece Extent=\"" << 1 << " "<< m.im << " "<< 1 << " " << m.jm << " "<< 1 << " " << m.km << "\">\n"  << std::endl;
+        f <<  "   <PointData Vectors=\"Velocity\" Scalars=\"" << scalars << "\">\n"  << std::endl;
+        return f;
+    }
+
+    // The Velocity vector array. Nondimensional in both models — neither multiplies by u_0 here,
+    // unlike the separate "u-component" scalar below it, which does.
+    void panorama_velocity(std::ofstream &f) const {
+        f <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" Name=\"Velocity\" format=\"ascii\">\n"  << std::endl;
+        for(int k = 0; k < m.km; k++){
+            for(int j = 0; j < m.jm; j++){
+                for(int i = 0; i < m.im; i++){
+                    f << m.u.x[i][j][k] << " " << m.v.x[i][j][k] << " " << m.w.x[i][j][k] << std::endl;
+                }
+                f <<  "\n"  << std::endl;
+            }
+            f <<  "\n"  << std::endl;
+        }
+        f <<  "\n"  << std::endl;
+        f <<  "    </DataArray>\n" << std::endl;
+    }
+
+    // The Temperature array. The loop is identical in both models; what they print is not, which
+    // is why the conversion is asked of the planet rather than chosen here:
+    //     ATSAT  t * t_ref / 10.0   (kelvin/10)
+    //     ATJUP  t * t_ref - 273.15 (degrees Celsius)
+    // Two different quantities under one array name — a ParaView state file that colours one
+    // model's panorama will mis-scale the other's. Naming it here is the point; settling it is
+    // the same open units question the header comment lists.
+    void panorama_temperature(std::ofstream &f) const {
+        f <<  "    <DataArray type=\"Float32\" Name=\"Temperature\" format=\"ascii\">\n"  << std::endl;
+        for(int k = 0; k < m.km; k++){
+            for(int j = 0; j < m.jm; j++){
+                for(int i = 0; i < m.im; i++){
+                    f << m.paraview_temperature(m.t.x[i][j][k]) << std::endl;
+                }
+                f <<  "\n"  << std::endl;
+            }
+            f <<  "\n"  << std::endl;
+        }
+        f <<  "\n"  << std::endl;
+        f <<  "    </DataArray>\n" << std::endl;
+    }
+
+    // Close the PointData, write the point coordinates, close the file and report it. The
+    // coordinate block was byte-identical in both models. As with close_slice, the report line
+    // is ATJUP's clean form: ATSAT built the name twice and nested one inside the other.
+    void close_panorama(std::ofstream &f, int n) const {
+        f <<  "   </PointData>\n" << std::endl;
+        f <<  "   <Points>\n"  << std::endl;
+        f <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" format=\"ascii\">\n"  << std::endl;
+        double x = 0.0, y = 0.0, z = 0.0;
+        const double dx = 0.1, dy = 0.1, dz = 0.1;
+        for(int k = 0; k < m.km; k++){
+            for(int j = 0; j < m.jm; j++){
+                for(int i = 0; i < m.im; i++){
+                    if(k == 0 || j == 0) x = 0.0;
+                    else x = x + dx;
+                    f << x << " " << y << " " << z  << std::endl;
+                }
+                x = 0;
+                y = y + dy;
+                f <<  "\n"  << std::endl;
+            }
+            y = 0.0;
+            z = z + dz;
+            f <<  "\n"  << std::endl;
+        }
+        f <<  "    </DataArray>\n"  << std::endl;
+        f <<  "   </Points>\n"  << std::endl;
+        f <<  "  </Piece>\n"  << std::endl;
+        f <<  " </StructuredGrid>\n"  << std::endl;
+        f <<  "</VTKFile>\n"  << std::endl;
+        f.close();
+        std::cout << "   File:  " << Planet::planet_name() << "_panorama_"
+            << n << ".vts" << "  has been written to Directory:  "
+            << m.output_path << std::endl;
     }
 
     /*
