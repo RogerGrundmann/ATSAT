@@ -108,6 +108,17 @@ baseline.
 
 Printed at the `checkpoint` cadence:
 
+- **Equatorial column profile** — `i`, `p[bar]`, `T[K]`, `eps`, `netRad`, `Q_rad` from the model top
+  down to the deep boundary. ATSAT was the last model to gain it. It is the diagnostic that
+  localises profile faults where a column *mean* cannot, and it bears directly on Saturn's open
+  under-emission below: `eps` against `p[bar]` down the column is the direct view of the opacity that
+  question is about.
+- **Photosphere line** (with `ATSAT_RADIATION=1`) — mean OLR against the input budget, the τ=1 level
+  in bar, and the temperature there beside the blackbody flux it implies. `T(τ=1) − T_eff(OLR)` is
+  the *scheme's* excess; `T(τ=1) − T_eff(in)` is how far the *column* sits from the energy budget.
+- **ParaView** — `Radiation`, `Q_rad_mW_m3` and `Emissivity` alongside the turbulence six and the
+  precipitation eleven, in all four views.
+
 - **printMinMax** — max/min with location for every prognostic and diagnostic field.
 - **steadyQuery** (`ATSAT_STEADY`, default on) — for each prognostic field, max|f − f_n| over
   the grid with the cell it occurs in, i.e. the largest change that field underwent in one
@@ -156,6 +167,35 @@ make            # parameter files + CLI + Python extension
 make sat        # CLI binary only
 make python     # Python extension only
 make clean
+```
+
+### Shared physics headers
+
+Eleven headers in `planet/` are **byte-identical across ATJUP, ATSAT, ATNEPT and ATURAN**:
+
+```
+ATPhys.h  BoundaryConditions.h  ConvectiveAdjustment.h  FluxLimiter.h  ParaViewWriter.h
+Precipitation.h  PressureSolver.h  Radiation.h  Reporting.h  SaturationAdjustment.h  Turbulence.h
+```
+
+There is no submodule and no symlink holding them together — Synology Drive has silently reverted
+a working tree once, and a submodule costs friction on every clone. They are plain copies, and
+`planet/SHARED.md5` is what makes a divergence loud:
+
+```bash
+make check-shared
+```
+
+Editing one means: edit it in one repo, copy it to the other three, regenerate its line in **all
+four** manifests, and rebuild each.
+
+**`make check-shared` cannot catch everything, and this is the part to read before trusting it.**
+It verifies a repo against *its own* manifest, so two repos holding different copies of the same
+header both report OK — a state that has already occurred once. The check that does catch it is a
+diff between repos, which is why the checksum lines are kept sorted by filename:
+
+```bash
+diff ../ATJUP/planet/SHARED.md5 planet/SHARED.md5
 ```
 
 ---
@@ -213,6 +253,14 @@ restarts have identical grid dimensions and would otherwise be read as nonsense.
 ## Known limitations
 
 None of these stops a run; all of them affect what a result means.
+
+0. **`ATSAT_THERMAL_MASSFLUX` exists as a measurement instrument** (default 1.0, inert). It scales the
+   diffusive-enthalpy sink in `rhs_t`. On this model that term is well-behaved — it *balances* the
+   transport term (+0.163 against +0.158) and switching it off moves the photosphere by 0.24 K and
+   the emitted flux by 0.6 % (1.234 → 1.226 W/m²). That is not true of the ice giants, where the same term dominates
+   `rhs_t` by three to six orders of magnitude; ATSAT escapes because it builds its species
+   diffusivities from per-species `mue_nh3/rg_nh3` and never consumes `mue_mix`. Worth knowing before
+   the formula is "harmonised" across models.
 
 1. **The microphysics rate coefficients are not calibrated to Saturn.** They are ATOM's
    terrestrial values rescaled *once* to **Jupiter's** energy budget and carried here unchanged,
