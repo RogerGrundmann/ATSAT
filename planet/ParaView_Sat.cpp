@@ -47,6 +47,7 @@ using namespace std;
     DUMP("rho_mix",       rho_mix,    1.0,     IDX, F);                       \
     DUMP("Q_rad",         Q_rad,      1.0e3,   IDX, F);   /* mW/m3  */        \
     DUMP("Radiation",     radiation,  1.0,     IDX, F);   /* W/m2   */        \
+    DUMP("Emissivity",    epsilon,    1.0,     IDX, F);   /* 0..1   */        \
     DUMP("P_rain",        P_rain,     86400.0, IDX, F);   /* mm/day */        \
     DUMP("P_snow",        P_snow,     86400.0, IDX, F);                       \
     DUMP("P_graupel",     P_graupel,  86400.0, IDX, F);                       \
@@ -74,6 +75,7 @@ using namespace std;
     dump_array("rho_mix",           rho_mix,       1.0,     F);               \
     dump_array("Q_rad_mW_m3",       Q_rad,         1.0e3,   F);               \
     dump_array("Radiation",         radiation,     1.0,     F);               \
+    dump_array("Emissivity",        epsilon,       1.0,     F);               \
     dump_array("P_rain_mmd",        P_rain,        86400.0, F);               \
     dump_array("P_snow_mmd",        P_snow,        86400.0, F);               \
     dump_array("P_graupel_mmd",     P_graupel,     86400.0, F);               \
@@ -96,7 +98,8 @@ using namespace std;
 // cannot drift apart. A name listed here but not written (or the reverse) is not an error
 // ParaView reports — it simply shows an empty array.
 #define PANORAMA_EXTRA_SCALARS                                                \
-    "rho_mix Q_rad_mW_m3 Radiation P_rain_mmd P_snow_mmd P_graupel_mmd "      \
+    "rho_mix Q_rad_mW_m3 Radiation Emissivity P_rain_mmd P_snow_mmd "         \
+    "P_graupel_mmd "                                                          \
     "P_nh3_rain_mmd P_nh3_snow_mmd P_nh3_graupel_mmd "                        \
     "P_ch4_rain_mmd P_ch4_snow_mmd P_ch4_graupel_mmd P_nh4sh_mmd "            \
     "Q_precip_mW_m3 tke_m2s2 dis_nd nue_t_m2s prod_nd tke_source_nd "         \

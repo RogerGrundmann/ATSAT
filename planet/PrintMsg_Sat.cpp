@@ -72,6 +72,34 @@ void cSaturnModel::printMinMax(){
     searchMinMax_3D(" max 3D P_nh3_rain ", " min 3D P_nh3_rain ", "kg/m2/s", P_nh3_rain, 1.0);
     searchMinMax_3D(" max 3D Q_precip ", " min 3D Q_precip ", "W/m3", Q_precip, 1.0);
     searchMinMax_3D(" max 3D P_ch4_rain ", " min 3D P_ch4_rain ", "kg/m2/s", P_ch4_rain, 1.0);
+
+    // Equatorial column profile (j=jm/2, k=km/2), top -> bottom, for a direct check of the
+    // radiation / Q_rad fields against the actual T(p). ATSAT was the last model without it.
+    //
+    // It is the table that caught ATNEPT's 607x pressure defect after the fact: that model's
+    // photosphere sat at 17.2287 bar and was read as an opacity failure across two commits, when
+    // what was actually wrong was init_PressureStatic putting the TOP of the domain at 15 bar. A
+    // single column of p[bar] shows that at a glance and no column-MEAN diagnostic can.
+    //
+    // SATURN HAS THE OPEN QUESTION THIS IS MOST LIKELY TO BEAR ON. Its photosphere sits at
+    // 0.0660 bar against Jupiter's 0.3263 with the same Jupiter-tuned opacity, and it UNDER-emits
+    // — 1.306 W/m2 against the 4.450 that enters it, with a photosphere 31.0 K colder than
+    // T_eff(in). Whether that is Saturn or a symptom is the question Radiation.h's banner has
+    // carried since the shared port, and eps against p[bar] down the column is the direct view of
+    // the opacity that question is about. The p[bar] column is worth having with the radiation
+    // knob off as well, which is why the table is not gated on it.
+    {
+        const int j0 = jm / 2, k0 = km / 2;
+        cout << endl << " Equatorial column  (j=" << j0 << ", k=" << k0
+             << ")   top -> bottom" << endl;
+        printf("   %3s  %10s  %8s  %8s  %12s  %14s\n",
+               "i", "p[bar]", "T[K]", "eps", "netRad[W/m2]", "Q_rad[W/m3]");
+        for(int i = im - 1; i >= 0; i--){
+            printf("   %3d  %10.4f  %8.2f  %8.4f  %12.4f  %14.4e\n",
+                   i, p_stat.x[i][j0][k0], t.x[i][j0][k0] * t_ref,
+                   epsilon.x[i][j0][k0], radiation.x[i][j0][k0], Q_rad.x[i][j0][k0]);
+        }
+    }
     cout << endl << endl;
 
     reportClampBudget();
