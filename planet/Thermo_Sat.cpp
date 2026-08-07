@@ -105,8 +105,14 @@ void cSaturnModel::Latent_Heat(){
                     Q_Latent.x[i][j][k] = lv_h2o * velocity_av * dh2o/(L_atm * L_atm) * qheat_fix();
                 else  Q_Latent.x[i][j][k] = 0.0;
 
-                if(h2o.x[i][j][k] >= q_Ice)  
-                    Latency_Ice = ls_h2o * velocity_av * dnh3/(L_atm * L_atm) * qheat_fix();
+                // THE GRADIENT IS dh2o, NOT dnh3. This is the H2O deposition branch: it tests h2o
+                // against q_Ice and carries ls_h2o, so the flux it multiplies has to be water's.
+                // It read dnh3 — ammonia's gradient driving water's latent heat, with a magnitude
+                // and a sign belonging to a different species. ATJUP carries dh2o at the
+                // equivalent line in Thermo_Jup.cpp; ATURAN has been corrected to match. ATNEPT
+                // still reads dnh3 at Thermo_Nept.cpp.
+                if(h2o.x[i][j][k] >= q_Ice)
+                    Latency_Ice = ls_h2o * velocity_av * dh2o/(L_atm * L_atm) * qheat_fix();
                 else  Latency_Ice = 0.0;
 
 
