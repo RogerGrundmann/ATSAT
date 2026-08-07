@@ -117,14 +117,19 @@ void cSaturnModel::Latent_Heat(){
 
 
 
-                if(nh3.x[i][j][k] >= q_Rain_nh3)  
-                    Q_Latent.x[i][j][k] = Q_Latent.x[i][j][k] + lv_nh3 
+                // THE NH3 CONTRIBUTION ACCUMULATES ONTO THE H2O ONE, AND HAS NO else. These two
+                // branches used to carry "else Q_Latent = 0.0" / "else Latency_Ice = 0.0", which
+                // threw the H2O term away wherever NH3 happened to be subsaturated. A species that
+                // does not condense contributes nothing; it does not erase the species that does.
+                // ATJUP hit exactly this and records that deep NH3 cannot condense at all — its
+                // saturation pressure far exceeds the ambient there — so the clobber left Q_Latent
+                // zero over most of the domain. ATURAN accumulates; ATNEPT is corrected alongside.
+                if(nh3.x[i][j][k] >= q_Rain_nh3)
+                    Q_Latent.x[i][j][k] = Q_Latent.x[i][j][k] + lv_nh3
                         * velocity_av * dnh3/(L_atm * L_atm) * qheat_fix();
-                else  Q_Latent.x[i][j][k] = 0.0;
 
-                if(nh3.x[i][j][k] >= q_Ice_nh3)  
+                if(nh3.x[i][j][k] >= q_Ice_nh3)
                     Latency_Ice = Latency_Ice + ls_nh3 * velocity_av * dnh3/(L_atm * L_atm) * qheat_fix();
-                else  Latency_Ice = 0.0;
 
 
                 Q_Latent.x[i][j][k] = Q_Latent.x[i][j][k] + Latency_Ice;  // latent heat in [W/m³] from energy transport equation
