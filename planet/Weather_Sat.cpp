@@ -42,6 +42,55 @@ void cSaturnModel::Saturation_Adjustment(std::string gas,
 
     bool sat_found = false;
 
+    // ===== sat_found IS THE ONE SHARED DIAGNOSTIC HERE THAT WAS ACTUALLY RACING =====
+    //
+    // It is written `true` where a cell converges and `false` where it does not, from inside the
+    // parallel region below, and it is NOT in that region's private() clause. Every thread wrote
+    // it with no synchronisation, so the value that survived was whichever thread wrote last:
+    // two runs of the same binary at the same thread count disagreed about whether saturation
+    // was found at all, flipping the report between "saturation ... found" and "NO saturation
+    // ... found". SaturationAdjustmentSat.h records this as point 8 of its own list, as "one
+    // concrete, locatable contributor to ATSAT not reproducing itself run to run". It is.
+    //
+    // The OTHER shared diagnostics named there — i_sat, j_sat, k_sat, height_sat, saturation and
+    // the *_sat pairs — were never racing under the OLD capture condition, because it fired only
+    // at (j == 90 && k == 180), one collapsed (k,j) iteration and therefore one thread. That
+    // condition is gone (see point 7 further down), so they are now captured per thread and
+    // resolved the same way sat_found is.
+    //
+    // Serial semantics is "the last assignment in traversal order wins", so that is REPRODUCED
+    // here rather than replaced. Each thread keeps the (key, value) of its own last assignment
+    // and the largest key wins at the end. Within a thread the collapsed index k*jm + j ascends
+    // and i ascends inside it, so keys are non-decreasing, and `>=` is what records the last
+    // write for a given cell — which matters, because a cell may write `false` on several
+    // convergence passes before writing `true` and breaking. Entries are strided so no two
+    // threads share a cache line; this runs per convergence pass, not merely per cell.
+    //
+    // iter_prec_found IS ALSO FIXED, and it was a third bug rather than a variant of the other
+    // two. It sits in the private() clause, so the copy printed after the region was never the
+    // one the loop wrote: it always read 0, at any thread count, which is what the logs showed.
+    // It is now carried out of the region in the capture record below and reports the converged
+    // cell's actual pass count.
+#ifdef _OPENMP
+    const int sat_nthr = omp_get_max_threads();
+#else
+    const int sat_nthr = 1;
+#endif
+    const int sat_stride = 8;                       // 8 * sizeof(long long) = one cache line
+    std::vector<long long> sat_tkey(sat_nthr * sat_stride, -1);
+    std::vector<long long> sat_tval(sat_nthr * sat_stride,  0);
+
+    // Per-thread capture of the last converged cell. Strided by the same amount so two threads
+    // never share a cache line, and deliberately holding the RAW inputs rather than the derived
+    // report: height, p_sat and the two latent differences are computed once after the region,
+    // from the winner, so the arithmetic that builds the report exists in exactly one place.
+    struct SatCapture {
+        long long key;
+        int    i, j, k, iter;
+        double t_u, p_u, T, q_v_b, q_c_b, q_i_b, q_Rain;
+    };
+    std::vector<SatCapture> sat_trec(sat_nthr * sat_stride, SatCapture{-1,0,0,0,0,0,0,0,0,0,0,0});
+
     double saturation = 0.0;
     double height_sat = 0.0;
     double t_latent = 0.0;
@@ -189,64 +238,79 @@ void cSaturnModel::Saturation_Adjustment(std::string gas,
 
                         q_diff = fabs(q_v_b/q_v_hyp - 1.0);
                         if(q_diff <= 1.0e-4){
-                            sat_found = true;
+                            {   // last assignment in traversal order wins — see the note above
+#ifdef _OPENMP
+                                const int sat_x = omp_get_thread_num() * sat_stride;
+#else
+                                const int sat_x = 0;
+#endif
+                                const long long sat_k = ((long long)k * jm + j) * im + i;
+                                if(sat_k >= sat_tkey[sat_x]){
+                                    sat_tkey[sat_x] = sat_k;
+                                    sat_tval[sat_x] = 1;
+                                }
+                            }
                             iter_prec_found = iter_prec;
 
-                            if((j == 90)&&(k == 180)&&(i == iter_prec_found)){
-                                i_sat = i;
-                                j_sat = j; 
-                                k_sat = k;
-                                height_sat = get_layer_height(i_sat);
-
-                                t_u_sat = t_u;
-                                p_u_sat = p_u;
-
-                                t_sat = T;
-                                p_sat = p_ref * pow(t_sat/t_ref, exp_pressure);
-
-                                t_latent = t_sat - t_u_sat;
-                                p_latent = p_sat - p_u_sat;
- 
-                                q_v_b_sat = q_v_b;
-                                q_c_b_sat = q_c_b;
-                                q_i_b_sat = q_i_b;
-
-                                saturation = q_v_b - q_Rain;
-
-/*
-        cout << "      saturation of water vapour in SaturationAdjustment of " << gas << " found"
-        << endl
-        << "      iter_prec_found = " << iter_prec_found
-        << "   iter_prec_end = " << iter_prec_end
-        << "   iter_prec = " << iter_prec << endl
-
-        << "      i_sat = " << i_sat
-        << "   j_sat = " << j_sat
-        << "   k_sat = " << k_sat
-        << "   height_sat[km] = " << height_sat << endl
-
-        << "      p_stat[bar] = " << p_sat
-        << "   p_u[bar] = " << p_u_sat
-        << "   p_latent[bar] = " <<  p_latent << endl
-
-        << "      T[°C] = " << t_sat - t_ref
-        << "   t_u[°C] = " << t_u_sat - t_ref
-        << "   t_latent[°C] = " <<  t_latent << endl
-
-        << "      saturation[g/m³] = " << saturation * 1e3 << endl
-
-        << "      " << gas << " humid solution[g/m³] = " << q_v_b_sat * 1e3
-        << "   " << gas << "-cloud[g/m³] = " << q_c_b_sat * 1e3
-        << "   " << gas << "-ice[g/m³] = " << q_i_b_sat * 1e3 << endl << endl;
-*/
-
-
+                            // ===== POINT 7: CAPTURE THE LAST CONVERGED CELL, NOT A MEANINGLESS ONE =====
+                            //
+                            // The condition here used to be
+                            //
+                            //     if((j == 90) && (k == 180) && (i == iter_prec_found))
+                            //
+                            // which SaturationAdjustmentSat.h calls meaningless in point 7 of its
+                            // own list, and it is: i is a GRID INDEX and iter_prec_found is a
+                            // CONVERGENCE-PASS COUNTER, so which cell got reported depended on how
+                            // many passes that cell happened to take. It was pinned to a single
+                            // column besides (j = 90, k = 180), so the report described one point
+                            // on one meridian and was printed as if it described the model.
+                            //
+                            // It now captures the LAST CONVERGED CELL in traversal order, which is
+                            // what ATJUP and the shared SaturationAdjustment<Planet> report and what
+                            // point 7 names as the behaviour to mirror. THIS CHANGES THE REPORTED
+                            // NUMBERS, deliberately: no output file moves, but these log lines do,
+                            // and they should — they were not reporting what they claimed to.
+                            //
+                            // No lock is needed. Within a thread the collapsed index k*jm + j
+                            // ascends and i ascends inside it, so a thread's latest converged cell
+                            // is simply its most recent one and it can overwrite its own slot
+                            // unconditionally. The largest key across threads wins after the region.
+                            {
+#ifdef _OPENMP
+                                const int sat_c = omp_get_thread_num() * sat_stride;
+#else
+                                const int sat_c = 0;
+#endif
+                                SatCapture &rec = sat_trec[sat_c];
+                                rec.key    = ((long long)k * jm + j) * im + i;
+                                rec.i      = i;
+                                rec.j      = j;
+                                rec.k      = k;
+                                rec.t_u    = t_u;
+                                rec.p_u    = p_u;
+                                rec.T      = T;
+                                rec.q_v_b  = q_v_b;
+                                rec.q_c_b  = q_c_b;
+                                rec.q_i_b  = q_i_b;
+                                rec.q_Rain = q_Rain;
+                                rec.iter   = iter_prec;
                             }
                             break;
                         }
                         else{
                             q_v_hyp = 0.5 * (q_v_hyp + q_v_b);  // has smoothing effect
-                            sat_found = false;
+                            {   // last assignment in traversal order wins — see the note above
+#ifdef _OPENMP
+                                const int sat_x = omp_get_thread_num() * sat_stride;
+#else
+                                const int sat_x = 0;
+#endif
+                                const long long sat_k = ((long long)k * jm + j) * im + i;
+                                if(sat_k >= sat_tkey[sat_x]){
+                                    sat_tkey[sat_x] = sat_k;
+                                    sat_tval[sat_x] = 0;
+                                }
+                            }
                         }                            
 
 
@@ -301,6 +365,54 @@ void cSaturnModel::Saturation_Adjustment(std::string gas,
             } // end i
         } // end j
     } // end k
+
+    // Resolve sat_found: the largest key across threads is the last assignment in traversal
+    // order, which is exactly the value a single thread would have been left holding. If no cell
+    // assigned at all every key is still -1 and sat_found keeps its initial false, which is also
+    // what the serial loop would have done.
+    {
+        long long sat_best = -1;
+        for(int t = 0; t < sat_nthr; t++){
+            const int sat_x = t * sat_stride;
+            if(sat_tkey[sat_x] > sat_best){
+                sat_best  = sat_tkey[sat_x];
+                sat_found = (sat_tval[sat_x] != 0);
+            }
+        }
+    }
+
+    // And the capture: the largest key is the last converged cell in traversal order. The report
+    // is derived here, once, from that cell's raw values.
+    {
+        long long cap_best = -1;
+        const SatCapture *win = nullptr;
+        for(int t = 0; t < sat_nthr; t++){
+            const SatCapture &rec = sat_trec[t * sat_stride];
+            if(rec.key > cap_best){ cap_best = rec.key; win = &rec; }
+        }
+        if(win != nullptr){
+            i_sat = win->i;
+            j_sat = win->j;
+            k_sat = win->k;
+            iter_prec_found = win->iter;
+            height_sat = get_layer_height(i_sat);
+
+            t_u_sat = win->t_u;
+            p_u_sat = win->p_u;
+
+            t_sat = win->T;
+            p_sat = p_ref * pow(t_sat/t_ref, exp_pressure);
+
+            t_latent = t_sat - t_u_sat;
+            p_latent = p_sat - p_u_sat;
+
+            q_v_b_sat = win->q_v_b;
+            q_c_b_sat = win->q_c_b;
+            q_i_b_sat = win->q_i_b;
+
+            saturation = win->q_v_b - win->q_Rain;
+        }
+    }
 
     #pragma omp parallel for collapse(3) schedule(static)
     for(int k = 0; k < km; k++){
