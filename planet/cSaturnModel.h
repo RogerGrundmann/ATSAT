@@ -261,10 +261,13 @@ public:
     // unsettled when the mirrored routine was written, and sharing the file was not the moment to
     // settle it. Answering true here keeps ATSAT doing exactly what it did.
     static bool satadj_updates_pstat(){ return true; }
-    // Default of ATSAT_SATADJ_NEWTON (shared SaturationAdjustment.h): off, not run here yet.
-    static bool satadj_default_newton(){ return false; }
-    // Default of ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): off, not run here yet.
-    static bool satadj_default_conserve(){ return false; }
+    // Defaults of ATSAT_SATADJ_NEWTON and ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): ON since
+    // 2026-10-09. They act only when the shared routine is selected (ATSAT_SATADJ=1; the inherited
+    // routine is still this model's default). Run then for 16 iterations: without them the shared
+    // routine deleted ice above the melting point by the per cent of a gas's column and left a
+    // fifth to a half of its cell-calls unconverged; with them both are zero.
+    static bool satadj_default_newton(){ return true; }
+    static bool satadj_default_conserve(){ return true; }
 
     // ---- What the SHARED PressureSolver.h asks of this model ----
     //
