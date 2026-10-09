@@ -156,6 +156,10 @@ static double timestep_override(){
 // recalibration is still owed: the observable is the one ATJUP used, Lv*P against Saturn's
 // emitted flux. Until then, read the fluxes as an upper bound wherever they sit at 8.6400 and as
 // physics wherever they do not.
+//
+// RECALIBRATED 2026-10-09: the five rate coefficients carry Planet::precip_rate_scale() = 0.006
+// on Saturn (cSaturnModel.h has the measurement). No cell sits on the cap any more; the caveat
+// above describes the runs before that.
 static int precip_enabled(){
     static const int v = [](){ const char* e = getenv("ATSAT_PRECIP"); return e ? atoi(e) : 1; }();
     return v;
@@ -594,10 +598,13 @@ void cSaturnModel::Run(){
 
         panorama_cnt++;
 
-        if(iter_n % checkpoint == 0){
-            printMinMax();
-            writeData();
-        }
+        // ATSAT_VTK_STRIDE=<n> (2026-10-09, mirrors ATJUP's): write the VTK files every n
+        // iterations instead of at every checkpoint, so the printed extrema can stay dense while
+        // the files do not. Default 0 = follow `checkpoint`, as before.
+        static const int vtk_stride = [](){
+            const char* e = getenv("ATSAT_VTK_STRIDE"); return e ? atoi(e) : 0; }();
+        if(iter_n % checkpoint == 0) printMinMax();
+        if(vtk_stride > 0 ? (iter_n % vtk_stride == 0) : (iter_n % checkpoint == 0)) writeData();
 
         // Shapiro filter on the velocities, opt-in. ATJUP applies one at initialisation and
         // optionally n passes per iteration; ATSAT already filters p_dyn and the mass fluxes
@@ -629,8 +636,13 @@ void cSaturnModel::Run(){
         if(checkpoint_save_iter >= 0 && iter_n == checkpoint_save_iter)
             save_state(iter_n);
 
+        // ATSAT_RESTART_STRIDE=<n> (2026-10-09, mirrors ATJUP's): default 100 = the stride this
+        // always had; 0 = NO periodic dump. checkpoint_save_iter = -1 switches off only the
+        // explicit dump above. Each sat_restart_<iter>.bin is 756 MB, so a comparison arm that
+        // will never be resumed should say 0.
         {
-            constexpr int restart_save_stride = 100;
+            static const int restart_save_stride = [](){
+                const char* e = getenv("ATSAT_RESTART_STRIDE"); return e ? atoi(e) : 100; }();
             if(restart_save_stride > 0 && iter_n > 0 && iter_n % restart_save_stride == 0
                && iter_n != checkpoint_save_iter){
                 if(restart_state_is_clean())

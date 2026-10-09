@@ -268,6 +268,19 @@ public:
     // fifth to a half of its cell-calls unconverged; with them both are zero.
     static bool satadj_default_newton(){ return true; }
     static bool satadj_default_conserve(){ return true; }
+    // Shared Precipitation.h: the factor on its five rate coefficients. RECALIBRATED 2026-10-09
+    // by the rule the Jovian set was made with: the latent-heat flux of the precipitation,
+    // Lv * (mean over the columns of the column's largest flux), summed over H2O, NH3 and CH4,
+    // shall equal the planet's emitted flux F_int + S(1-A)/4. ATSAT_PRECIP_DIAG=1, 16 iterations:
+    //     scale 1      468.8 W/m2   (412 984 cells on the P_max_flux cap)
+    //     scale 0.1     75.0        (none on the cap, here and below)
+    //     scale 0.01     7.37
+    //     scale 0.006    4.42       against 4.45 emitted
+    //     scale 0.001    0.735
+    // The same diagnostic on ATJUP at its scale of 1 reads 15.3 against 13.7, so the rule is the
+    // one the Jovian set satisfies. With 1 the H2O snow flux sat on the cap over a whole model
+    // level, as the note in cSaturnModel.cpp records. ATSAT_PRECIP_SCALE=1 restores.
+    static double precip_rate_scale(){ return 0.006; }
 
     // ---- What the SHARED PressureSolver.h asks of this model ----
     //
