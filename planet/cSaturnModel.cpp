@@ -123,10 +123,16 @@ static int tw_diag_enabled(){
 // which is 26 s per iteration and makes 224 iterations 1.6 hours — a factor of 825. The identical
 // unit mix was found in ATJUP's dt on 2026-07-29, and there the corresponding value ran cleanly.
 //
-// The default is left alone so every existing run is bit-identical; this knob is how a longer
-// horizon gets measured. Each run prints what it is actually covering.
+// DEFAULT 0.001 SINCE 2026-10-09 (ATJUP's value; 1.06 s of Saturn time per iteration, 224
+// iterations = 4 minutes). It needed two other defaults to move with it, both in cSaturnModel.h:
+// the metric radius (the unit sphere's polar spacing was what limited the step) and the pole
+// copy (the extrapolated pole cooled without bound once the step was long enough to see it).
+// MEASURED with both, 224 iterations, 8 threads (ATJUP/satchk/giants/G1, G5, G25): dt = 0.001
+// and 0.005 run clean, min T flat at -243.1 degC, max|w| 267 -> 259 and 263 -> 251 m/s;
+// dt = 0.025 goes non-finite after iteration 160. ATSAT_DT=<value> overrides; ATSAT_DT=-1
+// gives the old formula.
 static double timestep_override(){
-    static const double v = [](){ const char* e = getenv("ATSAT_DT"); return e ? atof(e) : 0.0; }();
+    static const double v = [](){ const char* e = getenv("ATSAT_DT"); return e ? atof(e) : 0.001; }();
     return v;
 }
 

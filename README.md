@@ -99,8 +99,9 @@ baseline.
 | Shapiro filter on u, v, w | `ATSAT_VEL_SHAPIRO_INLOOP` | 0 passes |
 | Zero floor on the condensable species | `ATSAT_NO_CLAMP` to disable | **on** |
 | Polar metric floor on sin θ | `ATSAT_SINTHE_MIN` | 0.0 (no floor) |
-| Metric radius (see the note in `cSaturnModel.h`) | `ATSAT_METRIC_RADIUS` | 0.0 (off) |
-| Timestep override | `ATSAT_DT` | formula (0.032 s / iteration) |
+| Metric radius (see the note in `cSaturnModel.h`) | `ATSAT_METRIC_RADIUS` | 58232 km since 2026-10-09 (0 = the unit sphere of before) |
+| Timestep | `ATSAT_DT` | 0.001 = 1.06 s / iteration since 2026-10-09 (−1 = the old formula, 0.032 s / iteration) |
+| Pole boundary form | `ATSAT_BC_POLE_COPY` | 1 since 2026-10-09 (0 = extrapolate, as before) |
 
 ---
 
@@ -279,11 +280,13 @@ None of these stops a run; all of them affect what a result means.
    the mean of the H₂O and NH₃ ratios (0.7427). It was 190.56 K, methane's *critical*
    temperature, which made the ice-autoconversion band `(T < 90.69 && T ≥ 190.56)` empty by
    construction and left methane ice with no sink at all.
-4. **The timestep is tiny.** The default `dt` = 3.01e-5 is 0.032 s of Saturn time per iteration,
-   so a 200-iteration run spans **6.4 seconds** and nothing horizontal can develop. Raising it
-   is not simply available: `ATSAT_DT=0.001` goes non-finite at iteration 1 in the bottom 11
-   levels, and that is *below* the advective CFL limit (~0.044), so whatever limits the deep
-   atmosphere is not advection. Unresolved.
+4. **The timestep was tiny until 2026-10-09** (3.01e-5, i.e. 0.032 s of Saturn time per
+   iteration). What limited it was the unit sphere the model ran on: the zonal spacing next to
+   the poles was ~116 times too small, so `ATSAT_DT=0.001` went non-finite at iteration 3, first
+   at 88–90° in the lowest levels. With Saturn's radius in the metric (`ATSAT_METRIC_RADIUS`) and
+   the pole copied instead of extrapolated (`ATSAT_BC_POLE_COPY`) — both defaults now — a step of
+   0.001 and of 0.005 runs 224 iterations clean; 0.025 does not. The default is 0.001: 1.06 s
+   per iteration, 224 iterations = 4 minutes. That is still far from anything climatic.
 5. **`nh3_ice` clips 11.1 % of its own mass per 100 iterations with 0.0 % of it on the
    boundary** — genuine interior transport undershoot, the largest real one in either model.
 6. **Not mirrored from ATJUP:** the per-level momentum census (`ATJUP_WPROFILE`), the

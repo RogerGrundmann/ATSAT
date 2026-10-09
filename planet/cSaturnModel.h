@@ -130,7 +130,13 @@ public:
      * (a volumetric heating rate W/m3, say) must use this accessor and not the raw difference.
      */
     /*
-     * Metric radius (ATSAT_METRIC_RADIUS, in km; default 0 = off, every run bit-identical).
+     * Metric radius (ATSAT_METRIC_RADIUS, in km). DEFAULT 58232 = Saturn SINCE 2026-10-09;
+     * ATSAT_METRIC_RADIUS=0 restores the unit sphere this model ran on until then.
+     *
+     * Why the default moved: on the unit sphere the zonal spacing next to the poles is ~116
+     * times too small, and THAT is what held the time step at 3e-5 -- dt = 0.001 went non-finite
+     * at iteration 3, first at 88-90 degrees in the lowest levels (ATJUP/satchk/giants/DT3).
+     * With Saturn's radius dt = 0.001 and 0.005 run 224 iterations (G1, G5).
      *
      * rad.z runs 1..2, so every 1/r factor in the equations works on a sphere of about one length
      * unit instead of on Saturn — the curvature and divergence terms are then too large by the
@@ -148,7 +154,7 @@ public:
      */
     double metricRadius(double rm){
         static const double R_km = [](){
-            const char* e = getenv("ATSAT_METRIC_RADIUS"); return e ? atof(e) : 0.0; }();
+            const char* e = getenv("ATSAT_METRIC_RADIUS"); return e ? atof(e) : 58232.0; }();
         if(!(R_km > 0.0)) return rm;
         return rm + (R_km / L_atm - 1.0);
     }
@@ -242,7 +248,11 @@ public:
     static int bc_default_form(){ return BCForm::CUBIC; }
     static int bc_default_rigid_lid(){ return 0; }
     static int bc_default_top_taper(){ return 0; }
-    static int bc_default_pole_copy(){ return 0; }
+    // 1 since 2026-10-09 (ATJUP ships 1 too): with the pole EXTRAPOLATED the top polar cell
+    // cooled at ~0.08 K per second of Saturn time once the time step was long enough to see it,
+    // -243 -> -329 degC in 224 iterations at dt = 0.005 (DTL5); with the copy it stays at
+    // -243.1 (G5). ATSAT_BC_POLE_COPY=0 restores.
+    static int bc_default_pole_copy(){ return 1; }
     static int bc_default_radius_copy(){ return 0; }
 
     std::vector<Array*> bc_fields_radius();
