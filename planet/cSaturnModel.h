@@ -261,6 +261,8 @@ public:
     // unsettled when the mirrored routine was written, and sharing the file was not the moment to
     // settle it. Answering true here keeps ATSAT doing exactly what it did.
     static bool satadj_updates_pstat(){ return true; }
+    // Default of ATSAT_SATADJ_NEWTON (shared SaturationAdjustment.h): off, not run here yet.
+    static bool satadj_default_newton(){ return false; }
 
     // ---- What the SHARED PressureSolver.h asks of this model ----
     //
