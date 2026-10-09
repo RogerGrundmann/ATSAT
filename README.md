@@ -271,10 +271,10 @@ None of these stops a run; all of them affect what a result means.
    is Lv·P against Saturn's emitted flux, the same one ATJUP used.
 2. **The mirrored saturation adjustment is off** (`ATSAT_SATADJ`). Switching it on moves max
    `h2o_cloud` by −16 % and lifts the deck a layer. It carries a genuine repair — the legacy
-   routine's saturation target was frozen — but its ice-phase coefficients are still the
-   **liquid** ones, because the parameter set has no ice pair for H₂O, NH₃ or CH₄. At Saturn
-   temperatures the ice branch is the one that matters, so turning it on today trades a known
-   defect for a known placeholder. Real ice coefficients are what decide it.
+   routine's saturation target was frozen. Until 2026-10-09 its ice-phase coefficients were the
+   **liquid** ones; the model now has ice pairs for H₂O and NH₃ (the substance's, as on ATJUP;
+   CH₄ has one curve), so that objection is gone. What is still owed before it becomes the
+   default is a run of useful length comparing the two routines.
 3. **`t_00_ch4` = 67.36 K is a borrowed proportion, not a measurement** — `t_0_ch4` scaled by
    the mean of the H₂O and NH₃ ratios (0.7427). It was 190.56 K, methane's *critical*
    temperature, which made the ice-autoconversion band `(T < 90.69 && T ≥ 190.56)` empty by

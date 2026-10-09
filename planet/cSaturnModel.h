@@ -736,30 +736,33 @@ private:
     double del_bet_h2o = - 8.7e-3;
 
 //    double del_alf_nh3 = - 0.888;  // original paper by Sanchez-Lavega, Perez-Hoyos and Huesco, p. 770
-    // ---- Ice-phase SVP coefficients: PLACEHOLDERS, and named ones ----
+    // ---- Ice-phase SVP coefficients (2026-10-09; placeholders equal to the liquid set before) ----
     //
-    // ATSAT's parameter set has no MEASURED ice pair for H2O or NH3 — only CH4 has one, and even
-    // that is a copy of its liquid pair. The shared precipitation and saturation-adjustment code
-    // reads one set of names on every planet, so rather than let ATSAT's copy of the microphysics
-    // quietly wire the liquid coefficients into the ice slots (which is what it did while there
-    // were two copies), the substitution is written down here, once, where the parameters live.
+    // These are properties of the SUBSTANCE, not of the planet, so they are ATJUP's pairs, made
+    // there by the rule
+    //     E_ice(T_triple) == E_liquid(T_triple),   L0_ice = L0_liquid * (ls / lv),
+    //     del_alf / del_bet as the liquid's,
+    // which gives E_ice < E_liquid below the triple point, as the mixed-phase scheme requires.
+    // Checked against THIS model's liquid curves: E_ice / E_liquid is 0.998 for H2O at 273.16 K
+    // and 0.994 for NH3 at 195.4 K, and 0.77 and 0.44 twenty kelvin below. (ATSAT's liquid NH3
+    // has del_alf = -1.2, which is what the NH3 pair is continuous with.) CH4 keeps one curve,
+    // ls_ch4 == lv_ch4, as on ATJUP.
     //
-    // CONSEQUENCE, and it is not small: at Saturn temperatures the ice branch is the one that
-    // matters, so every ice saturation in this model is really a liquid saturation. This is
-    // limitation 2 in the README and the reason ATSAT_SATADJ is still off. Replacing these six
-    // numbers with measured ones is what settles it.
-    double C_h2o_ice       = C_h2o;
-    double L0_h2o_ice      = L0_h2o;
-    double del_alf_h2o_ice = del_alf_h2o;
-    double del_bet_h2o_ice = del_bet_h2o;
+    // Until this change every ice saturation here was a liquid saturation. The precipitation
+    // reads these directly; the saturation adjustment gets them through its call site in
+    // SaturationAdjustmentSat.cpp when the shared routine is selected.
+    double C_h2o_ice       = 28.418;       // [bar]
+    double L0_h2o_ice      = 3567.3;       // = 3148.2 * (2833.9 / 2500.9) [J/g]
+    double del_alf_h2o_ice = 0.0;
+    double del_bet_h2o_ice = -8.7e-3;
 
     double del_alf_nh3 = - 1.2;  // approximated
     double del_bet_nh3 = 0.0;
 
-    double C_nh3_ice       = C_nh3;        // placeholder, see the note above
-    double L0_nh3_ice      = L0_nh3;
-    double del_alf_nh3_ice = del_alf_nh3;
-    double del_bet_nh3_ice = del_bet_nh3;
+    double C_nh3_ice       = 34.948;       // [bar]
+    double L0_nh3_ice      = 2692.5;       // = 2016.0 * (1832 / 1372) [J/g]
+    double del_alf_nh3_ice = -1.2;
+    double del_bet_nh3_ice = 0.0;
 
     double del_alf_h2s = 0.0;
     double del_bet_h2s = - 2.9e-3;

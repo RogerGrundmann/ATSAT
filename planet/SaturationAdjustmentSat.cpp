@@ -31,13 +31,19 @@ void SaturationAdjustmentSat::run(std::string gas,
         return;
     }
 
-    // THE ICE QUADRUPLE IS THE LIQUID ONE. ATSAT's parameter set has no ice pair for H2O, NH3 or
-    // CH4, and inventing numbers for Saturn's ices is a physics decision rather than a port. This
-    // is the single place to change when real values exist: the shared algorithm already treats
-    // the liquid and ice pairs separately, so nothing else has to move. Point 4 in the header
-    // note records what the substitution costs meanwhile.
+    // The ice quadruple, by gas. Until 2026-10-09 this passed the liquid one in its place; the
+    // model's ice coefficients are real now (cSaturnModel.h has the note). A gas without an ice
+    // pair of its own gets its liquid pair, which is what CH4's is anyway.
+    double C_i = C, L0_i = L0, del_alf_i = del_alf, del_bet_i = del_bet;
+    if(gas == "H2O"){
+        C_i = m.C_h2o_ice; L0_i = m.L0_h2o_ice; del_alf_i = m.del_alf_h2o_ice; del_bet_i = m.del_bet_h2o_ice;
+    } else if(gas == "NH3"){
+        C_i = m.C_nh3_ice; L0_i = m.L0_nh3_ice; del_alf_i = m.del_alf_nh3_ice; del_bet_i = m.del_bet_nh3_ice;
+    } else if(gas == "CH4"){
+        C_i = m.C_ch4_ice; L0_i = m.L0_ch4_ice; del_alf_i = m.del_alf_ch4_ice; del_bet_i = m.del_bet_ch4_ice;
+    }
     SaturationAdjustment<cSaturnModel>(m).run(gas, t_0, t_00, ep, lv, ls,
-                                              C, L0, R, del_alf,   del_bet,
-                                              C, L0,    del_alf,   del_bet,
+                                              C,   L0,   R, del_alf,   del_bet,
+                                              C_i, L0_i,    del_alf_i, del_bet_i,
                                               c, cloud, ice);
 }

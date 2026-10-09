@@ -55,10 +55,10 @@
  *    over ice — the vapour-pressure difference that drives the Bergeron process is
  *    understated and ice grows at the expense of droplets too slowly. Recorded when the
  *    precipitation scheme was ported (35077b5) and still true. run_mirrored() below takes the
- *    ice quadruple as ATJUP's does, so the structure is complete; the call site passes the
- *    liquid values, because ATSAT's parameter set has no ice pair and inventing numbers for
- *    Saturn's H2O/NH3/CH4 ices is a physics decision, not a port. Supplying them later is a
- *    change to one call site.
+ *    ice quadruple as ATJUP's does, so the structure is complete. SINCE 2026-10-09 the call
+ *    site passes real ice values: the coefficients are properties of the substance, so they are
+ *    ATJUP's pairs for H2O and NH3 (cSaturnModel.h has the continuity check); CH4 has one curve.
+ *    Before that it passed the liquid values and this point described the model.
  *
  * 5. q_v_b IS NEVER CLAMPED. ATSAT clamps q_c_b and q_i_b to >= 0 inside the loop but not the
  *    vapour itself; ATJUP clamps all three.
@@ -126,11 +126,9 @@ public:
     //   FOR turning it on  — the mirror carries the repair from the port commit, where the
     //     legacy routine's saturation target was found to be frozen, and it writes its shared
     //     diagnostic state under omp critical instead of from every thread at once (point 8).
-    //   AGAINST — its ice-phase quadruple is still the LIQUID one (point 4 below), because
-    //     ATSAT's parameter set has no ice pair for H2O, NH3 or CH4. At Saturn temperatures the
-    //     ice branch is the one that matters, so switching on today trades a known defect for a
-    //     known placeholder.
-    // The 16 % is the size of what is at stake; supplying the ice coefficients is what decides it.
+    //   AGAINST, until 2026-10-09 — its ice-phase quadruple was the LIQUID one (point 4 below).
+    //     The ice coefficients exist now, so that objection is gone; what is still owed before
+    //     the default changes is a run of useful length comparing the two routines.
     static int mirrored_enabled(){
         static const int v = [](){
             const char* e = getenv("ATSAT_SATADJ"); return e ? atoi(e) : 0; }();
