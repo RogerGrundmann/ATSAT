@@ -754,8 +754,8 @@ private:
     //     del_alf / del_bet as the liquid's,
     // which gives E_ice < E_liquid below the triple point, as the mixed-phase scheme requires.
     // Checked against THIS model's liquid curves: E_ice / E_liquid is 0.998 for H2O at 273.16 K
-    // and 0.994 for NH3 at 195.4 K, and 0.77 and 0.44 twenty kelvin below. (ATSAT's liquid NH3
-    // has del_alf = -1.2, which is what the NH3 pair is continuous with.) CH4 keeps one curve,
+    // and 0.994 for NH3 at 195.4 K, and 0.77 and 0.44 twenty kelvin below. (The continuity holds
+    // for any del_alf shared by the liquid and the ice curve.) CH4 keeps one curve,
     // ls_ch4 == lv_ch4, as on ATJUP.
     //
     // Until this change every ice saturation here was a liquid saturation. The precipitation
@@ -766,12 +766,18 @@ private:
     double del_alf_h2o_ice = 0.0;
     double del_bet_h2o_ice = -8.7e-3;
 
-    double del_alf_nh3 = - 1.2;  // approximated
+    // -0.888 SINCE 2026-10-09, the Sanchez-Lavega value (the user's word: "repair SAT-NH3-SVP").
+    // It was -1.2, marked "approximated". With -1.2 the liquid saturation pressure at the triple
+    // point (195.4 K) is 0.00196 bar; measured is 0.0606 bar and -0.888 gives 0.0570. So every
+    // NH3 saturation in this model was 31 times too low at the triple point and 23 times at
+    // 140 K. ATJUP, ATNEPT and ATURAN use -0.888. ATSAT_NH3_ALF=-1.2 restores (it sets the
+    // liquid and the ice exponent together).
+    double del_alf_nh3 = - 0.888;
     double del_bet_nh3 = 0.0;
 
     double C_nh3_ice       = 34.948;       // [bar]
     double L0_nh3_ice      = 2692.5;       // = 2016.0 * (1832 / 1372) [J/g]
-    double del_alf_nh3_ice = -1.2;
+    double del_alf_nh3_ice = -0.888;      // the liquid's, as the rule above says; C_nh3_ice then gives E_ice / E_liq = 0.994 at 195.4 K
     double del_bet_nh3_ice = 0.0;
 
     double del_alf_h2s = 0.0;

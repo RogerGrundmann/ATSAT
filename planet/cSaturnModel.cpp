@@ -299,6 +299,10 @@ void cSaturnModel::Run(){
 
     resetArrays();
 
+    // ATSAT_NH3_ALF overrides the exponent of the NH3 saturation curves, liquid and ice together
+    // (cSaturnModel.h has the note); -1.2 is what every run before 2026-10-09 was made with.
+    if(const char* e = getenv("ATSAT_NH3_ALF")){ del_alf_nh3 = atof(e); del_alf_nh3_ice = atof(e); }
+
     dt = 2.8284 * dr/u_0 * 0.2;
     if(timestep_override() > 0.0) dt = timestep_override();
     // Resolve the turbulence switch. Order matters: the configuration value is already loaded,
