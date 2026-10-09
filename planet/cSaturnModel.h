@@ -263,6 +263,8 @@ public:
     static bool satadj_updates_pstat(){ return true; }
     // Default of ATSAT_SATADJ_NEWTON (shared SaturationAdjustment.h): off, not run here yet.
     static bool satadj_default_newton(){ return false; }
+    // Default of ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): off, not run here yet.
+    static bool satadj_default_conserve(){ return false; }
 
     // ---- What the SHARED PressureSolver.h asks of this model ----
     //
