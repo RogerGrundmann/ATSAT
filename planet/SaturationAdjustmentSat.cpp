@@ -11,9 +11,9 @@
 
 using namespace std;
 
-// Dispatch. The legacy routine keeps every call site working unchanged and remains the DEFAULT;
-// ATSAT_SATADJ=1 selects the shared algorithm. See the header for what the two differ by and
-// what the 16 % it costs in peak cloud water is evidence of.
+// Dispatch. The shared algorithm is the DEFAULT since 2026-10-10; ATSAT_SATADJ=0 selects the
+// legacy routine, which keeps every call site working unchanged. See the header for what the
+// two differ by and for the 224-iteration comparison.
 void SaturationAdjustmentSat::run(std::string gas,
     double &coeff_A,   double &coeff_B,
     double &coeff_A_i, double &coeff_B_i,

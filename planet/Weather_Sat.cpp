@@ -17,8 +17,8 @@ using namespace AtomUtils;
 
 // SaturationAdjustmentSat::run() now lives in SaturationAdjustmentSat.cpp, which carries the
 // mirrored ATJUP algorithm and dispatches back to cSaturnModel::Saturation_Adjustment() below
-// unless ATSAT_SATADJ is set. That routine is the inherited one and stays the default; the
-// header records the ten points on which the two differ.
+// only with ATSAT_SATADJ=0. That routine is the inherited one and was the default until
+// 2026-10-10; the header records the ten points on which the two differ.
 
 //Tao, W.-K., Simpson, J., and McCumber, M.: 
 //An Ice-Water Saturation Adjustment, American Meteorological Society, Notes and 

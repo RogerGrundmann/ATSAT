@@ -81,7 +81,7 @@ baseline.
 |---|---|---|---|
 | Precipitation microphysics | `PrecipitationSat.h` | `ATSAT_PRECIP` | **on** |
 | └ coupling into rhs_t and the moisture RHS | `RHS_Sat_Turb.cpp` | `ATSAT_PRECIP_COUPLING` | **1.0** |
-| Mirrored saturation adjustment | `SaturationAdjustmentSat.*` | `ATSAT_SATADJ` | off |
+| Shared saturation adjustment (0 = the inherited routine) | `SaturationAdjustmentSat.*` | `ATSAT_SATADJ` | **on** |
 | Grey multi-layer radiation | `RadiationSat.h` | `ATSAT_RADIATION` | off |
 | └ coupling into rhs_t | | `ATSAT_RAD_COUPLING` | 0.0 |
 | Turbulence closure (k-ε / k-ω / k-ω SST) | `TurbulenceSat.h` | `ATSAT_TURB` | off |
@@ -270,12 +270,12 @@ None of these stops a run; all of them affect what a result means.
    cells. Read those cells as an upper bound and the rest as physics. **This is the
    highest-value open item**, since the moist physics is the reason for the code; the observable
    is Lv·P against Saturn's emitted flux, the same one ATJUP used.
-2. **The mirrored saturation adjustment is off** (`ATSAT_SATADJ`). Switching it on moves max
-   `h2o_cloud` by −16 % and lifts the deck a layer. It carries a genuine repair — the legacy
-   routine's saturation target was frozen. Until 2026-10-09 its ice-phase coefficients were the
-   **liquid** ones; the model now has ice pairs for H₂O and NH₃ (the substance's, as on ATJUP;
-   CH₄ has one curve), so that objection is gone. What is still owed before it becomes the
-   default is a run of useful length comparing the two routines.
+2. **The shared saturation adjustment is the default since 2026-10-10** (`ATSAT_SATADJ`, 0 =
+   the inherited routine). It carries a genuine repair — the legacy routine's saturation target
+   was frozen — and real ice pairs for H₂O and NH₃. Over 224 iterations against the inherited
+   routine: temperature, velocity and pressure extrema identical, max `h2o_cloud` −6.7 %, max
+   `nh3_ice` +26 %, max `ch4_ice` −23 %; it deletes no ice and leaves no cell unconverged.
+   Which of the two cloud amounts is right is not settled by a measurement.
 3. **`t_00_ch4` = 67.36 K is a borrowed proportion, not a measurement** — `t_0_ch4` scaled by
    the mean of the H₂O and NH₃ ratios (0.7427). It was 190.56 K, methane's *critical*
    temperature, which made the ice-autoconversion band `(T < 90.69 && T ≥ 190.56)` empty by

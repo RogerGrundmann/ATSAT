@@ -10,9 +10,10 @@
  * ===== WHY THIS FILE EXISTS =====
  *
  * This header was a declaration-only shim whose run() forwarded to
- * cSaturnModel::Saturation_Adjustment() in Weather_Sat.cpp. That function is still there and
- * is still the DEFAULT; the mirrored algorithm below is selected with ATSAT_SATADJ=1, so the
- * two can be measured against each other. Nothing changes until that knob is set.
+ * cSaturnModel::Saturation_Adjustment() in Weather_Sat.cpp. That function is still there;
+ * until 2026-10-10 it was the default. THE DEFAULT IS NOW THE SHARED ALGORITHM (the user's
+ * decision); ATSAT_SATADJ=0 selects the inherited routine, so the two can still be measured
+ * against each other.
  *
  * ATSAT's version and ATJUP's had drifted apart in ten places. In descending order of
  * consequence:
@@ -111,8 +112,19 @@ class SaturationAdjustmentSat {
 public:
     explicit SaturationAdjustmentSat(cSaturnModel& model) : m(model) {}
 
-    // Selects between the inherited routine and the mirrored one. Default 0 = the legacy
-    // cSaturnModel::Saturation_Adjustment(), so the model is bit-identical until this is set.
+    // Selects between the inherited routine and the mirrored one. DEFAULT 1 = the shared
+    // SaturationAdjustment.h SINCE 2026-10-10 (the user's decision); ATSAT_SATADJ=0 restores the
+    // legacy cSaturnModel::Saturation_Adjustment(). Every ATSAT number before that commit was
+    // made with the legacy routine unless its run set the knob.
+    //
+    // THE RUN THAT WAS OWED, 224 iterations, 8 threads (ATJUP/satchk/giants/SAT224i, SAT224s),
+    // legacy -> shared: 45 of 100 printed extrema identical, temperature, velocity and pressure
+    // among them; max h2o_cloud 79.45 -> 74.10 g/m3 (-6.7 %), max nh3_cloud 1.665 -> 1.506,
+    // max nh3_ice 2.80 -> 3.54 (+26 %), max ch4_ice 48.18 -> 37.29 (-23 %), max latent heat
+    // 1.472 -> 1.549 W/m3. The shared routine's own budget over its 113 calls: no ice deleted,
+    // no cell unconverged, column change of each gas below 1e-6 g/m2. The legacy routine has
+    // no such instrument, so what it does to the column is not known. Which of the two cloud
+    // amounts is right is still not settled by a measurement; the older note follows.
     //
     // WHAT IT DOES WHEN SET, measured 2026-07-31 over 50 iterations (config_m50, 12 threads),
     // against the legacy routine with everything else identical:
@@ -127,11 +139,11 @@ public:
     //     legacy routine's saturation target was found to be frozen, and it writes its shared
     //     diagnostic state under omp critical instead of from every thread at once (point 8).
     //   AGAINST, until 2026-10-09 — its ice-phase quadruple was the LIQUID one (point 4 below).
-    //     The ice coefficients exist now, so that objection is gone; what is still owed before
-    //     the default changes is a run of useful length comparing the two routines.
+    //     The ice coefficients exist now, so that objection is gone, and the run of useful
+    //     length is the one at the top of this note.
     static int mirrored_enabled(){
         static const int v = [](){
-            const char* e = getenv("ATSAT_SATADJ"); return e ? atoi(e) : 0; }();
+            const char* e = getenv("ATSAT_SATADJ"); return e ? atoi(e) : 1; }();
         return v;
     }
 

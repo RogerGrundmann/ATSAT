@@ -272,8 +272,8 @@ public:
     // settle it. Answering true here keeps ATSAT doing exactly what it did.
     static bool satadj_updates_pstat(){ return true; }
     // Defaults of ATSAT_SATADJ_NEWTON and ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): ON since
-    // 2026-10-09. They act only when the shared routine is selected (ATSAT_SATADJ=1; the inherited
-    // routine is still this model's default). Run then for 16 iterations: without them the shared
+    // 2026-10-09. They act only when the shared routine is selected (ATSAT_SATADJ, this model's
+    // default since 2026-10-10). Run for 16 iterations: without them the shared
     // routine deleted ice above the melting point by the per cent of a gas's column and left a
     // fifth to a half of its cell-calls unconverged; with them both are zero.
     static bool satadj_default_newton(){ return true; }
