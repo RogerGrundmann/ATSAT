@@ -58,7 +58,16 @@ void BC_Sat::bcRadius() {
 
     static const int lid_copy = [](){
         const char* e = getenv("ATSAT_BC_SPECIES_LID_COPY"); return e ? atoi(e) : 1; }();
-    if(lid_copy == 0) return;
+    // ATSAT_BC_SPECIES_WALL_COPY (2026-10-11; DEFAULT 1 on the user's word, 0 restores): the same
+    // copy on the BOTTOM plane, ATJUP's bottom wall (ATJUP_BC_SPECIES_WALL_COPY). An extrapolated
+    // wall value lets the centred diffusion stencil at i = 1 draw the species through a wall that
+    // is meant to be closed. On ATSAT there is next to nothing for it to draw today: the level
+    // means of total H2O, NH3, CH4 and H2S are flat over i = 0..5 (satchk/giants/S1000pf,
+    // iteration 1000: q0 - q1 is 3e-8 to 2e-6 of the column, against 1e-3 on ATJUP), so this
+    // closes the wall before a profile forms there, and no gain from it has been measured.
+    static const int wall_copy = [](){
+        const char* e = getenv("ATSAT_BC_SPECIES_WALL_COPY"); return e ? atoi(e) : 1; }();
+    if(lid_copy == 0 && wall_copy == 0) return;
     Array* species[] = {
         &m.h2o, &m.h2o_cloud, &m.h2o_ice,
         &m.h2s,
@@ -70,8 +79,10 @@ void BC_Sat::bcRadius() {
     #pragma omp parallel for
     for(int j = 0; j < jm; j++)
         for(int k = 0; k < km; k++)
-            for(int f = 0; f < ns; f++)
-                species[f]->x[im-1][j][k] = species[f]->x[im-2][j][k];
+            for(int f = 0; f < ns; f++){
+                if(lid_copy  != 0) species[f]->x[im-1][j][k] = species[f]->x[im-2][j][k];
+                if(wall_copy != 0) species[f]->x[0][j][k]    = species[f]->x[1][j][k];
+            }
 }
 void BC_Sat::bcTheta()  { BoundaryConditions<cSaturnModel>(m).bcTheta();  }
 void BC_Sat::bcPhi()    { BoundaryConditions<cSaturnModel>(m).bcPhi();    }
