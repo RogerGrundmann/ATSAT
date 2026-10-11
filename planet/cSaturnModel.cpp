@@ -202,8 +202,13 @@ static int nancheck_on(){
 //
 // nue* reaches the momentum and scalar equations when ATSAT_TURB_COUPLING is also set
 // (RHS_Sat_Turb.cpp). The closure remains UNVALIDATED against anything observed on Saturn.
+// ATSAT_TURB: -1 = not set. turb_model IS the switch since 2026-10-11 (the user's word), as on ATJUP
+// since 2026-10-09: the closure runs unless turb_model (or ATSAT_TURB_MODEL, which overrides it) is
+// "none" / "laminar" / empty, and param.py's default is k_omega_SST, so a stock run has it ON.
+// Until then the closure needed ATSAT_TURB=1 as well and the configured model alone did nothing.
+// ATSAT_TURB=0 still switches it off; any other value leaves the decision to turb_model.
 static int turb_env_enabled(){
-    static const int v = [](){ const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : 0; }();
+    static const int v = [](){ const char* e = getenv("ATSAT_TURB"); return e ? atoi(e) : -1; }();
     return v;
 }
 
@@ -310,8 +315,8 @@ void cSaturnModel::Run(){
     // downstream (TurbulenceSat, RHSSat, RungeKuttaSat, the BC routines) reads that flag and never
     // the string. "none" now means what it says; before, it fell through to k-omega SST.
     if(const char* tm = getenv("ATSAT_TURB_MODEL")) turb_model = tm;
-    turb_active = (turb_env_enabled() != 0) && (turb_model != "none");
-    if(turb_env_enabled() != 0 && !turb_active)
+    turb_active = (turb_env_enabled() != 0) && !(turb_model.empty() || turb_model == "none" || turb_model == "laminar");
+    if(turb_env_enabled() > 0 && !turb_active)
         cout << "      ATSAT: turbulence requested but turb_model = \"none\" — closure off"
              << endl;
     printf("      ATSAT: dt = %.6g nondimensional = %.4g s of Saturn time per iteration"
