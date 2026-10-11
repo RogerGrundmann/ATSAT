@@ -102,7 +102,7 @@ baseline.
 | Metric radius (see the note in `cSaturnModel.h`) | `ATSAT_METRIC_RADIUS` | 58232 km since 2026-10-09 (0 = the unit sphere of before) |
 | Timestep | `ATSAT_DT` | 0.001 = 1.06 s / iteration since 2026-10-09 (−1 = the old formula, 0.032 s / iteration) |
 | Pole boundary form | `ATSAT_BC_POLE_COPY` | 1 since 2026-10-09 (0 = extrapolate, as before) |
-| Rows next to the pole | `ATSAT_BC_POLE_FILL` | 0 (1 = set `j = 1` and `j = jm-2`, which the Runge-Kutta step does not integrate and which otherwise keep the initial condition for the whole run, from `j = 2` / `jm-3`: copy for the scalars and `u`, half the value for `v`, `w`) |
+| Rows next to the pole | `ATSAT_BC_POLE_FILL` | 1 since 2026-10-11 (0 restores; sets `j = 1` and `j = jm-2`, which the Runge-Kutta step does not integrate and which otherwise keep the initial condition for the whole run, from `j = 2` / `jm-3`: copy for the scalars and `u`, half the value for `v`, `w`) |
 
 ---
 
