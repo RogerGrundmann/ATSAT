@@ -87,12 +87,12 @@ static int conv_adj_enabled(){
 }
 
 
-// Grey multi-layer radiation (RadiationSat), ported from ATJUP. Default OFF, bit-identical when
-// off. It fills the DIAGNOSTIC arrays radiation / epsilon / Q_rad and touches neither t nor any
+// Grey multi-layer radiation (RadiationSat), ported from ATJUP. DEFAULT ON since 2026-10-11 on the
+// user's word (ATSAT_RADIATION=0 restores the run without it; not byte-checked). It fills the DIAGNOSTIC arrays radiation / epsilon / Q_rad and touches neither t nor any
 // rhs — wiring the heating into the temperature equation is a separate step. Runs on even
 // iterations, alongside the rest of the physics block.
 static int radiation_enabled(){
-    static const int v = [](){ const char* e = getenv("ATSAT_RADIATION"); return e ? atoi(e) : 0; }();
+    static const int v = [](){ const char* e = getenv("ATSAT_RADIATION"); return e ? atoi(e) : 1; }();
     return v;
 }
 

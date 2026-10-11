@@ -82,7 +82,7 @@ baseline.
 | Precipitation microphysics | `PrecipitationSat.h` | `ATSAT_PRECIP` | **on** |
 | └ coupling into rhs_t and the moisture RHS | `RHS_Sat_Turb.cpp` | `ATSAT_PRECIP_COUPLING` | **1.0** |
 | Shared saturation adjustment (0 = the inherited routine) | `SaturationAdjustmentSat.*` | `ATSAT_SATADJ` | **on** |
-| Grey multi-layer radiation | `RadiationSat.h` | `ATSAT_RADIATION` | off |
+| Grey multi-layer radiation | `RadiationSat.h` | `ATSAT_RADIATION` | **on** since 2026-10-11 (0 = off) |
 | └ coupling into rhs_t | | `ATSAT_RAD_COUPLING` | 0.0 |
 | Turbulence closure (k-ε / k-ω / k-ω SST) | `TurbulenceSat.h` | `ATSAT_TURB` | off |
 | └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | 0.0 |
@@ -115,7 +115,7 @@ Printed at the `checkpoint` cadence:
   localises profile faults where a column *mean* cannot, and it bears directly on Saturn's open
   under-emission below: `eps` against `p[bar]` down the column is the direct view of the opacity that
   question is about.
-- **Photosphere line** (with `ATSAT_RADIATION=1`) — mean OLR against the input budget, the τ=1 level
+- **Photosphere line** (printed unless `ATSAT_RADIATION=0`) — mean OLR against the input budget, the τ=1 level
   in bar, and the temperature there beside the blackbody flux it implies. `T(τ=1) − T_eff(OLR)` is
   the *scheme's* excess; `T(τ=1) − T_eff(in)` is how far the *column* sits from the energy budget.
 - **ParaView** — `Radiation`, `Q_rad_mW_m3` and `Emissivity` alongside the turbulence six and the
