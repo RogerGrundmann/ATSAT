@@ -18,6 +18,7 @@
 #include "VelocityInitializerSat.h"
 #include "ConvectiveAdjustmentSat.h"
 #include "RadiationSat.h"
+#include "TbSat.h"
 #include "ThermalWindDiagSat.h"
 #include "PrecipitationSat.h"
 #include "TurbulenceSat.h"
@@ -510,6 +511,40 @@ void cSaturnModel::Run(){
         iter_start = restart_from_iter + 1;
     }
 
+    // ATSAT_TB_DIAG=<n> (print-only, see TbSat.h): the level-mean temperature after every stage of
+    // the loop that can write t, charged to that stage, in K; printed every n iterations.
+    static const int tb_every = [](){ const char* e = getenv("ATSAT_TB_DIAG"); return e ? atoi(e) : 0; }();
+    const bool tb_on = tb_every > 0 && im <= SatTb::MAXLEV;
+    SatTb::st().on = tb_on;
+    enum { TB_PRE = 0, TB_SATADJ, TB_PRECIP, TB_PHYS, TB_RK_RESET, TB_RK_REST, TB_BC, TB_CLAMP, TB_AFTER, TB_N };
+    static const char* tb_name[TB_N] = { "pressure", "sat.adjust", "precip", "chem/latent", "RK reset", "RK rest",
+        "BC", "clamp", "turb/conv" };
+    static const char* tb_term[SatTb::NTERM] = { "RK press.work", "RK transp r", "RK transp the", "RK transp phi",
+        "RK diffusion", "RK th.massflux", "RK radiation", "RK precip" };
+    std::vector<std::vector<double>> tb_sum(TB_N, std::vector<double>(im, 0.0)), tb_tsum(SatTb::NTERM, std::vector<double>(im, 0.0));
+    std::vector<double> tb_last(im, 0.0), tb_first(im, 0.0);
+    double tb_norm = 0.0;
+    auto tb_lev = [&](Array& a) -> std::vector<double> {
+        std::vector<double> m_(im, 0.0);
+        #pragma omp parallel for schedule(static)
+        for(int i = 0; i < im; i++){
+            double s_ = 0.0;
+            for(int j = 0; j < jm; j++){
+                const double sj = std::sin(the.z[j]);
+                for(int k = 0; k < km; k++) s_ += sj * a.x[i][j][k];
+            }
+            m_[i] = s_ * t_ref / tb_norm;
+        }
+        return m_; };
+    auto tb_mark = [&](int stage){
+        if(!tb_on) return;
+        const std::vector<double> w_ = tb_lev(t);
+        for(int i = 0; i < im; i++){ tb_sum[stage][i] += w_[i] - tb_last[i]; tb_last[i] = w_[i]; } };
+    if(tb_on){
+        for(int j = 0; j < jm; j++) tb_norm += std::sin(the.z[j]) * km;
+        tb_last = tb_first = tb_lev(t);
+    }
+
     for(iter_n = iter_start; iter_n <= nm; iter_n++){
 
         auto begin = std::chrono::high_resolution_clock::now();
@@ -532,6 +567,7 @@ void cSaturnModel::Run(){
 
             getPressureSolver().run();
             AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
+            tb_mark(TB_PRE);
 
             SaturationAdjustmentSat(*this).run("CH4",
                 coeff_ch4_A, coeff_ch4_B, coeff_ch4_A_i, coeff_ch4_B_i,
@@ -556,7 +592,43 @@ void cSaturnModel::Run(){
 
             // After the saturation adjustments, whose condensate it consumes; before the
             // chemistry, as in ATJUP.
+            tb_mark(TB_SATADJ);
             if(precip_enabled()) PrecipitationSat(*this).run();
+            tb_mark(TB_PRECIP);
+
+            // ATSAT_RK_SCALAR_SYNC=<0|1|2> (2026-10-11; DEFAULT 2 on the user's word, 0 restores):
+            // ATJUP's repair of 2026-10-08, ported. RungeKuttaSat integrates every scalar from
+            // its n-level copy (h2on, ..., tn), and restoreVar refreshed those at the END of the
+            // previous iteration -- before the saturation adjustment above ran. So everything the
+            // adjustment writes directly (the condensate it forms, the latent heat it releases)
+            // was overwritten by the step that follows. MEASURED with ATSAT_TB_DIAG (satchk/
+            // giants/TB1, 56 iterations, level means): the adjustment +7.2 / +14.9 / +4.5 K at
+            // levels 8 / 12 / 16 and +12.4 K at level 39, "RK reset" the same amounts with the
+            // opposite sign, to the digit -- the adjustment re-condensed the same cells at every
+            // call and its heat never reached the temperature.
+            // 1 copies the nine condensable fields into their n-level copies, so the step starts
+            // from the adjusted state; 2 copies the temperature too, so the latent heat goes with
+            // the condensate. The in-place precipitation above is kept by it as well.
+            static const int rk_scalar_sync = [](){ const char* e = getenv("ATSAT_RK_SCALAR_SYNC"); return e ? atoi(e) : 2; }();
+            if(rk_scalar_sync >= 1){
+                #pragma omp parallel for collapse(2) schedule(static)
+                for(int i = 0; i < im; i++){
+                    for(int j = 0; j < jm; j++){
+                        for(int k = 0; k < km; k++){
+                            h2on.x[i][j][k]       = h2o.x[i][j][k];
+                            h2o_cloudn.x[i][j][k] = h2o_cloud.x[i][j][k];
+                            h2o_icen.x[i][j][k]   = h2o_ice.x[i][j][k];
+                            nh3n.x[i][j][k]       = nh3.x[i][j][k];
+                            nh3_cloudn.x[i][j][k] = nh3_cloud.x[i][j][k];
+                            nh3_icen.x[i][j][k]   = nh3_ice.x[i][j][k];
+                            ch4n.x[i][j][k]       = ch4.x[i][j][k];
+                            ch4_cloudn.x[i][j][k] = ch4_cloud.x[i][j][k];
+                            ch4_icen.x[i][j][k]   = ch4_ice.x[i][j][k];
+                            if(rk_scalar_sync >= 2) tn.x[i][j][k] = t.x[i][j][k];
+                        }
+                    }
+                }
+            }
 
             ChemistrySat(*this).DiffMassFluxSat();
 
@@ -580,10 +652,34 @@ void cSaturnModel::Run(){
 
             if(radiation_enabled()) RadiationSat(*this).run();
             if(tw_diag_enabled())   ThermalWindDiagSat(*this).run();
+            tb_mark(TB_PHYS);
 
         }  // if iter_n % 2
 
+        std::vector<double> tb_n;
+        if(tb_on){
+            tb_n = tb_lev(tn);                                          // what the step starts from
+            for(int t_ = 0; t_ < SatTb::MAXTHR; t_++) for(int q_ = 0; q_ < SatTb::NTERM; q_++)
+                for(int i = 0; i < im; i++) SatTb::st().acc[t_][q_][i] = 0.0;
+        }
+
         RungeKuttaSat();
+
+        if(tb_on){
+            const std::vector<double> w_ = tb_lev(t);
+            for(int i = 0; i < im; i++){
+                double step_terms = 0.0;
+                for(int q_ = 0; q_ < SatTb::NTERM; q_++){
+                    double a_ = 0.0;
+                    for(int t_ = 0; t_ < SatTb::MAXTHR; t_++) a_ += SatTb::st().acc[t_][q_][i];
+                    a_ *= dt / 6.0 * t_ref / tb_norm;
+                    tb_tsum[q_][i] += a_; step_terms += a_;
+                }
+                tb_sum[TB_RK_RESET][i] += tb_n[i] - tb_last[i];
+                tb_sum[TB_RK_REST][i]  += w_[i] - tb_n[i] - step_terms;
+                tb_last[i] = w_[i];
+            }
+        }
 
         BC_Sat(*this).bcTheta();
         BC_Sat(*this).bcPhi();
@@ -593,7 +689,9 @@ void cSaturnModel::Run(){
         // values are what the next Runge-Kutta step starts from. After the boundary conditions,
         // because the (4/3,-1/3) extrapolation at the radial planes is one of the two sources of
         // the undershoot. See FileIO_Sat.cpp for the measurement.
+        tb_mark(TB_BC);
         clampNegativeSpecies();
+        tb_mark(TB_CLAMP);
 
         // Steady-state query: max|f - f_n| per field with its location, plus the continuity
         // residual. BEFORE restoreVar, which is what makes the differences non-zero — see the
@@ -610,6 +708,26 @@ void cSaturnModel::Run(){
         if(turb_active) TurbulenceSat(*this).run();
 
         if(conv_adj_enabled()) ConvectiveAdjustmentSat(*this).run();
+        tb_mark(TB_AFTER);
+        if(tb_on && iter_n % tb_every == 0){
+            static const int lv_[] = { 0, 1, 2, 3, 5, 8, 12, 16, 20, 24, 28, 32, 35, 37, 38, 39, 40 };
+            const int nl_ = (int)(sizeof(lv_) / sizeof(lv_[0]));
+            printf("\n      ATSAT: [TB] level-mean temperature, cumulative over iterations %d..%d, K\n      ATSAT: [TB] %-15s", iter_start, iter_n, "level");
+            for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %8d", lv_[l]);
+            printf("\n      ATSAT: [TB] %-15s", "T now");
+            for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %8.2f", tb_last[lv_[l]]);
+            printf("\n      ATSAT: [TB] %-15s", "change");
+            for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %+8.3f", tb_last[lv_[l]] - tb_first[lv_[l]]);
+            for(int q_ = 0; q_ < TB_N; q_++){
+                printf("\n      ATSAT: [TB] %-15s", tb_name[q_]);
+                for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %+8.3f", tb_sum[q_][lv_[l]]);
+                if(q_ == TB_RK_RESET) for(int r_ = 0; r_ < SatTb::NTERM; r_++){
+                    printf("\n      ATSAT: [TB] %-15s", tb_term[r_]);
+                    for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %+8.3f", tb_tsum[r_][lv_[l]]);
+                }
+            }
+            printf("\n");
+        }
 
         panorama_cnt++;
 

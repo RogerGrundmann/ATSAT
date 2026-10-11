@@ -247,7 +247,10 @@ public:
     static int bc_margin(){ return 1; }
     static int bc_default_form(){ return BCForm::CUBIC; }
     static int bc_default_rigid_lid(){ return 0; }
-    static int bc_default_top_taper(){ return 0; }
+    // 2 since 2026-10-11 (SAT-LID; ATSAT_BC_TOP_TAPER=0 restores): v and w are brought to zero
+    // over the top three layers, re-derived from i = im-4 every call. Extrapolated by the cubic
+    // they overshot on the lid -- w 88.2 / 61.2 / 20.7 m/s below it gave -33.3 on it.
+    static int bc_default_top_taper(){ return 2; }
     // 1 since 2026-10-09 (ATJUP ships 1 too): with the pole EXTRAPOLATED the top polar cell
     // cooled at ~0.08 K per second of Saturn time once the time step was long enough to see it,
     // -243 -> -329 degC in 224 iterations at dt = 0.005 (DTL5); with the copy it stays at

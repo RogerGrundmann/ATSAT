@@ -39,7 +39,40 @@ namespace {
     constexpr double bc_dis_min = 1.0e-10;   // matches TurbulenceSat::dis_min and the RK4 floor
 }
 
-void BC_Sat::bcRadius() { BoundaryConditions<cSaturnModel>(m).bcRadius(); }
+// ATSAT_BC_SPECIES_LID_COPY (2026-10-11; DEFAULT 1 on the user's word, SAT-LID; 0 restores): the eleven species on the LID
+// copy the cell below instead of taking the shared routine's form. ATSAT's radial form is the
+// 3-point cubic f[s] = f[c] - 3 f[b] + 3 f[a], which is exact for a straight profile -- the right
+// thing for the temperature at the bottom -- and overshoots wherever a field bends towards the
+// boundary. MEASURED (satchk/giants/S1000, iteration 1000): ch4_cloud 0.093 / 0 / 0.70 g/m3 in the
+// three cells below the lid at 2 S gives 2.2 on it (the run's "max ch4_cloud", growing without
+// levelling), ch4_ice 5.66 / 12.98 / 23.26 gives 36.5, and ch4 116 / 80 / 40 gives -4, which the
+// clamp then zeroes. A copy cannot overshoot. The bottom plane and every other field keep the
+// shared form. The lid values of v and w are ATSAT_BC_TOP_TAPER's business, not this knob's.
+// 224 iterations with this knob and ATSAT_BC_TOP_TAPER=2 against without (satchk/giants/LID3
+// against SYNC2): max ch4_ice 93.2 g/m3 ON the lid -> 42.2 one cell below it, min w -16.5 m/s on
+// the lid -> -12.8 at 412 km, the temperature untouched, 60 of 100 printed extrema identical.
+// Changing the whole radial form instead (ATSAT_BC_RADIUS_COPY = 1 or 2, LID1 / LID2) removed the
+// overshoot as well but flattened the bottom temperature by 10 to 13 K.
+void BC_Sat::bcRadius() {
+    BoundaryConditions<cSaturnModel>(m).bcRadius();
+
+    static const int lid_copy = [](){
+        const char* e = getenv("ATSAT_BC_SPECIES_LID_COPY"); return e ? atoi(e) : 1; }();
+    if(lid_copy == 0) return;
+    Array* species[] = {
+        &m.h2o, &m.h2o_cloud, &m.h2o_ice,
+        &m.h2s,
+        &m.nh3, &m.nh3_cloud, &m.nh3_ice,
+        &m.ch4, &m.ch4_cloud, &m.ch4_ice,
+        &m.nh4sh };
+    const int ns = (int)(sizeof(species) / sizeof(species[0]));
+    const int im = m.im, jm = m.jm, km = m.km;
+    #pragma omp parallel for
+    for(int j = 0; j < jm; j++)
+        for(int k = 0; k < km; k++)
+            for(int f = 0; f < ns; f++)
+                species[f]->x[im-1][j][k] = species[f]->x[im-2][j][k];
+}
 void BC_Sat::bcTheta()  { BoundaryConditions<cSaturnModel>(m).bcTheta();  }
 void BC_Sat::bcPhi()    { BoundaryConditions<cSaturnModel>(m).bcPhi();    }
 

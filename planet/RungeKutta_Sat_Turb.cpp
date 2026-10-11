@@ -12,6 +12,7 @@
 */
 
 #include "cSaturnModel.h"
+#include "TbSat.h"
 
 using namespace std;
 
@@ -143,6 +144,7 @@ void cSaturnModel::RungeKuttaSat(){
         // Offset of the NEXT stage's input from y_n, and this stage's weight in the sum.
         const double c_in = (stage == 0 || stage == 1) ? 0.5 * dt : (stage == 2 ? dt : 0.0);
         const double wgt  = (stage == 0 || stage == 3) ? 1.0 : 2.0;
+        SatTb::st().stage_wgt = wgt;                  // ATSAT_TB_DIAG: weight of the tendencies RHSSat is about to sum
 
         // ---- pass A: tendencies everywhere, from one consistent state ----
         // Reads the live fields with a stencil and writes rhs_*, which are different arrays, so

@@ -103,6 +103,10 @@ baseline.
 | Timestep | `ATSAT_DT` | 0.001 = 1.06 s / iteration since 2026-10-09 (−1 = the old formula, 0.032 s / iteration) |
 | Pole boundary form | `ATSAT_BC_POLE_COPY` | 1 since 2026-10-09 (0 = extrapolate, as before) |
 | Rows next to the pole | `ATSAT_BC_POLE_FILL` | 1 since 2026-10-11 (0 restores; sets `j = 1` and `j = jm-2`, which the Runge-Kutta step does not integrate and which otherwise keep the initial condition for the whole run, from `j = 2` / `jm-3`: copy for the scalars and `u`, half the value for `v`, `w`) |
+| Lid: species | `ATSAT_BC_SPECIES_LID_COPY` | 1 since 2026-10-11 (0 = the cubic extrapolation, which overshot on the lid: CH4 ice 93 g/m3 there against 42 one cell below) |
+| Lid: v and w | `ATSAT_BC_TOP_TAPER` | 2 since 2026-10-11 (0 = extrapolated, as before; 2 = tapered to zero over the top three layers) |
+| Adjustment kept by the time step | `ATSAT_RK_SCALAR_SYNC` | 2 since 2026-10-11 (0 = before: the Runge-Kutta step started from copies made before the saturation adjustment and discarded its condensate and its latent heat every step; 1 = keep the condensate only) |
+| Temperature budget by level (print-only) | `ATSAT_TB_DIAG=<n>` | off (prints every n iterations which stage of the loop and which term of `rhs_t` changed the level-mean temperature; `planet/TbSat.h`) |
 
 ---
 
@@ -256,7 +260,7 @@ restarts have identical grid dimensions and would otherwise be read as nonsense.
 
 None of these stops a run; all of them affect what a result means.
 
-0. **`ATSAT_THERMAL_MASSFLUX` exists as a measurement instrument** (default 1.0, inert). It scales the
+0. **`ATSAT_THERMAL_MASSFLUX` defaults to 0.0 since 2026-10-11: the diffusive-enthalpy term is out of the temperature equation**, as on ATJUP (1.0 restores it). With it the column drifted — over 224 iterations the level-mean temperature changed by +1.5 K at the bottom, −3.4 K at level 20 and +8.2 K under the lid, and the term itself supplied +1.5 / −2.5 / +7.9 of that; without it the changes are −0.06 / −1.05 / +0.17 K and max T stays at its initial value. `ATSAT_TB_DIAG` is the instrument that showed it. What follows describes the knob as it was introduced (default 1.0, inert). It scales the
    diffusive-enthalpy sink in `rhs_t`. On this model that term is well-behaved — it *balances* the
    transport term (+0.163 against +0.158) and switching it off moves the photosphere by 0.24 K and
    the emitted flux by 0.6 % (1.234 → 1.226 W/m²). That is not true of the ice giants, where the same term dominates

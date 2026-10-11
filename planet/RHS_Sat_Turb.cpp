@@ -14,6 +14,7 @@
 */
 
 #include "cSaturnModel.h"
+#include "TbSat.h"
 
 using namespace std;
 
@@ -663,9 +664,18 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     }
 
 // right hand sides of the Navier-Stokes equations
-    // ATSAT_THERMAL_MASSFLUX scales the diffusive-enthalpy sink below. DEFAULT 1.0, so the
-    // model is unchanged unless it is set; 0.0 removes the term, which is what ATJUP's rhs_t does
+    // ATSAT_THERMAL_MASSFLUX scales the diffusive-enthalpy term below. DEFAULT 0.0 SINCE 2026-10-11
+    // on the user's word (SAT-TMAX): the term is out of rhs_t, which is what ATJUP's rhs_t does
     // permanently (it carries radiation_t + precip_t there and no thermalmassflux term at all).
+    // 1.0 restores the model of every run before that.
+    // WHY: it was the whole of the temperature drift. MEASURED with ATSAT_TB_DIAG, 224 iterations,
+    // level-mean change in K at levels 1 / 5 / 20 / 35 / 39 (satchk/giants/TB1 against TMF0):
+    //     with the term     +1.49 / +1.45 / -3.42 / +5.90 / +8.23, of which the term itself
+    //                       +1.55 / +1.68 / -2.47 / +6.09 / +7.90
+    //     without it        -0.06 / -0.21 / -1.05 / -0.24 / +0.17
+    // and max T stays at its initial 126.8 degC instead of climbing (133.6 after 1000 iterations).
+    // The cell measurement below, where the term "balances the transport", holds at that one cell
+    // and not in the level mean: the radial transport is -0.06 .. -1.1 K over the same run.
     //
     // IT IS A KNOB BECAUSE THE TERM DOMINATES rhs_t ON THE ICE GIANTS BY ORDERS OF MAGNITUDE.
     // Measured at i=30, j=90, k=180, single-threaded, against the other three contributions:
@@ -687,7 +697,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     // at ~2.7 bar with a decoupled warm blob above it whose top is what the photosphere diagnostic
     // then reads. See the measurement in the commit that added this knob.
     static const double tmf_scale = [](){
-        const char* e = getenv("ATSAT_THERMAL_MASSFLUX"); return e ? atof(e) : 1.0; }();
+        const char* e = getenv("ATSAT_THERMAL_MASSFLUX"); return e ? atof(e) : 0.0; }();
 
     rhs_t.x[i][j][k] =
         + pressure_t
@@ -696,6 +706,26 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         - tmf_scale * chemical_reaction * thermalmassflux.x[i][j][k]
         + radiation_t
         + precip_t;
+
+    // ATSAT_TB_DIAG (print-only, see TbSat.h): RK4-weighted level sums of each term of rhs_t, per
+    // thread. Nothing here is read by the model.
+    if(SatTb::st().on && i < SatTb::MAXLEV){
+        const double cw = SatTb::st().stage_wgt * std::sin(the.z[j]);
+        #ifdef _OPENMP
+            const int th_ = omp_get_thread_num();
+        #else
+            const int th_ = 0;
+        #endif
+        double (*a_)[SatTb::MAXLEV] = SatTb::st().acc[th_];
+        a_[SatTb::T_PRESS][i]  += cw * pressure_t;
+        a_[SatTb::T_TR_RAD][i] -= cw * u_ijk * dtdr;
+        a_[SatTb::T_TR_THE][i] -= cw * v_ijk * dtdthe * inv_rm;
+        a_[SatTb::T_TR_PHI][i] -= cw * w_ijk * dtdphi * inv_rmsinthe;
+        a_[SatTb::T_DIFF][i]   += cw * (diffusion_t/(re * pr) + diffusion_t * nue_t_s);
+        a_[SatTb::T_TMF][i]    -= cw * tmf_scale * chemical_reaction * thermalmassflux.x[i][j][k];
+        a_[SatTb::T_RAD][i]    += cw * radiation_t;
+        a_[SatTb::T_PRECIP][i] += cw * precip_t;
+    }
 
     rhs_u.x[i][j][k] =
         - dpdr
