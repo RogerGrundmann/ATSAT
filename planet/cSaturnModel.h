@@ -299,7 +299,13 @@ public:
     // The same diagnostic on ATJUP at its scale of 1 reads 15.3 against 13.7, so the rule is the
     // one the Jovian set satisfies. With 1 the H2O snow flux sat on the cap over a whole model
     // level, as the note in cSaturnModel.cpp records. ATSAT_PRECIP_SCALE=1 restores.
-    static double precip_rate_scale(){ return 0.006; }
+    // RECALIBRATED 2026-10-12 on the user's word: 0.006 -> 0.0045. The 0.006 was set on 10-09,
+    // when the time step discarded the adjustment's condensate, the prescribed radial branch was
+    // on and p_dyn started from the kinetic-energy field. On today's defaults it read 6.15 W/m2
+    // at iteration 2 and 6.00 at 224 against 4.45 emitted (satchk/giants/SL224); 0.0045 reads
+    // 4.57 at iteration 2 and 4.45 at 224 (SC45). The flux falls slowly through the run, so the
+    // number is fitted at 224 iterations, not at 16 as the first one was.
+    static double precip_rate_scale(){ return 0.0045; }
 
     // ---- What the SHARED PressureSolver.h asks of this model ----
     //

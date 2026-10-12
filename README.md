@@ -113,6 +113,7 @@ baseline.
 | Flux form of the species transport | `ATSAT_SPECIES_DIVU=<s>` | 0 = off (adds `−s·q·div(u)` to all eleven species; at 1, 224 iterations: H2O column +0.003 %, NH3 +0.007 %, but CH4 −0.019 % instead of +0.020 % — not closed at the lid) |
 | Initial dynamic pressure | `ATSAT_PDYN_INIT` | 0 since 2026-10-12: `p_dyn` starts at zero (1 = before: the kinetic energy density of the prescribed wind, whose radial gradient accelerated u by up to 1.5 m/s per iteration under the lid; with 0 the H2O / NH3 / CH4 columns change by +0.0007 / +0.0049 / −0.0002 % in 224 iterations instead of −0.21 / −0.21 / +0.02 %, and the continuity residuum stays at 0.026) |
 | Rigid lid for the radial wind | `ATSAT_BC_RIGID_LID` | 1 since 2026-10-12, as on ATJUP (0 = before: u on both radial planes extrapolated from the interior; the same knob sets the pressure solver's wall condition). 224 iterations, 0 against 1: columns and continuity residuum unchanged (0.026), radial wind −0.007..+0.140 → −0.004..+0.142 m/s |
+| Precipitation rate scale | `ATSAT_PRECIP_SCALE` | 0.0045 since 2026-10-12 (0.006 before, calibrated on 10-09 on a model that discarded the condensate; on today's defaults it read 6.00 W/m² of latent flux against 4.45 emitted at 224 iterations, 0.0045 reads 4.45) |
 
 ---
 
