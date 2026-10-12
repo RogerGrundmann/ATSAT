@@ -689,7 +689,11 @@ private:
 // latent heat of evaporation
     double lv_ch4 = 5.11e5;  // latent heat of ch4 evaporation in J/kg
     double lv_h2o = 2.5009e6;  // latent heat of h2o evaporation at 0°C in J/kg
-    double lv_h2s = 3.5340e6;  // latent heat of h2s evaporation at -73°C in J/kg
+    // lv_h2s CORRECTED 2026-10-12 on the user's word, with ATNEPT and ATURAN: 5.5e5 J/kg (H2S
+    // evaporates with about 548 kJ/kg at its boiling point). The 3.534e6 that stood here was larger
+    // than ls_h2s = 7.45e5, i.e. a negative heat of fusion. Nothing reads it in this model -- H2S
+    // is a gas here, without cloud or ice -- so the output is unchanged.
+    double lv_h2s = 5.5e5;  // latent heat of h2s evaporation in J/kg
     double lv_nh3 = 1.3720e6;  // latent heat of nh3 evaporation at -33.33 in J/kg
 
 // latent heat of sublimation
@@ -952,6 +956,13 @@ private:
     Array_2D precip_srf_nh3;    // surface precipitation, NH3   [kg/m2/s]
     Array_2D precip_srf_ch4;    // surface precipitation, CH4   [kg/m2/s]
     Array_2D precip_srf_nh4sh;  // surface precipitation, NH4SH [kg/m2/s]
+
+    // Hooks of the shared Precipitation.h for a condensable beyond H2O / NH3 / CH4 (2026-10-12).
+    // This model has none: H2S is a gas here, without cloud or ice fields.
+    template<class P> void precip_extra_species(P&){}
+    void precip_extra_surface(){}
+    double precip_extra_diag(){ return 0.0; }
+
     Array_2D precip_srf_total;  // surface precipitation, all species [kg/m2/s]
     Array_2D vel_star;          // friction velocity u_tau at the first fluid layer [m/s]
 
