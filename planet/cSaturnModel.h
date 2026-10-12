@@ -246,7 +246,12 @@ public:
     // cubic; every hardening knob is OFF, because on Saturn none of them is measured yet.
     static int bc_margin(){ return 1; }
     static int bc_default_form(){ return BCForm::CUBIC; }
-    static int bc_default_rigid_lid(){ return 0; }
+    // RIGID LID DEFAULT 1 SINCE 2026-10-12 on the user's word, as on ATJUP (ATSAT_BC_RIGID_LID=0
+    // restores; the same knob sets the pressure solver's wall condition, press_rigid_lid() below).
+    // The shell is closed, so the wall-normal velocity is zero on both radial planes; the
+    // extrapolated value it replaces admitted a mass flux through the lid. The README row of the
+    // knob has the measurement.
+    static int bc_default_rigid_lid(){ return 1; }
     // 2 since 2026-10-11 (SAT-LID; ATSAT_BC_TOP_TAPER=0 restores): v and w are brought to zero
     // over the top three layers, re-derived from i = im-4 every call. Extrapolated by the cubic
     // they overshot on the lid -- w 88.2 / 61.2 / 20.7 m/s below it gave -33.3 on it.
@@ -306,7 +311,7 @@ public:
     // Rigid radial walls on aux_u, default OFF here where ATJUP has them ON. ATSAT's i=0 is the
     // deep interior of a gas giant rather than a floor, and whether a lid belongs there at all is
     // a modelling question the port did not get to settle. ATSAT_BC_RIGID_LID=1 turns it on.
-    static bool press_rigid_lid(){ return false; }
+    static bool press_rigid_lid(){ return true; }    // 2026-10-12, with bc_default_rigid_lid()
 
     // The model's own boundary conditions on aux_*/rhs_* before the projection takes their
     // divergence. Defined in Pressure_Sat.cpp; these are computePressure()'s conditions, kept
