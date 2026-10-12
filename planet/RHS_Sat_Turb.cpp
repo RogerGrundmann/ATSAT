@@ -15,6 +15,7 @@
 
 #include "cSaturnModel.h"
 #include "TbSat.h"
+#include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
 
 using namespace std;
 
@@ -804,6 +805,46 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         - transport_nh3_ice
         + diffusion_nh3_ice/(sc_nh3 * re) + diffusion_nh3_ice * nue_t_s
         + precip_coupling * S_precip_nh3_ice.x[i][j][k];
+
+    // ATSAT_CWB_DIAG (print-only, see CwbSat.h): RK4-weighted column sums of each term of the
+    // three equations of H2O, NH3 and CH4, per thread. Nothing here is read by the model.
+    if(SatCwb::st().on){
+        const double dz_cwb = layer_thickness_m(i);
+        if(dz_cwb > 0.0){
+            const double cw = SatCwb::st().stage_wgt * std::sin(the.z[j]) * dz_cwb;
+            #ifdef _OPENMP
+                const int th_ = omp_get_thread_num();
+            #else
+                const int th_ = 0;
+            #endif
+            double (*a_)[8] = SatCwb::st().acc[th_];
+            const double v_invrm = v_ijk * inv_rm, w_invrs = w_ijk * inv_rmsinthe;
+            const double div_u = dudr + 2.0 * u_ijk * inv_rm + dvdthe * inv_rm + v_ijk * cotanthe * inv_rm + dwdphi * inv_rmsinthe;
+            double* a;
+            a = a_[SatCwb::G_H2O];
+            a[SatCwb::T_RAD]    -= cw * u_ijk   * (dh2odr   + dh2ocdr   + dh2oidr);
+            a[SatCwb::T_THE]    -= cw * v_invrm * (dh2odthe + dh2ocdthe + dh2oidthe);
+            a[SatCwb::T_PHI]    -= cw * w_invrs * (dh2odphi + dh2ocdphi + dh2oidphi);
+            a[SatCwb::T_DIFF]   += cw * (1.0 / (sc_h2o * re) + nue_t_s) * (diffusion_h2o + diffusion_h2o_cloud + diffusion_h2o_ice);
+            a[SatCwb::T_PRECIP] += cw * precip_coupling * (S_precip_h2o.x[i][j][k] + S_precip_h2o_cloud.x[i][j][k] + S_precip_h2o_ice.x[i][j][k]);
+            a[SatCwb::T_QDIV]   += cw * (h2o.x[i][j][k] + h2o_cloud.x[i][j][k] + h2o_ice.x[i][j][k]) * div_u;
+            a = a_[SatCwb::G_NH3];
+            a[SatCwb::T_RAD]    -= cw * u_ijk   * (dnh3dr   + dnh3cdr   + dnh3idr);
+            a[SatCwb::T_THE]    -= cw * v_invrm * (dnh3dthe + dnh3cdthe + dnh3idthe);
+            a[SatCwb::T_PHI]    -= cw * w_invrs * (dnh3dphi + dnh3cdphi + dnh3idphi);
+            a[SatCwb::T_DIFF]   += cw * (1.0 / (sc_nh3 * re) + nue_t_s) * (diffusion_nh3 + diffusion_nh3_cloud + diffusion_nh3_ice);
+            a[SatCwb::T_CHEM]   += cw * chemical_reaction * massflux_nh3.x[i][j][k];
+            a[SatCwb::T_PRECIP] += cw * precip_coupling * (S_precip_nh3.x[i][j][k] + S_precip_nh3_cloud.x[i][j][k] + S_precip_nh3_ice.x[i][j][k]);
+            a[SatCwb::T_QDIV]   += cw * (nh3.x[i][j][k] + nh3_cloud.x[i][j][k] + nh3_ice.x[i][j][k]) * div_u;
+            a = a_[SatCwb::G_CH4];
+            a[SatCwb::T_RAD]    -= cw * u_ijk   * (dch4dr   + dch4cdr   + dch4idr);
+            a[SatCwb::T_THE]    -= cw * v_invrm * (dch4dthe + dch4cdthe + dch4idthe);
+            a[SatCwb::T_PHI]    -= cw * w_invrs * (dch4dphi + dch4cdphi + dch4idphi);
+            a[SatCwb::T_DIFF]   += cw * (1.0 / (sc_ch4 * re) + nue_t_s) * (diffusion_ch4 + diffusion_ch4_cloud + diffusion_ch4_ice);
+            a[SatCwb::T_PRECIP] += cw * precip_coupling * (S_precip_ch4.x[i][j][k] + S_precip_ch4_cloud.x[i][j][k] + S_precip_ch4_ice.x[i][j][k]);
+            a[SatCwb::T_QDIV]   += cw * (ch4.x[i][j][k] + ch4_cloud.x[i][j][k] + ch4_ice.x[i][j][k]) * div_u;
+        }
+    }
 
     rhs_nh4sh.x[i][j][k] =
         - transport_nh4sh

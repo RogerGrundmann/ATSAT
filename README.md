@@ -108,6 +108,7 @@ baseline.
 | Lid: v and w | `ATSAT_BC_TOP_TAPER` | 2 since 2026-10-11 (0 = extrapolated, as before; 2 = tapered to zero over the top three layers) |
 | Adjustment kept by the time step | `ATSAT_RK_SCALAR_SYNC` | 2 since 2026-10-11 (0 = before: the Runge-Kutta step started from copies made before the saturation adjustment and discarded its condensate and its latent heat every step; 1 = keep the condensate only) |
 | Temperature budget by level (print-only) | `ATSAT_TB_DIAG=<n>` | off (prints every n iterations which stage of the loop and which term of `rhs_t` changed the level-mean temperature; `planet/TbSat.h`) |
+| Column budget of H2O, NH3, CH4 (print-only) | `ATSAT_CWB_DIAG=<n>` | off (prints every n iterations which stage of the loop and which term of the species equations changed each column of vapour + cloud + ice, in g/m², with `q·div(u)` as a reference; `planet/CwbSat.h`, ported from `ATJUP_CWB_DIAG`) |
 
 ---
 
