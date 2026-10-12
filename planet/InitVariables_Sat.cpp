@@ -69,6 +69,32 @@ void cSaturnModel::init_PressureDynamic(){
 
     auto begin = std::chrono::high_resolution_clock::now();
 
+    // ATSAT_PDYN_INIT (2026-10-12; DEFAULT 0 on the user's word, 1 restores): what the dynamic
+    // pressure starts from. 1 is the kinetic energy density of the prescribed wind,
+    // r_mix (u2 + v2 + w2) / 6, which this routine has always written; 0 starts it at zero and
+    // leaves it to the pressure solver.
+    // WHY. p_dyn enters the momentum equations through its gradient, and the radial gradient of
+    // that kinetic-energy field is a force nothing balances: it follows the jet, rising to the
+    // tropopause and falling to zero over the three tapered layers under the lid. MEASURED,
+    // per-term print of rhs_u at iteration 1, u increment per iteration (ATJUP/satchk/giants/
+    // UD): -dp/dr -0.010 .. -0.047 m/s in the level mean at levels 8..35, +0.20 at level 38 and
+    // +0.45 at level 39 (+1.49 at 10 N); every other term at most 4e-4, among them the metric
+    // term (v2 + w2)/rm that a balanced pressure would have to hold. The radial wind this drives
+    // is the divergence the species transport, written in advective form, turns into a column
+    // change (ATSAT_CWB_DIAG). 1 against 0, radial branch off in both:
+    //     16 iterations   max u 3.71 -> 0.017 m/s, continuity residuum 0.116 -> 0.0265
+    //     224 iterations  H2O column -0.206 % -> +0.0007 %, NH3 -0.206 % -> +0.0049 %,
+    //                     CH4 +0.020 % -> -0.0002 %, residuum 0.177 (growing) -> 0.026 (flat),
+    //                     u -13 .. +3 -> -0.007 .. +0.14 m/s; v, w and T extrema unchanged.
+    static const int pdyn_init = [](){ const char* e = getenv("ATSAT_PDYN_INIT"); return e ? atoi(e) : 0; }();
+    if(pdyn_init == 0){
+        for(int k = 0; k < km; k++)
+            for(int j = 0; j < jm; j++)
+                for(int i = 0; i < im; i++) p_dyn.x[i][j][k] = 0.0;
+        cout << "      ATSAT: init_PressureDynamic: p_dyn starts at zero (ATSAT_PDYN_INIT=1 restores the kinetic-energy field)" << endl;
+        return;
+    }
+
     for(int k = 0; k < km; k++){
         for(int j = 0; j < jm; j++){
             for(int i = 0; i < im; i++){

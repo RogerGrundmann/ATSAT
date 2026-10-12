@@ -111,6 +111,7 @@ baseline.
 | Column budget of H2O, NH3, CH4 (print-only) | `ATSAT_CWB_DIAG=<n>` | off (prints every n iterations which stage of the loop and which term of the species equations changed each column of vapour + cloud + ice, in g/m², with `q·div(u)` as a reference; `planet/CwbSat.h`, ported from `ATJUP_CWB_DIAG`) |
 | Radial branch of the initial cells | `ATSAT_U_INIT_SCALE` | 0 since 2026-10-12 (1 = before: a prescribed radial wind of up to 80 m/s without a matching horizontal branch, which was the velocity divergence of the initial state; with it the H2O and NH3 columns lost 0.45 % in 224 iterations through the advective-form transport, without it 0.21 %) |
 | Flux form of the species transport | `ATSAT_SPECIES_DIVU=<s>` | 0 = off (adds `−s·q·div(u)` to all eleven species; at 1, 224 iterations: H2O column +0.003 %, NH3 +0.007 %, but CH4 −0.019 % instead of +0.020 % — not closed at the lid) |
+| Initial dynamic pressure | `ATSAT_PDYN_INIT` | 0 since 2026-10-12: `p_dyn` starts at zero (1 = before: the kinetic energy density of the prescribed wind, whose radial gradient accelerated u by up to 1.5 m/s per iteration under the lid; with 0 the H2O / NH3 / CH4 columns change by +0.0007 / +0.0049 / −0.0002 % in 224 iterations instead of −0.21 / −0.21 / +0.02 %, and the continuity residuum stays at 0.026) |
 
 ---
 
