@@ -86,7 +86,32 @@ void cSaturnModel::init_PressureDynamic(){
     //     224 iterations  H2O column -0.206 % -> +0.0007 %, NH3 -0.206 % -> +0.0049 %,
     //                     CH4 +0.020 % -> -0.0002 %, residuum 0.177 (growing) -> 0.026 (flat),
     //                     u -13 .. +3 -> -0.007 .. +0.14 m/s; v, w and T extrema unchanged.
-    static const int pdyn_init = [](){ const char* e = getenv("ATSAT_PDYN_INIT"); return e ? atoi(e) : 0; }();
+    // 2 (2026-10-12, DEFAULT on the user's word, as on ATNEPT and ATURAN): p_dyn starts in balance
+    // with the metric term of the radial momentum equation. rhs_u carries + (v2 + w2) / rm, the
+    // centrifugal acceleration of the horizontal flow itself; with p_dyn = 0 nothing opposes it
+    // and it pushes u upward in every column (measured here this morning: +3.8e-4 m/s per
+    // iteration in the level mean, the largest term left once the kinetic-energy field was
+    // gone). The pressure solver has the term in its source, but one sweep per call does not
+    // build the gradient. rhs_u takes -dp_dyn/dr unscaled here, so d p_dyn / dr = (v2 + w2) / rm,
+    // integrated up from zero at the bottom, trapezoid in r. The README row has the measurement.
+    static const int pdyn_init = [](){ const char* e = getenv("ATSAT_PDYN_INIT"); return e ? atoi(e) : 2; }();
+    if(pdyn_init == 2){
+        double pmax = 0.0;
+        #pragma omp parallel for collapse(2) schedule(static) reduction(max:pmax)
+        for(int j = 0; j < jm; j++){
+            for(int k = 0; k < km; k++){
+                double f_prev = 0.0, p_ = 0.0;
+                for(int i = 0; i < im; i++){
+                    const double f = (v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) / metricRadius(rad.z[i]);
+                    if(i > 0) p_ += 0.5 * (f_prev + f) * dr;
+                    p_dyn.x[i][j][k] = p_; f_prev = f;
+                    if(p_ > pmax) pmax = p_;
+                }
+            }
+        }
+        printf("      ATSAT: init_PressureDynamic: p_dyn balances the metric term (v2 + w2)/rm of rhs_u; max %.6f (the model's unit) (ATSAT_PDYN_INIT=0 starts it at zero)\n", pmax);
+        return;
+    }
     if(pdyn_init == 0){
         for(int k = 0; k < km; k++)
             for(int j = 0; j < jm; j++)
