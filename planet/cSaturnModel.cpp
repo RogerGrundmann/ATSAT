@@ -558,7 +558,7 @@ void cSaturnModel::Run(){
         "RungeKutta: floor, limiters and remainder", "bcTheta, bcPhi, bcRadius", "clampNegativeSpecies", "turbulence, convective adjustment" };
     static const char* cw_term[SatCwb::NTERM] = { "RungeKutta: radial transport   -u dq/dr", "RungeKutta: meridional transport",
         "RungeKutta: zonal transport", "RungeKutta: diffusion", "RungeKutta: chemistry source", "RungeKutta: precipitation source",
-        "(reference, not a term) q*div(u)" };
+        "RungeKutta: flux-form term  -s q div(u)", "(reference, not a term) q*div(u)" };
     Array* cw_f[SatCwb::NGAS][3]  = { { &h2o,  &h2o_cloud,  &h2o_ice  }, { &nh3,  &nh3_cloud,  &nh3_ice  }, { &ch4,  &ch4_cloud,  &ch4_ice  } };
     Array* cw_fn[SatCwb::NGAS][3] = { { &h2on, &h2o_cloudn, &h2o_icen }, { &nh3n, &nh3_cloudn, &nh3_icen }, { &ch4n, &ch4_cloudn, &ch4_icen } };
     double cw_sum[SatCwb::NGAS][TB_N] = {{0.0}}, cw_tsum[SatCwb::NGAS][SatCwb::NTERM] = {{0.0}};

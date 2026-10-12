@@ -853,6 +853,55 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 //        + chemical_reaction * w_nh4sh.x[i][j][k];
         + chemical_reaction * massflux_nh4sh.x[i][j][k];
 
+    // ATSAT_SPECIES_DIVU=<s> (2026-10-12), DEFAULT 0 = OFF (block skipped, byte-identical): the
+    // flux form of the species transport, ATJUP's ATJUP_SPECIES_DIVU. Every species here is a
+    // DENSITY [kg/m3], so its conservation law is
+    //     dq/dt = -div(q u) = -u.grad q - q div(u),
+    // and the transport above is the first half alone. On a closed column the advective form
+    // creates or destroys exactly the integral of q div(u). <s> scales the missing half,
+    // -s * q * div(u), on all eleven species: 1 is the flux form, a value between is for
+    // approaching it. The temperature is not a density and keeps the advective form. div(u) is
+    // formed from the same derivatives and metric factors the transport itself uses.
+    // ON JUPITER the knob closed the column on a divergent flow but piled the species up at the
+    // convergence points (nh3 x 2.3, ch4 x 2.9 in 224 iterations), which is why it is off there.
+    // MEASURED HERE with ATSAT_CWB_DIAG, 224 iterations, 8 threads, radial branch off (ATJUP/
+    // satchk/giants/UI224 against DV224 with <s> = 1), column change: H2O -0.206 % -> +0.003 %,
+    // NH3 -0.206 % -> +0.007 %, CH4 +0.020 % -> -0.019 %. No pile-up: the species maxima move
+    // by +0.7 % or less, max nh3_cloud by +18 %; T, u, v, w extrema unchanged. CH4 IS NOT CLOSED
+    // BY IT: its advective transport (+16 009 g/m2) is less than half of q div(u) (+38 024), so
+    // the flux form turns a gain into a loss of the same size -- a flux or a stencil error at the
+    // lid, where the CH4 ice sits; not looked into. 16 iterations with the radial branch ON
+    // (DV1): H2O +0.0005 %, NH3 +0.0003 %.
+    static const double species_divu = [](){ const char* e = getenv("ATSAT_SPECIES_DIVU"); return e ? atof(e) : 0.0; }();
+    if(species_divu != 0.0){
+        const double sd = species_divu * (dudr + 2.0 * u_ijk * inv_rm + dvdthe * inv_rm
+                                          + v_ijk * cotanthe * inv_rm + dwdphi * inv_rmsinthe);
+        if(SatCwb::st().on){
+            const double dz_cwb = layer_thickness_m(i);
+            if(dz_cwb > 0.0){
+                #ifdef _OPENMP
+                    const int th_ = omp_get_thread_num();
+                #else
+                    const int th_ = 0;
+                #endif
+                const double cw = SatCwb::st().stage_wgt * std::sin(the.z[j]) * dz_cwb * sd;
+                SatCwb::st().acc[th_][SatCwb::G_H2O][SatCwb::T_DIVU] -= cw * (h2o.x[i][j][k] + h2o_cloud.x[i][j][k] + h2o_ice.x[i][j][k]);
+                SatCwb::st().acc[th_][SatCwb::G_NH3][SatCwb::T_DIVU] -= cw * (nh3.x[i][j][k] + nh3_cloud.x[i][j][k] + nh3_ice.x[i][j][k]);
+                SatCwb::st().acc[th_][SatCwb::G_CH4][SatCwb::T_DIVU] -= cw * (ch4.x[i][j][k] + ch4_cloud.x[i][j][k] + ch4_ice.x[i][j][k]);
+            }
+        }
+        rhs_h2o.x[i][j][k]       -= sd * h2o.x[i][j][k];
+        rhs_h2o_cloud.x[i][j][k] -= sd * h2o_cloud.x[i][j][k];
+        rhs_h2o_ice.x[i][j][k]   -= sd * h2o_ice.x[i][j][k];
+        rhs_h2s.x[i][j][k]       -= sd * h2s.x[i][j][k];
+        rhs_nh3.x[i][j][k]       -= sd * nh3.x[i][j][k];
+        rhs_nh3_cloud.x[i][j][k] -= sd * nh3_cloud.x[i][j][k];
+        rhs_nh3_ice.x[i][j][k]   -= sd * nh3_ice.x[i][j][k];
+        rhs_ch4.x[i][j][k]       -= sd * ch4.x[i][j][k];
+        rhs_ch4_cloud.x[i][j][k] -= sd * ch4_cloud.x[i][j][k];
+        rhs_ch4_ice.x[i][j][k]   -= sd * ch4_ice.x[i][j][k];
+        rhs_nh4sh.x[i][j][k]     -= sd * nh4sh.x[i][j][k];
+    }
 
     aux_u.x[i][j][k] = rhs_u.x[i][j][k] + dpdr;
     aux_v.x[i][j][k] = rhs_v.x[i][j][k] + dpdthe * inv_rm;

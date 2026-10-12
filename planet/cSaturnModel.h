@@ -851,6 +851,21 @@ private:
 
     void init_tropopause_layers();
     void init_u(Array &u, int j);
+    // ATSAT_U_INIT_SCALE (2026-10-12; DEFAULT 0 on the user's word, 1 restores exactly): the
+    // amplitude of the prescribed radial branch of the cells (init_u, peak 80 m/s x the scale).
+    // MEASURED with ATSAT_CWB_DIAG (ATJUP/satchk/giants). 16 iterations at 1 / 0.1 / 0 (CWd, UI01,
+    // UI0), radial transport of the H2O column -5 539 / -978 / -470 g/m2, of NH3 -2 540 / -439 /
+    // -205, continuity residuum 0.302 / 0.116 / 0.116: the branch was 91 % of the loss, and what
+    // is left is the divergence of the HORIZONTAL initial winds, which this knob does not touch
+    // (ATJUP's residuum at 0 is 0.038). 224 iterations at 1 against 0 (CW224, UI224): H2O column
+    // -0.454 % -> -0.206 %, NH3 -0.461 % -> -0.206 %, CH4 +0.018 % -> +0.020 %; residuum 0.330 ->
+    // 0.177 (it grows from 0.116: the model builds a radial wind of its own, -13 .. +3 m/s);
+    // max |v|, max |w| and the temperature extrema agree to five digits. The rest of the column
+    // change is closed by ATSAT_SPECIES_DIVU (RHS_Sat_Turb.cpp), which is off by default.
+    static double u_init_scale(){
+        static const double v = [](){ const char* e = getenv("ATSAT_U_INIT_SCALE"); return e ? atof(e) : 0.0; }();
+        return v;
+    }
     void form_diagonals(Array &a, int start, int end);
     void init_v_or_w(Array &v_or_w, int j, double coeff_trop, double coeff_sl);
     void init_v_or_w_above_tropopause(Array &v_or_w, int j, double coeff);

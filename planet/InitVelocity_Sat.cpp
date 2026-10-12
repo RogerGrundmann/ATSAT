@@ -581,7 +581,12 @@ void cSaturnModel::form_diagonals(Array &a, int start, int end){
 void  cSaturnModel::init_u(Array &u, int j){
 //    cout << endl << "      ATSAT: init_u" << endl;
 
-    double u_max = 80.0;
+    // ATSAT_U_INIT_SCALE (2026-10-12; DEFAULT 0 on the user's word, 1 restores): the amplitude of
+    // the prescribed radial branch of the cells, ATJUP's ATJUP_U_INIT_SCALE. The branch has no
+    // matching horizontal branch, so it IS the velocity divergence of the initial state, and the
+    // species transport, written in advective form, creates or destroys column mass on it.
+    // cSaturnModel.h has the measurement (u_init_scale()).
+    double u_max = 80.0 * u_init_scale();
     double u_center = 0.0;
 
 
