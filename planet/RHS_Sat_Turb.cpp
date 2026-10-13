@@ -16,6 +16,7 @@
 #include "cSaturnModel.h"
 #include "TbSat.h"
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
+#include "UbSat.h"           // ATSAT_UB_DIAG, print-only
 
 using namespace std;
 
@@ -353,6 +354,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 
     // ATSAT_METRIC_SPLIT=1: the metric term leaves rhs_u, p_metric balances it (RungeKutta_Sat_Turb.cpp)
     const double metric_on = metric_split() ? 0.0 : 1.0;
+    const double cor_rad_on = coriolis_split() ? 0.0 : 1.0;
     double transport_u = u_ijk * dudr + v_ijk * dudthe * inv_rm
         + w_ijk * dudphi * inv_rmsinthe
         - metric_on * (v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm;
@@ -741,8 +743,33 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         + buoyancy_u
         - transport_u
         + diffusion_u/re + diffusion_u * nue_t
-        - Coriolis * Coriolis_rad
+        - cor_rad_on * Coriolis * Coriolis_rad             // ATSAT_CORIOLIS_SPLIT: 0 when p_metric carries it
         + centrifugal * centrifugal_rad;
+
+    // ATSAT_UB_DIAG (print-only, see UbSat.h): RK4-weighted level sums of each term of rhs_u, per
+    // thread, for the whole level and for the equatorial band. Nothing here is read by the model.
+    if(SatUb::st().on && i < SatUb::MAXLEV){
+        const double cw = SatUb::st().stage_wgt * std::sin(the.z[j]);
+        #ifdef _OPENMP
+            const int th_ = omp_get_thread_num();
+        #else
+            const int th_ = 0;
+        #endif
+        const double tm_[SatUb::NTERM] = {
+            - dpdr,
+            + metric_on * (v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm,
+            - (u_ijk * dudr + v_ijk * dudthe * inv_rm + w_ijk * dudphi * inv_rmsinthe),
+            + diffusion_u/re + diffusion_u * nue_t,
+            - cor_rad_on * Coriolis * Coriolis_rad,
+            + centrifugal * centrifugal_rad,
+            + buoyancy_u,
+            0.0 };
+        const bool eq_ = (j >= SatUb::st().j_lo && j <= SatUb::st().j_hi);
+        for(int q_ = 0; q_ < SatUb::NTERM; q_++){
+            SatUb::st().acc[th_][SatUb::R_ALL][q_][i] += cw * tm_[q_];
+            if(eq_) SatUb::st().acc[th_][SatUb::R_EQ][q_][i] += cw * tm_[q_];
+        }
+    }
 
     // the horizontal gradient of p_metric, zero unless ATSAT_METRIC_SPLIT
     double dpmdthe = 0.0, dpmdphi = 0.0;

@@ -430,6 +430,13 @@ public:
     static bool metric_split(){
         static const bool v = [](){ const char* e = getenv("ATSAT_METRIC_SPLIT"); return e ? atoi(e) != 0 : true; }();
         return v; }
+    // ATSAT_CORIOLIS_SPLIT (2026-10-13; DEFAULT 1 on the user's word, 0 restores; acts only with
+    // ATSAT_METRIC_SPLIT): the radial Coriolis term of rhs_u joins the metric term in p_metric. It
+    // is a radial body force like the other, and with the metric term gone it was the one thing
+    // left driving u (measured on ATNEPT with ATNEPT_UB_DIAG).
+    static bool coriolis_split(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_CORIOLIS_SPLIT"); return e ? atoi(e) != 0 : true; }();
+        return v && metric_split(); }
     void computeMetricPressure();
 
     // ---- Numerical safety nets, ported from ATJUP. All off by default. ----

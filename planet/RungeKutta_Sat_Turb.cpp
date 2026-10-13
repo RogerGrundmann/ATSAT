@@ -14,6 +14,7 @@
 #include "cSaturnModel.h"
 #include "TbSat.h"
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
+#include "UbSat.h"           // ATSAT_UB_DIAG, print-only
 
 using namespace std;
 
@@ -60,10 +61,19 @@ void cSaturnModel::computeMetricPressure(){
     #pragma omp parallel for collapse(2) schedule(static)
     for(int j = 0; j < jm; j++){
         for(int k = 0; k < km; k++){
+            // ATSAT_CORIOLIS_SPLIT: plus the radial Coriolis force as rhs_u forms it,
+            // -Coriolis * nd_cor * (-2 omega sin(theta) w), true sine, nd_cor read as the RHS reads it.
+            static const bool nd_cor_on_ = [](){
+                const char* e = getenv("ATSAT_ND_COR"); const char* n = getenv("ATSAT_NONDIM");
+                const int c_ = e ? atoi(e) : -1, a_ = n ? atoi(n) : 0;
+                return (c_ >= 0 ? c_ : a_) != 0; }();
+            const double cor_ = coriolis_split()
+                ? Coriolis * (nd_cor_on_ ? L_atm * 1.0e3 / u_0 : 1.0) * 2.0 * omega * std::abs(sin(the.z[j])) : 0.0;
             auto f_ = [&](int i)->double{
                 const double rm_     = metricRadius(rad.z[i]);
                 const double exp_rm_ = coord_stretching ? 1.0 / (rm_ + 1.0) : 1.0;
-                return (v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) / (rm_ * exp_rm_); };
+                return ((v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) / rm_
+                        + cor_ * w.x[i][j][k]) / exp_rm_; };
             p_metric.x[0][j][k] = 0.0;
             for(int i = 1; i < im; i++)
                 p_metric.x[i][j][k] = p_metric.x[i-1][j][k] + 0.5 * (f_(i-1) + f_(i)) * dr;
@@ -176,6 +186,7 @@ void cSaturnModel::RungeKuttaSat(){
         const double wgt  = (stage == 0 || stage == 3) ? 1.0 : 2.0;
         SatTb::st().stage_wgt = wgt;                  // ATSAT_TB_DIAG: weight of the tendencies RHSSat is about to sum
         SatCwb::st().stage_wgt = wgt;                 // ATSAT_CWB_DIAG: the same weight
+        SatUb::st().stage_wgt = wgt;                 // ATSAT_UB_DIAG: the same weight
 
         // ---- pass A: tendencies everywhere, from one consistent state ----
         // Reads the live fields with a stencil and writes rhs_*, which are different arrays, so

@@ -20,6 +20,7 @@
 #include "RadiationSat.h"
 #include "TbSat.h"
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
+#include "UbSat.h"           // ATSAT_UB_DIAG, print-only
 #include "ThermalWindDiagSat.h"
 #include "PrecipitationSat.h"
 #include "TurbulenceSat.h"
@@ -555,6 +556,80 @@ void cSaturnModel::Run(){
         tb_last = tb_first = tb_lev(t);
     }
 
+    // ATSAT_UB_DIAG=<n> (print-only, see UbSat.h): the level mean of the radial wind after every
+    // stage of the loop that can write u, charged to that stage, in m/s; the Runge-Kutta step split
+    // into the terms of rhs_u; and the radial pressure force with what the pressure solver and the
+    // filter on p_dyn did to it. For the whole level and for the equatorial band (5 S .. 5 N by
+    // default, ATSAT_UB_BAND=<degrees>). Printed every n iterations.
+    static const int ub_every = [](){ const char* e = getenv("ATSAT_UB_DIAG"); return e ? atoi(e) : 0; }();
+    static const int ub_band  = [](){ const char* e = getenv("ATSAT_UB_BAND"); return e ? atoi(e) : 5; }();
+    const bool ub_on = ub_every > 0 && im <= SatUb::MAXLEV;
+    SatUb::st().on = ub_on;
+    SatUb::st().j_lo = (jm - 1) / 2 - ub_band;
+    SatUb::st().j_hi = (jm - 1) / 2 + ub_band;
+    enum { UB_RK_RESET = 0, UB_RK_REST, UB_FILTER, UB_BC, UB_N };
+    static const char* ub_name[UB_N] = { "RK reset", "RK rest", "filter on u", "BC" };
+    static const char* ub_term[SatUb::NTERM] = { "RK -dp/dr", "RK +(v2+w2)/r", "RK -advection", "RK diffusion",
+        "RK Coriolis", "RK centrifugal", "RK buoyancy", "RK sponge" };
+    static const char* ub_reg[SatUb::NREG] = { "whole level", "equatorial band" };
+    typedef std::vector<std::vector<double>> ub_tab;                       // [region][level]
+    std::vector<ub_tab> ub_sum(UB_N, ub_tab(SatUb::NREG, std::vector<double>(im, 0.0)));
+    std::vector<ub_tab> ub_tsum(SatUb::NTERM, ub_tab(SatUb::NREG, std::vector<double>(im, 0.0)));
+    ub_tab ub_last(SatUb::NREG, std::vector<double>(im, 0.0)), ub_first = ub_last;
+    ub_tab ub_f_first = ub_last, ub_m_first = ub_last, ub_f_solver = ub_last, ub_f_filter = ub_last;
+    double ub_norm[SatUb::NREG] = { 0.0, 0.0 };
+    // the cells the Runge-Kutta step integrates in phi: k = 0..km-2 with the periodic seam
+    const int ub_k0 = ATPhys::phi_first(ATPhys::phi_periodic<cSaturnModel>());
+    auto ub_in = [&](int r_, int j) -> bool {
+        return r_ == SatUb::R_ALL || (j >= SatUb::st().j_lo && j <= SatUb::st().j_hi); };
+    // level mean of a field [m/s]
+    auto ub_lev = [&](Array& a) -> ub_tab {
+        ub_tab m_(SatUb::NREG, std::vector<double>(im, 0.0));
+        #pragma omp parallel for schedule(static)
+        for(int i = 0; i < im; i++){
+            double s_[SatUb::NREG] = { 0.0, 0.0 };
+            for(int j = 1; j < jm-1; j++){
+                const double sj = std::sin(the.z[j]);
+                double row_ = 0.0;
+                for(int k = ub_k0; k < km-1; k++) row_ += a.x[i][j][k];
+                for(int r_ = 0; r_ < SatUb::NREG; r_++) if(ub_in(r_, j)) s_[r_] += sj * row_;
+            }
+            for(int r_ = 0; r_ < SatUb::NREG; r_++) m_[r_][i] = s_[r_] * u_0 / ub_norm[r_];
+        }
+        return m_; };
+    // level mean of the radial pressure force -dp_dyn/dr and of the metric term (v2 + w2)/r as
+    // rhs_u forms them, in m/s per iteration
+    auto ub_force = [&](bool metric) -> ub_tab {
+        ub_tab m_(SatUb::NREG, std::vector<double>(im, 0.0));
+        const double scale_p_ = 1.0e5 / (r_mix * u_0 * u_0);
+        #pragma omp parallel for schedule(static)
+        for(int i = 1; i < im-1; i++){
+            double s_[SatUb::NREG] = { 0.0, 0.0 };
+            const double inv_rm_ = 1.0 / metricRadius(rad.z[i]);
+            for(int j = 1; j < jm-1; j++){
+                const double sj = std::sin(the.z[j]);
+                double row_ = 0.0;
+                for(int k = ub_k0; k < km-1; k++)
+                    row_ += metric ? (v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) * inv_rm_
+                                   : -(p_dyn.x[i+1][j][k] - p_dyn.x[i-1][j][k]) / (2.0 * dr) * (coord_stretching ? inv_rm_ / (1.0 + inv_rm_) : 1.0) + 0.0 * scale_p_;
+                for(int r_ = 0; r_ < SatUb::NREG; r_++) if(ub_in(r_, j)) s_[r_] += sj * row_;
+            }
+            for(int r_ = 0; r_ < SatUb::NREG; r_++) m_[r_][i] = s_[r_] * dt * u_0 / ub_norm[r_];
+        }
+        return m_; };
+    auto ub_mark = [&](int stage){
+        if(!ub_on) return;
+        const ub_tab w_ = ub_lev(u);
+        for(int r_ = 0; r_ < SatUb::NREG; r_++) for(int i = 0; i < im; i++){
+            ub_sum[stage][r_][i] += w_[r_][i] - ub_last[r_][i]; ub_last[r_][i] = w_[r_][i]; } };
+    if(ub_on){
+        for(int j = 1; j < jm-1; j++) for(int r_ = 0; r_ < SatUb::NREG; r_++)
+            if(ub_in(r_, j)) ub_norm[r_] += std::sin(the.z[j]) * (km - 1 - ub_k0);
+        ub_last = ub_first = ub_lev(u);
+        ub_f_first = ub_force(false);
+        ub_m_first = ub_force(true);
+    }
+
     // ATSAT_CWB_DIAG=<n> (print-only, see CwbSat.h): the H2O, NH3 and CH4 columns after every
     // stage of the loop that can write them, charged to that stage, in g/m2; printed every n
     // iterations. The stages are the ones ATSAT_TB_DIAG marks.
@@ -621,8 +696,18 @@ void cSaturnModel::Run(){
             // (gated by ATSAT_LOCAL_RHO) or reads rho_mix directly when it must be local.
             computeMixtureDensity();
 
+            ub_tab ub_f0, ub_f1;
+            if(ub_on) ub_f0 = ub_force(false);
             getPressureSolver().run();
+            if(ub_on) ub_f1 = ub_force(false);
             AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
+            if(ub_on){
+                const ub_tab ub_f2 = ub_force(false);
+                for(int r_ = 0; r_ < SatUb::NREG; r_++) for(int i = 0; i < im; i++){
+                    ub_f_solver[r_][i] += ub_f1[r_][i] - ub_f0[r_][i];
+                    ub_f_filter[r_][i] += ub_f2[r_][i] - ub_f1[r_][i];
+                }
+            }
             tb_mark(TB_PRE); cwb_mark(TB_PRE);
 
             SaturationAdjustmentSat(*this).run("CH4",
@@ -726,7 +811,31 @@ void cSaturnModel::Run(){
                 for(int q_ = 0; q_ < 8; q_++) SatCwb::st().acc[t_][g_][q_] = 0.0;
         }
 
+        ub_tab ub_n;
+        if(ub_on){
+            ub_n = ub_lev(un);                                          // what the step starts from
+            for(int t_ = 0; t_ < SatUb::MAXTHR; t_++) for(int r_ = 0; r_ < SatUb::NREG; r_++)
+                for(int q_ = 0; q_ < SatUb::NTERM; q_++) for(int i = 0; i < im; i++) SatUb::st().acc[t_][r_][q_][i] = 0.0;
+        }
+
         RungeKuttaSat();
+
+        if(ub_on){
+            const ub_tab w_ = ub_lev(u);
+            for(int r_ = 0; r_ < SatUb::NREG; r_++) for(int i = 0; i < im; i++){
+                double step_terms = 0.0;
+                for(int q_ = 0; q_ < SatUb::NTERM; q_++){
+                    double a_ = 0.0;
+                    for(int t_ = 0; t_ < SatUb::MAXTHR; t_++) a_ += SatUb::st().acc[t_][r_][q_][i];
+                    a_ *= dt / 6.0 * u_0 / ub_norm[r_];
+                    ub_tsum[q_][r_][i] += a_; step_terms += a_;
+                }
+                ub_sum[UB_RK_RESET][r_][i] += ub_n[r_][i] - ub_last[r_][i];
+                ub_sum[UB_RK_REST][r_][i]  += w_[r_][i] - ub_n[r_][i] - step_terms;
+                ub_last[r_][i] = w_[r_][i];
+            }
+        }
+
 
         if(cwb_on){
             for(int g_ = 0; g_ < SatCwb::NGAS; g_++){
@@ -764,6 +873,7 @@ void cSaturnModel::Run(){
         BC_Sat(*this).bcTheta();
         BC_Sat(*this).bcPhi();
         BC_Sat(*this).bcRadius();
+        ub_mark(UB_BC);
 
         // Floor the species at zero before the n-level copies are refreshed, so the clamped
         // values are what the next Runge-Kutta step starts from. After the boundary conditions,
@@ -807,6 +917,38 @@ void cSaturnModel::Run(){
                 }
             }
             printf("\n");
+        }
+
+        if(ub_on && iter_n % ub_every == 0){
+            static const int lv_[] = { 0, 1, 2, 3, 5, 8, 12, 16, 20, 24, 28, 32, 35, 37, 38, 39, 40 };
+            const int nl_ = (int)(sizeof(lv_) / sizeof(lv_[0]));
+            const ub_tab f_now = ub_force(false), m_now = ub_force(true);
+            for(int r_ = 0; r_ < SatUb::NREG; r_++){
+                auto row_ = [&](const char* name, const std::vector<double>& x_, const char* fmt){
+                    printf("\n      ATSAT: [UB] %-16s", name);
+                    for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(fmt, x_[lv_[l]]); };
+                printf("\n      ATSAT: [UB] radial wind, %s (rows %d..%d), cumulative over iterations %d..%d, m/s\n      ATSAT: [UB] %-16s",
+                       ub_reg[r_], r_ == SatUb::R_ALL ? 1 : SatUb::st().j_lo, r_ == SatUb::R_ALL ? jm-2 : SatUb::st().j_hi, 1, iter_n, "level");
+                for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %9d", lv_[l]);
+                row_("u now", ub_last[r_], " %+9.5f");
+                std::vector<double> d_(im, 0.0);
+                for(int i = 0; i < im; i++) d_[i] = ub_last[r_][i] - ub_first[r_][i];
+                row_("change", d_, " %+9.5f");
+                for(int q_ = 0; q_ < UB_N; q_++){
+                    row_(ub_name[q_], ub_sum[q_][r_], " %+9.5f");
+                    if(q_ == UB_RK_RESET) for(int t_ = 0; t_ < SatUb::NTERM; t_++) row_(ub_term[t_], ub_tsum[t_][r_], " %+9.5f");
+                }
+                printf("\n      ATSAT: [UB] the radial force in the same region, m/s per iteration (x 1e3)");
+                std::vector<double> x_(im, 0.0);
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * f_now[r_][i];                 row_("-dp/dr now", x_, " %+9.4f");
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * m_now[r_][i];                 row_("(v2+w2)/r now", x_, " %+9.4f");
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * (f_now[r_][i] + m_now[r_][i]); row_("sum of the two", x_, " %+9.4f");
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * ub_m_first[r_][i];            row_("(v2+w2)/r start", x_, " %+9.4f");
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * ub_f_first[r_][i];            row_("-dp/dr at start", x_, " %+9.4f");
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * ub_f_solver[r_][i];           row_("  solver", x_, " %+9.4f");
+                for(int i = 0; i < im; i++) x_[i] = 1.0e3 * ub_f_filter[r_][i];           row_("  filter on p", x_, " %+9.4f");
+                printf("\n");
+            }
         }
 
         if(cwb_on && iter_n % cwb_every == 0){
