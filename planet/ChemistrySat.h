@@ -163,7 +163,7 @@ public:
             return (e && atoi(e) != 0) ? 1.0 : -1.0; }();
 
         #pragma omp parallel for collapse(3) schedule(static)
-        for(int k = 1; k < km-1; k++){
+        for(int k = ATPhys::phi_first(ATPhys::phi_periodic<cSaturnModel>()); k < km-1; k++){   // ATSAT_BC_PHI_PERIODIC
             for(int j = 1; j < jm-1; j++){
                 for(int i = 1; i < im-1; i++){
                     const double t_u = m.t.x[i][j][k] * m.t_ref;
@@ -254,7 +254,7 @@ public:
         // Pass 1: compute jT_* and j_* (ordinary + thermal diffusion fluxes).
         // Writes only at [i][j][k]; reads neighbouring cells of t/h2s/nh3/nh4sh.
         #pragma omp parallel for collapse(3) schedule(static)
-        for(int k = 1; k < km-1; k++){
+        for(int k = ATPhys::phi_first(ATPhys::phi_periodic<cSaturnModel>()); k < km-1; k++){   // ATSAT_BC_PHI_PERIODIC
             for(int j = 1; j < jm-1; j++){
                 for(int i = 1; i < im-1; i++){
                     const double rm       = m.metricRadius(m.rad.z[i]);
@@ -292,7 +292,7 @@ public:
         // Pass 2: compute difflux_* (divergence of j_*) and thermalmassflux.
         // Reads j_* from neighbouring cells — all written by pass 1.
         #pragma omp parallel for collapse(3) schedule(static)
-        for(int k = 1; k < km-1; k++){
+        for(int k = ATPhys::phi_first(ATPhys::phi_periodic<cSaturnModel>()); k < km-1; k++){   // ATSAT_BC_PHI_PERIODIC
             for(int j = 1; j < jm-1; j++){
                 for(int i = 1; i < im-1; i++){
                     const double rm       = m.metricRadius(m.rad.z[i]);
@@ -424,6 +424,12 @@ private:
     void derivative_1_order(int i, int j, int k,
         double &dcdr, double &dcdthe, double &dcdphi, Array &c)
     {
+        // The phi neighbours: k-1, k+1, k-2, k+2, taken round the ring at the seam when
+        // ATSAT_BC_PHI_PERIODIC=1 (ATPhys.h).
+        const bool phi_per = ATPhys::phi_periodic<cSaturnModel>();
+        const int kw  = ATPhys::phi_wrap(phi_per, k-1, m.km), ke  = ATPhys::phi_wrap(phi_per, k+1, m.km);
+        const int kw2 = ATPhys::phi_wrap(phi_per, k-2, m.km), ke2 = ATPhys::phi_wrap(phi_per, k+2, m.km);
+
         // radial gradients — SeaMount-aware
         if((m.SeaMount.x[i][j][k]==1.0) && (m.SeaMount.x[i+1][j][k]==0.0) && (m.SeaMount.x[i+2][j][k]==0.0)){
             c.x[i][j][k] = c.x[i+3][j][k] - 3.0*c.x[i+2][j][k] + 3.0*c.x[i+1][j][k];
@@ -453,22 +459,22 @@ private:
             dcdthe = (c.x[i][j+1][k] - c.x[i][j-1][k]) / (2.0*m.dthe);
 
         // east (k+1) gradients
-        if((m.SeaMount.x[i][j][k]==1.0) && (m.SeaMount.x[i][j][k+1]==0.0) && (m.SeaMount.x[i][j][k+2]==0.0)){
-            c.x[i][j][k] = c43*c.x[i][j][k+1] - c13*c.x[i][j][k+2];
-            dcdphi = (-3.0*c.x[i][j][k] + 4.0*c.x[i][j][k+1] - c.x[i][j][k+2]) / (2.0*m.dphi);
+        if((m.SeaMount.x[i][j][k]==1.0) && (m.SeaMount.x[i][j][ke]==0.0) && (m.SeaMount.x[i][j][ke2]==0.0)){
+            c.x[i][j][k] = c43*c.x[i][j][ke] - c13*c.x[i][j][ke2];
+            dcdphi = (-3.0*c.x[i][j][k] + 4.0*c.x[i][j][ke] - c.x[i][j][ke2]) / (2.0*m.dphi);
         }
-        if((m.SeaMount.x[i][j][k-1]==1.0) && (m.SeaMount.x[i][j][k]==0.0) && (m.SeaMount.x[i][j][k+1]==0.0))
-            dcdphi = (c.x[i][j][k+1] - c.x[i][j][k-1]) / (2.0*m.dphi);
+        if((m.SeaMount.x[i][j][kw]==1.0) && (m.SeaMount.x[i][j][k]==0.0) && (m.SeaMount.x[i][j][ke]==0.0))
+            dcdphi = (c.x[i][j][ke] - c.x[i][j][kw]) / (2.0*m.dphi);
 
         // west (k-1) gradients
-        if((m.SeaMount.x[i][j][k]==1.0) && (m.SeaMount.x[i][j][k-1]==0.0) && (m.SeaMount.x[i][j][k-2]==0.0)){
-            c.x[i][j][k] = c43*c.x[i][j][k-1] - c13*c.x[i][j][k-2];
-            dcdphi = (-3.0*c.x[i][j][k] + 4.0*c.x[i][j][k-1] - c.x[i][j][k-2]) / (2.0*m.dphi);
+        if((m.SeaMount.x[i][j][k]==1.0) && (m.SeaMount.x[i][j][kw]==0.0) && (m.SeaMount.x[i][j][kw2]==0.0)){
+            c.x[i][j][k] = c43*c.x[i][j][kw] - c13*c.x[i][j][kw2];
+            dcdphi = (-3.0*c.x[i][j][k] + 4.0*c.x[i][j][kw] - c.x[i][j][kw2]) / (2.0*m.dphi);
         }
-        if((m.SeaMount.x[i][j][k-1]==1.0) && (m.SeaMount.x[i][j][k]==0.0) && (m.SeaMount.x[i][j][k+1]==0.0))
-            dcdphi = (c.x[i][j][k+1] - c.x[i][j][k-1]) / (2.0*m.dphi);
-        if((m.SeaMount.x[i][j][k-1]==0.0) && (m.SeaMount.x[i][j][k]==0.0) && (m.SeaMount.x[i][j][k+1]==0.0))
-            dcdphi = (c.x[i][j][k+1] - c.x[i][j][k-1]) / (2.0*m.dphi);
+        if((m.SeaMount.x[i][j][kw]==1.0) && (m.SeaMount.x[i][j][k]==0.0) && (m.SeaMount.x[i][j][ke]==0.0))
+            dcdphi = (c.x[i][j][ke] - c.x[i][j][kw]) / (2.0*m.dphi);
+        if((m.SeaMount.x[i][j][kw]==0.0) && (m.SeaMount.x[i][j][k]==0.0) && (m.SeaMount.x[i][j][ke]==0.0))
+            dcdphi = (c.x[i][j][ke] - c.x[i][j][kw]) / (2.0*m.dphi);
     }
 
     // -----------------------------------------------------------------------
@@ -510,7 +516,9 @@ private:
 
         const double d2cdr2   = (c.x[i+1][j][k] - 2.0*c.x[i][j][k] + c.x[i-1][j][k]) / (m.dr   * m.dr) * exp_2_rm;
         const double d2cdthe2 = (c.x[i][j+1][k] - 2.0*c.x[i][j][k] + c.x[i][j-1][k]) / (m.dthe * m.dthe);
-        const double d2cdphi2 = (c.x[i][j][k+1] - 2.0*c.x[i][j][k] + c.x[i][j][k-1]) / (m.dphi * m.dphi);
+        const bool phi_per = ATPhys::phi_periodic<cSaturnModel>();          // ATSAT_BC_PHI_PERIODIC
+        const int kw = ATPhys::phi_wrap(phi_per, k-1, m.km), ke = ATPhys::phi_wrap(phi_per, k+1, m.km);
+        const double d2cdphi2 = (c.x[i][j][ke] - 2.0*c.x[i][j][k] + c.x[i][j][kw]) / (m.dphi * m.dphi);
 
         const double dcdr   = (c.x[i+1][j][k] - c.x[i-1][j][k]) / (2.0 * m.dr) * exp_rm;
         const double dcdthe = (c.x[i][j+1][k] - c.x[i][j-1][k]) / (2.0 * m.dthe);

@@ -140,6 +140,11 @@ namespace AtomUtils{
                       bool along_j, bool along_k,
                       double strength = 1.0,
                       int passes = 1);
+
+    // k = 0 and k = km-1 are the same meridian. Off (the default) the k pass above wraps over
+    // all km points, as it always has; on, it wraps over the km-1 distinct ones and writes
+    // k = km-1 as the copy of k = 0. Set once by the model, see <TAG>_BC_PHI_PERIODIC.
+    void set_phi_seam_periodic(bool on);
     void remove_peaks(Array_2D& field,
                       bool along_j, bool along_k,
                       double threshold = 2.0,

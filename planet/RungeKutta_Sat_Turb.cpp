@@ -140,6 +140,11 @@ void cSaturnModel::RungeKuttaSat(){
     //
     // The cost is memory: y_n lives in the *n arrays, the stage input in the live fields, and the
     // running sum k1 + 2k2 + 2k3 + k4 now needs a third place, the acc_* arrays.
+    // ATSAT_BC_PHI_PERIODIC (ATPhys.h): with 1 the seam meridian k = 0 is integrated like every
+    // other cell (RHSSat takes its phi neighbours round the ring); k = km-1 is its copy, written
+    // by bcPhi after the step. With 0 the loops run k = 1..km-2, as before.
+    const int k_first = ATPhys::phi_first(ATPhys::phi_periodic<cSaturnModel>());
+
     for(int stage = 0; stage < 4; stage++){
 
         // Offset of the NEXT stage's input from y_n, and this stage's weight in the sum.
@@ -175,7 +180,7 @@ void cSaturnModel::RungeKuttaSat(){
                 geo.inv_dr2   = inv_dr2;
                 geo.inv_dthe2 = inv_dthe2;
                 geo.inv_dphi2 = inv_dphi2;
-                for(int k = 1; k < km-1; k++)
+                for(int k = k_first; k < km-1; k++)
                     cSaturnModel::RHSSat(i, j, k, geo);
             }
         }
@@ -184,7 +189,7 @@ void cSaturnModel::RungeKuttaSat(){
         #pragma omp parallel for collapse(2) schedule(static)
         for(int i = 1; i < im-1; i++){
             for(int j = 2; j < jm-2; j++){
-                for(int k = 1; k < km-1; k++){
+                for(int k = k_first; k < km-1; k++){
                     acc_t.x[i][j][k] = (stage == 0) ? wgt * rhs_t.x[i][j][k]
                                       : acc_t.x[i][j][k] + wgt * rhs_t.x[i][j][k];
                     acc_u.x[i][j][k] = (stage == 0) ? wgt * rhs_u.x[i][j][k]
@@ -256,7 +261,7 @@ void cSaturnModel::RungeKuttaSat(){
         #pragma omp parallel for collapse(2) schedule(static) reduction(+:t_clip_hits)
         for(int i = 1; i < im-1; i++){
             for(int j = 2; j < jm-2; j++){
-                for(int k = 1; k < km-1; k++){
+                for(int k = k_first; k < km-1; k++){
 
                     const double tn_ijk = tn.x[i][j][k];
                     double t_new = tn_ijk + sixth_dt * acc_t.x[i][j][k];

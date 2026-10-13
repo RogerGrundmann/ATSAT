@@ -55,9 +55,15 @@ void cSaturnModel::Latent_Heat(){
         }
     }
 
+    // ATSAT_BC_PHI_PERIODIC (ATPhys.h): with 1 the seam meridian k = 0 is computed like any other.
+    const bool phi_per = ATPhys::phi_periodic<cSaturnModel>();
+    const int  k_first = ATPhys::phi_first(phi_per);
+
     for(int j = 1; j < jm-1; j++){
         double sinthe = sin(the.z[j]);
-        for(int k = 1; k < km-1; k++){
+        for(int k = k_first; k < km-1; k++){
+            const int kw = ATPhys::phi_wrap(phi_per, k-1, km);
+            const int ke = ATPhys::phi_wrap(phi_per, k+1, km);
             for(int i = im-2; i >= 1; i--){
                 double rm = metricRadius(rad.z[i]);
                 double rmsinthe = rm * sinthe;
@@ -86,15 +92,15 @@ void cSaturnModel::Latent_Heat(){
 
                 double dtdr = (t.x[i+1][j][k] - t.x[i-1][j][k])/(2.0 * dr);
                 double dtdthe = (t.x[i][j+1][k] - t.x[i][j-1][k])/(2.0 * rm * dthe);
-                double dtdphi = (t.x[i][j][k+1] - t.x[i][j][k-1])/(2.0 * rmsinthe * dphi);
+                double dtdphi = (t.x[i][j][ke] - t.x[i][j][kw])/(2.0 * rmsinthe * dphi);
 
                 double dh2odr = (h2o.x[i+1][j][k] - h2o.x[i-1][j][k])/(2.0 * dr);
                 double dh2odthe = (h2o.x[i][j+1][k] - h2o.x[i][j-1][k])/(2.0 * rm * dthe);
-                double dh2odphi = (h2o.x[i][j][k+1] - h2o.x[i][j][k-1])/(2.0 * rmsinthe * dphi);
+                double dh2odphi = (h2o.x[i][j][ke] - h2o.x[i][j][kw])/(2.0 * rmsinthe * dphi);
 
                 double dnh3dr = (nh3.x[i+1][j][k] - nh3.x[i-1][j][k])/(2.0 * dr);
                 double dnh3dthe = (nh3.x[i][j+1][k] - nh3.x[i][j-1][k])/(2.0 * rm * dthe);
-                double dnh3dphi = (nh3.x[i][j][k+1] - nh3.x[i][j][k-1])/(2.0 * rmsinthe * dphi);
+                double dnh3dphi = (nh3.x[i][j][ke] - nh3.x[i][j][kw])/(2.0 * rmsinthe * dphi);
 
                 double dtemp = dtdr + dtdthe + dtdphi;
                 double dh2o = dh2odr + dh2odthe + dh2odphi;

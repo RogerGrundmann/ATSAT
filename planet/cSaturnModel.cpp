@@ -295,6 +295,15 @@ void cSaturnModel::Run(){
     output_path = output_path + "-Saturn";
     mkdir(output_path.c_str(), 0777);
     m_model = this;
+
+    // ATSAT_BC_PHI_PERIODIC (2026-10-13; DEFAULT 1 on the user's word, 0 restores byte-identically;
+    // ATPhys.h has the description): the seam
+    // meridian k = 0 = km-1 is integrated instead of being reconstructed from its neighbours.
+    // The knob is read by every loop that differences in phi; the Shapiro filter lives in lib/
+    // and is told here.
+    AtomUtils::set_phi_seam_periodic(ATPhys::phi_periodic<cSaturnModel>());
+    if(ATPhys::phi_periodic<cSaturnModel>())
+        printf("      ATSAT: the phi seam is periodic: k = 0 is integrated, k = km-1 is its copy (ATSAT_BC_PHI_PERIODIC=0 restores the reconstructed seam)\n");
     cout.precision(6);
     cout.setf(ios::fixed);
     if(!has_welcome_msg_printed)

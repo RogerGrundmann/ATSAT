@@ -262,6 +262,7 @@ public:
     // -243.1 (G5). ATSAT_BC_POLE_COPY=0 restores.
     static int bc_default_pole_copy(){ return 1; }
     static int bc_default_radius_copy(){ return 0; }
+    static int bc_default_phi_periodic(){ return 1; }   // ATSAT_BC_PHI_PERIODIC, see ATPhys.h; 1 since 2026-10-13 on the user's word, 0 restores
     static int bc_pole_open_rows(){ return 1; }   // rows next to each pole that RungeKutta does not integrate; bcTheta fills them (<TAG>_BC_POLE_FILL, default 1)
 
     std::vector<Array*> bc_fields_radius();

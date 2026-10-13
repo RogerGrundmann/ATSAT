@@ -67,6 +67,12 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     const double exp_rm    = geo.exp_rm;
     const double exp_2_rm  = geo.exp_2_rm;
 
+    // The phi neighbours. k-1 and k+1, except with ATSAT_BC_PHI_PERIODIC=1 at the seam, where
+    // they go round the ring of the km-1 distinct meridians (ATPhys.h).
+    const bool phi_per = ATPhys::phi_periodic<cSaturnModel>();
+    const int kw = ATPhys::phi_wrap(phi_per, k-1, km);
+    const int ke = ATPhys::phi_wrap(phi_per, k+1, km);
+
     // Cache local cell values
     const double u_ijk = u.x[i][j][k];
     const double v_ijk = v.x[i][j][k];
@@ -175,8 +181,8 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 
     // ===== Phi-direction derivatives (central differences) =====
     #define COMPUTE_DPHI(FIELD, d1, d2) \
-        d1 = (FIELD.x[i][j][k+1] - FIELD.x[i][j][k-1]) * inv_2dphi; \
-        d2 = (FIELD.x[i][j][k+1] - 2.0*FIELD.x[i][j][k] + FIELD.x[i][j][k-1]) * inv_dphi2;
+        d1 = (FIELD.x[i][j][ke] - FIELD.x[i][j][kw]) * inv_2dphi; \
+        d2 = (FIELD.x[i][j][ke] - 2.0*FIELD.x[i][j][k] + FIELD.x[i][j][kw]) * inv_dphi2;
 
     COMPUTE_DPHI(u,         dudphi,     d2udphi2)
     COMPUTE_DPHI(v,         dvdphi,     d2vdphi2)
@@ -195,7 +201,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     COMPUTE_DPHI(nh4sh,     dnh4shdphi, d2nh4shdphi2)
     COMPUTE_DPHI(tke,       dtkedphi,   d2tkedphi2)
     COMPUTE_DPHI(dis,       ddisdphi,   d2disdphi2)
-    dpdphi = (p_dyn.x[i][j][k+1] - p_dyn.x[i][j][k-1]) * inv_2dphi;
+    dpdphi = (p_dyn.x[i][j][ke] - p_dyn.x[i][j][kw]) * inv_2dphi;
     #undef COMPUTE_DPHI
 
     // ATJUP follows the derivatives with two obstacle corrections — a mirrored pressure gradient
