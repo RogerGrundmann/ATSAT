@@ -48,6 +48,29 @@ void cSaturnModel::computeBuoyancyRefLevel(){
     }
 }
 
+/*
+ * ATSAT_METRIC_SPLIT=1: p_metric(r) = integral of the metric term (v2 + w2)/r from the bottom, so
+ * that d(p_metric)/dr IS that term and the radial force balances by construction. The pressure
+ * solver cannot hold the gradient that balances a radial body force: measured on ATNEPT with
+ * ATNEPT_UB_DIAG (the balanced initial p_dyn has lost nine tenths of its gradient next to the
+ * walls after 224 iterations) and in ATOM_Precipitation, where the column integral was the cure.
+ * Trapezoid in r, in the radial operator rhs_u uses (exp_rm d/dr).
+ */
+void cSaturnModel::computeMetricPressure(){
+    #pragma omp parallel for collapse(2) schedule(static)
+    for(int j = 0; j < jm; j++){
+        for(int k = 0; k < km; k++){
+            auto f_ = [&](int i)->double{
+                const double rm_     = metricRadius(rad.z[i]);
+                const double exp_rm_ = coord_stretching ? 1.0 / (rm_ + 1.0) : 1.0;
+                return (v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) / (rm_ * exp_rm_); };
+            p_metric.x[0][j][k] = 0.0;
+            for(int i = 1; i < im; i++)
+                p_metric.x[i][j][k] = p_metric.x[i-1][j][k] + 0.5 * (f_(i-1) + f_(i)) * dr;
+        }
+    }
+}
+
 void cSaturnModel::RungeKuttaSat(){
     cout << endl << "      ATSAT: RungeKuttaSat" << endl;
 
@@ -55,6 +78,7 @@ void cSaturnModel::RungeKuttaSat(){
 
     // The buoyancy reference level, refreshed once per RK4 step, before any stage reads it.
     computeBuoyancyRefLevel();
+    if(metric_split()) computeMetricPressure();     // ATSAT_METRIC_SPLIT, once per step like the line above
 
     // ===== Geometry hoisted out of the cell loop =====
     //

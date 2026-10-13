@@ -351,9 +351,11 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     double transport_t = u_ijk * dtdr + v_ijk * dtdthe * inv_rm
         + w_ijk * dtdphi * inv_rmsinthe;
 
+    // ATSAT_METRIC_SPLIT=1: the metric term leaves rhs_u, p_metric balances it (RungeKutta_Sat_Turb.cpp)
+    const double metric_on = metric_split() ? 0.0 : 1.0;
     double transport_u = u_ijk * dudr + v_ijk * dudthe * inv_rm
         + w_ijk * dudphi * inv_rmsinthe
-        - (v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm;
+        - metric_on * (v_ijk * v_ijk + w_ijk * w_ijk) * inv_rm;
     double transport_v = u_ijk * dvdr + v_ijk * dvdthe * inv_rm
         + w_ijk * dvdphi * inv_rmsinthe
         + (u_ijk * v_ijk
@@ -742,8 +744,16 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         - Coriolis * Coriolis_rad
         + centrifugal * centrifugal_rad;
 
+    // the horizontal gradient of p_metric, zero unless ATSAT_METRIC_SPLIT
+    double dpmdthe = 0.0, dpmdphi = 0.0;
+    if(metric_split()){
+        dpmdthe = (p_metric.x[i][j+1][k] - p_metric.x[i][j-1][k]) * inv_2dthe;
+        dpmdphi = (p_metric.x[i][j][ke] - p_metric.x[i][j][kw]) * inv_2dphi;
+    }
+
     rhs_v.x[i][j][k] =
         - dpdthe * inv_rm
+        - dpmdthe * inv_rm
         - transport_v
         + diffusion_v/re + diffusion_v * nue_t
         - Coriolis * Coriolis_the
@@ -751,6 +761,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 
     rhs_w.x[i][j][k] =
         - dpdphi * inv_rmsinthe
+        - dpmdphi * inv_rmsinthe
         - transport_w
         + diffusion_w/re + diffusion_w * nue_t
         - Coriolis * Coriolis_phi;

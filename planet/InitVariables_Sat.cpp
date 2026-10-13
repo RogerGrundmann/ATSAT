@@ -95,7 +95,9 @@ void cSaturnModel::init_PressureDynamic(){
     // build the gradient. rhs_u takes -dp_dyn/dr unscaled here, so d p_dyn / dr = (v2 + w2) / rm,
     // integrated up from zero at the bottom, trapezoid in r. The README row has the measurement.
     static const int pdyn_init = [](){ const char* e = getenv("ATSAT_PDYN_INIT"); return e ? atoi(e) : 2; }();
-    if(pdyn_init == 2){
+    // With ATSAT_METRIC_SPLIT the metric term is balanced by p_metric, so a p_dyn that balances it
+    // too would be an unopposed force: it starts at zero then (the branch for 0 below).
+    if(pdyn_init == 2 && !metric_split()){
         double pmax = 0.0;
         #pragma omp parallel for collapse(2) schedule(static) reduction(max:pmax)
         for(int j = 0; j < jm; j++){
@@ -112,7 +114,7 @@ void cSaturnModel::init_PressureDynamic(){
         printf("      ATSAT: init_PressureDynamic: p_dyn balances the metric term (v2 + w2)/rm of rhs_u; max %.6f (the model's unit) (ATSAT_PDYN_INIT=0 starts it at zero)\n", pmax);
         return;
     }
-    if(pdyn_init == 0){
+    if(pdyn_init == 0 || (pdyn_init == 2 && metric_split())){
         for(int k = 0; k < km; k++)
             for(int j = 0; j < jm; j++)
                 for(int i = 0; i < im; i++) p_dyn.x[i][j][k] = 0.0;

@@ -978,6 +978,7 @@ void cSaturnModel::resetArrays(){
     thermalmassflux.initArray(im, jm, km, 0.0);   // thermal massflux_h2s
 
     p_dyn.initArray(im, jm, km, pa);
+    p_metric.initArray(im, jm, km, 0.0);            // ATSAT_METRIC_SPLIT
     p_dynn.initArray(im, jm, km, pa);                // dynamic pressure, previous iteration
     p_stat.initArray(im, jm, km, 1.0);                // static pressure
     rho_mix.initArray(im, jm, km, 0.0);               // mixture density, computeMixtureDensity()

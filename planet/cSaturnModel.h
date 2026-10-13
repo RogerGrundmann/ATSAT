@@ -422,6 +422,15 @@ public:
     // contrasts drive vertical motion and hydrostatic balance carries the mean.
     std::vector<double> buoy_ref_level;
     void computeBuoyancyRefLevel();
+    // ATSAT_METRIC_SPLIT (2026-10-13; DEFAULT 1 on the user's word, 0 restores): the radial metric term (v2 + w2)/r of rhs_u is
+    // carried by p_metric, its radial integral -- ATOM_Precipitation's hydrostatic split
+    // (AtmHydroSplit.h) applied to the other radial body force; default on ATNEPT and ATURAN,
+    // where it was measured. rhs_u drops the term (it and -dp_metric/dr cancel by construction)
+    // and rhs_v / rhs_w take the horizontal gradient of p_metric. See computeMetricPressure().
+    static bool metric_split(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_METRIC_SPLIT"); return e ? atoi(e) != 0 : true; }();
+        return v; }
+    void computeMetricPressure();
 
     // ---- Numerical safety nets, ported from ATJUP. All off by default. ----
     // ATSAT_NANCHECK: census of non-finite cells, per field, with the index extent.
@@ -1053,6 +1062,7 @@ private:
     Array cloudiness_nh3; // cloudiness, N in literature
 
     Array p_dyn;                // dynamic pressure
+    Array p_metric;             // radial integral of the metric term (v2 + w2)/r, ATSAT_METRIC_SPLIT
     Array p_dynn;                // dynamic pressure
     Array p_stat;                // static pressure
     Array rho_mix;              // mixture density [kg/m3], filled by computeMixtureDensity()
