@@ -506,6 +506,12 @@ void cSaturnModel::Run(){
     BC_Sat(*this).bcPhi();
     BC_Sat(*this).bcRadius();
 
+    // ATSAT_GEO_BALANCE (cSaturnModel.h): the balanced start, after the boundary passes. Its
+    // solver half is the shared PressureSolver's ATSAT_PRESS_INCR, whose default is 0 there; the
+    // balanced start sets it unless the knob is given.
+    if(geo_balance()) setenv("ATSAT_PRESS_INCR", "1", 0);
+    initGeoBalance();
+
     restoreVar(1.0);
 
 //    goto Printout;
@@ -700,7 +706,10 @@ void cSaturnModel::Run(){
             if(ub_on) ub_f0 = ub_force(false);
             getPressureSolver().run();
             if(ub_on) ub_f1 = ub_force(false);
-            AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
+            // ATSAT_DAMP_PDYN=0 (default 0 with ATSAT_GEO_BALANCE, else 1): no Shapiro pass on p_dyn;
+            // on ATNEPT it halved the balancing meridional gradient in 224 iterations (DAMP_P_HORIZ)
+            static const bool damp_pdyn = [](){ const char* e = getenv("ATSAT_DAMP_PDYN"); return e ? atoi(e) != 0 : !geo_balance(); }();
+            if(damp_pdyn) AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
             if(ub_on){
                 const ub_tab ub_f2 = ub_force(false);
                 for(int r_ = 0; r_ < SatUb::NREG; r_++) for(int i = 0; i < im; i++){

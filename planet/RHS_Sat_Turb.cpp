@@ -259,7 +259,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     static const int nd_all = [](){
         const char* e = getenv("ATSAT_NONDIM");  return e ? atoi(e) : 0; }();
     static const int nd_cor_on = [](){
-        const char* e = getenv("ATSAT_ND_COR");  return e ? atoi(e) : -1; }();
+        const char* e = getenv("ATSAT_ND_COR");  return e ? atoi(e) : (geo_balance() ? 1 : -1); }();   // unset: on with ATSAT_GEO_BALANCE too
     static const int nd_cent_on = [](){
         const char* e = getenv("ATSAT_ND_CENT"); return e ? atoi(e) : -1; }();
     static const int nd_buoy_on = [](){

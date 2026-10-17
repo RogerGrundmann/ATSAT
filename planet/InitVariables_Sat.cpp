@@ -159,6 +159,98 @@ void cSaturnModel::init_PressureDynamic(){
     cout << "      ATSAT: init_PressureDynamic ended" << endl;
     return;
 }
+
+
+/*
+ * ATSAT_PDYN_GEO (on with ATSAT_GEO_BALANCE): the geostrophically balanced start, ATJUP's
+ * initGeoBalance() (InitValues_Jup.cpp) for this model: ported from ATNEPT's init_PressureDynamic
+ * (PDYN_GEO=2, PDYN_GEO_EXACT, PDYN_GEO_BC). Called after the initial boundary passes, so p_baro
+ * is built from the fields the first RK stage sees.
+ *
+ * With the radial forces carried by p_metric (ATSAT_METRIC_SPLIT, CORIOLIS_SPLIT) what is left at
+ * the start is the meridional balance of rhs_v (p_dyn unscaled there):
+ *     dp/dtheta = rm * Coriolis * nd_cor * 2 omega cos(theta) w + w2 cot(theta)
+ * with rm the metric radius and the RK's sine. Integrated from the north pole by
+ * p[j+1] = p[j-1] + 2 dthe G[j], so the centred difference rhs_v takes returns G exactly. G is
+ * built from the zonal mean of w per (i, j). p_dyn takes the barotropic part (each latitude's jet
+ * level, the level of the largest zonal-mean |w|); p_baro, frozen and added to p_metric, what
+ * each level's own wind needs on top: p_baro = Q_i - p_dyn - p_metric(start). One global
+ * constant is removed so that p_dyn has zero area mean.
+ */
+void cSaturnModel::initGeoBalance(){
+    if(!pdyn_geo()) return;
+    if(!metric_split()){
+        cout << "      ATSAT: initGeoBalance: ATSAT_PDYN_GEO needs ATSAT_METRIC_SPLIT, skipped" << endl;
+        return;
+    }
+    static const int nd_all_ = [](){ const char* n = getenv("ATSAT_NONDIM"); return n ? atoi(n) : 0; }();
+    static const int nd_cor_on_ = [](){
+        const char* e = getenv("ATSAT_ND_COR"); return e ? atoi(e) : (geo_balance() ? 1 : -1); }();
+    const double nd_cor = ((nd_cor_on_ >= 0 ? nd_cor_on_ : nd_all_) != 0) ? L_atm * 1.0e3 / u_0 : 1.0;
+    const double smin = sinthe_min();
+
+    std::vector<double> wbar((size_t)im * jm, 0.0);
+    #pragma omp parallel for collapse(2) schedule(static)
+    for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++){
+        double s = 0.0;
+        for(int k = 0; k < km - 1; k++) s += w.x[i][j][k];
+        wbar[(size_t)i * jm + j] = s / (km - 1);
+    }
+    auto G = [&](int i, int j)->double{
+        if(j == 0 || j == jm - 1) return 0.0;
+        double sth = sin(the.z[j]);
+        if(sth < smin) sth = smin;
+        if(!(sth > 0.0)) return 0.0;
+        const double cth = cos(the.z[j]);
+        const double wb = wbar[(size_t)i * jm + j];
+        return metricRadius(rad.z[i]) * Coriolis * nd_cor * 2.0 * omega * cth * wb + wb * wb * cth / sth;
+    };
+    auto integrate = [&](const std::vector<double>& g, std::vector<double>& P){
+        P[0] = 0.0;
+        for(int j = 1; j < jm; j++)
+            P[j] = (j >= 2) ? P[j-2] + 2.0 * dthe * g[j-1] : P[j-1] + 0.5 * (g[j-1] + g[j]) * dthe;
+    };
+
+    std::vector<double> g(jm), P(jm);
+    std::vector<int> ia(jm, im - 1);
+    for(int j = 0; j < jm; j++){
+        int a = 0;
+        for(int i = 1; i < im; i++) if(std::abs(wbar[(size_t)i * jm + j]) > std::abs(wbar[(size_t)a * jm + j])) a = i;
+        ia[j] = a;
+        g[j] = G(a, j);
+    }
+    integrate(g, P);
+    double sw = 0.0, sp = 0.0;
+    for(int j = 0; j < jm; j++){ const double s_ = std::abs(sin(the.z[j])); sw += s_; sp += s_ * P[j]; }
+    const double p_off = sp / sw;
+    double pmin = 0.0, pmax = 0.0;
+    for(int j = 0; j < jm; j++){
+        P[j] -= p_off;
+        pmin = std::min(pmin, P[j]); pmax = std::max(pmax, P[j]);
+        for(int i = 0; i < im; i++) for(int k = 0; k < km; k++) p_dyn.x[i][j][k] = P[j];
+    }
+    printf("      ATSAT: initGeoBalance: nd_cor %.1f, p_dyn = barotropic balance of the jet-level wind in rhs_v, %.6f .. %.6f (the model's unit), jet level at the equator %d\n",
+           nd_cor, pmin, pmax, ia[(jm - 1) / 2]);
+
+    p_baro.clear();
+    computeMetricPressure();                                       // p_baro still empty
+    std::vector<double> pb((size_t)im * jm * km, 0.0);
+    double bmin = 0.0, bmax = 0.0;
+    #pragma omp parallel for schedule(static) reduction(min:bmin) reduction(max:bmax)
+    for(int i = 0; i < im; i++){
+        std::vector<double> gi(jm), Q(jm);
+        for(int j = 0; j < jm; j++) gi[j] = G(i, j);
+        integrate(gi, Q);
+        for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+            const double b_ = (Q[j] - p_off) - p_dyn.x[i][j][k] - p_metric.x[i][j][k];
+            pb[((size_t)i * jm + j) * km + k] = b_;
+            bmin = std::min(bmin, b_); bmax = std::max(bmax, b_);
+        }
+    }
+    p_baro.swap(pb);
+    computeMetricPressure();                                       // now with p_baro
+    printf("      ATSAT: initGeoBalance: p_baro (the per-level rest, added to p_metric, frozen) %.6e .. %.6e\n", bmin, bmax);
+}
 /*
 *
 */
