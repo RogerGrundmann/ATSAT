@@ -623,13 +623,14 @@ void cSaturnModel::init_vapour_cloud_ice(std::string gas,
 //                q_Rain = ep * E_Rain/(p_u - E_Rain);  // species vapour amount at saturation with species formation in kg/kg
                 q_Rain = ep * E_Rain/p_u;  // species vapour amount at saturation with species formation in kg/kg
 
-                c.x[i][j][k] = magnus * r_mix * q_Rain;            // coefficient is arbitrary
+                const double fr = init_species_fr(i, j, k);   // <TAG>_INIT_SPECIES_LOCAL_RHO, 1.0 unset
+                c.x[i][j][k] = magnus * fr * r_mix * q_Rain;            // coefficient is arbitrary
 
-                if(c.x[i][j][k] >= r_max[j])  c.x[i][j][k] = r_max[j];
+                if(c.x[i][j][k] >= fr * r_max[j])  c.x[i][j][k] = fr * r_max[j];
 
-                if((gas == "NH3")&&(p_u >= p_00_nh3))  c.x[i][j][k] = r_max[j];
-                if((gas == "H2O")&&(p_u >= p_0_h2o))  c.x[i][j][k] = r_max[j];
-                if((gas == "CH4")&&(p_u >= p_0_ch4))  c.x[i][j][k] = r_max[j];
+                if((gas == "NH3")&&(p_u >= p_00_nh3))  c.x[i][j][k] = fr * r_max[j];
+                if((gas == "H2O")&&(p_u >= p_0_h2o))  c.x[i][j][k] = fr * r_max[j];
+                if((gas == "CH4")&&(p_u >= p_0_ch4))  c.x[i][j][k] = fr * r_max[j];
 
             }
 
@@ -734,9 +735,10 @@ void cSaturnModel::init_h2s(std::string gas,
 //                q_Rain = ep * E_Rain/(p_u - E_Rain);  // species vapour amount at saturation with species formation in kg/kg
                 q_Rain = ep * E_Rain/p_u;  // species vapour amount at saturation with species formation in kg/kg
 
-                c.x[i][j][k] = corr * r_mix * q_Rain;
+                const double fr = init_species_fr(i, j, k);   // <TAG>_INIT_SPECIES_LOCAL_RHO, 1.0 unset
+                c.x[i][j][k] = corr * fr * r_mix * q_Rain;
 
-                if((c.x[i][j][k]) >= r_max[j])  c.x[i][j][k] = r_max[j];
+                if((c.x[i][j][k]) >= fr * r_max[j])  c.x[i][j][k] = fr * r_max[j];
 
 /*
                 cout.precision(8);
@@ -831,11 +833,12 @@ void cSaturnModel::init_nh4sh(std::string gas, double &c_tropopause,
 //                    q_Rain = ep * E_Rain/(p_u - E_Rain);  // water vapour amount at saturation with water formation in kg/kg = non-dimensional
                     q_Rain = ep * E_Rain/p_u;  // water vapour amount at saturation with water formation in kg/kg = non-dimensional
 
-                    c.x[i][j][k] = corr * r_mix * q_Rain; //  non- dimensional
+                    const double fr = init_species_fr(i, j, k);   // <TAG>_INIT_SPECIES_LOCAL_RHO, 1.0 unset
+                    c.x[i][j][k] = corr * fr * r_mix * q_Rain; //  non- dimensional
 
                     if(c.x[i][j][k] <= 0.0)  c.x[i][j][k] = 0.0;
 
-                    if(c.x[i][j][k] >= r_max[j])  c.x[i][j][k] = r_max[j];
+                    if(c.x[i][j][k] >= fr * r_max[j])  c.x[i][j][k] = fr * r_max[j];
 
                     if(t_u > 1.05 * t_0_nh4sh)  c.x[i][j][k] = 0.0;
 //                    if(c.x[i][j][k] > r_max[j])  c.x[i][j][k] = 0.0;
