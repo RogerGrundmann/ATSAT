@@ -288,6 +288,9 @@ public:
     // fifth to a half of its cell-calls unconverged; with them both are zero.
     static bool satadj_default_newton(){ return true; }
     static bool satadj_default_conserve(){ return true; }
+    // <TAG>_SATADJ_EVAP of the shared SaturationAdjustment.h (2026-10-21): off here -- it needs the
+    // local density, and <TAG>_LOCAL_RHO is not measured on this planet (ATSAT diverged with it).
+    static bool satadj_default_evap(){ return false; }
     // Shared Precipitation.h: the factor on its five rate coefficients. RECALIBRATED 2026-10-09
     // by the rule the Jovian set was made with: the latent-heat flux of the precipitation,
     // Lv * (mean over the columns of the column's largest flux), summed over H2O, NH3 and CH4,
