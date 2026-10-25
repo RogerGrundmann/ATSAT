@@ -537,6 +537,7 @@ void cSaturnModel::Run(){
     // solver half is the shared PressureSolver's ATSAT_PRESS_INCR, whose default is 0 there; the
     // balanced start sets it unless the knob is given.
     if(geo_balance()) setenv("ATSAT_PRESS_INCR", "1", 0);
+    initCellHold();                                                     // ATSAT_CELL_HOLD, cSaturnModel.h
     initGeoBalance();
 
     restoreVar(1.0);

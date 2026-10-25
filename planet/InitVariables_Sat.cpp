@@ -881,3 +881,23 @@ void cSaturnModel::init_nh4sh(std::string gas, double &c_tropopause,
 /*
 *
 */
+
+
+// ============================================================================
+// ATSAT_CELL_HOLD (cSaturnModel.h): the zonal means of the initial v and u of each (i, j), frozen
+// (k = 0..km-2; km-1 is the periodic copy, and ATSAT has no solid body); the zonal Coriolis term in
+// RHSSat acts on the departure from them.
+void cSaturnModel::initCellHold(){
+    if(!cell_hold()) return;
+    cell_vbar0.assign((size_t)im * jm, 0.0);
+    cell_ubar0.assign((size_t)im * jm, 0.0);
+    double vmax = 0.0;
+    for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++){
+        double sv = 0.0, su = 0.0;
+        for(int k = 0; k < km - 1; k++){ sv += v.x[i][j][k]; su += u.x[i][j][k]; }
+        cell_vbar0[(size_t)i * jm + j] = sv / (km - 1);
+        cell_ubar0[(size_t)i * jm + j] = su / (km - 1);
+        vmax = std::max(vmax, std::abs(cell_vbar0[(size_t)i * jm + j]));
+    }
+    printf("      ATSAT: initCellHold: zonal-mean initial cells frozen, max |vbar0| %.3f m/s\n", vmax * u_0);
+}

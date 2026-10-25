@@ -486,6 +486,19 @@ public:
         return v; }
     std::vector<double> p_baro;          // [(i*jm + j)*km + k], empty unless ATSAT_PDYN_GEO
     void initGeoBalance();
+    // ATSAT_CELL_HOLD=1 (2026-10-25, default: follows ATSAT_GEO_BALANCE, so 0): ATJUP's CELL_HOLD (a80521b), the
+    // prescribed meridional cells held in rotating balance. With the Coriolis force at full scale the zonal
+    // component 2 Omega (cos(theta) v + sin(theta) u) turns the cells into w -- SGEO1000 (satchk/geo_2026-10-17,
+    // GEO_BALANCE, 1000 it): w +12.0 m/s at the polar cells (v 30-36 m/s, 80-87 deg), exactly f v t. With the
+    // knob the zonal Coriolis term acts on the DEPARTURE from the initial zonal-mean cells, (v - vbar0,
+    // u - ubar0): a frozen zonal force that maintains the mean circulation. It depends on (i, j) only, so it
+    // pins nothing in longitude. A PRESCRIBED maintenance, not circulation the model produces. Built from the
+    // final initial fields before a restart is read, so a restart rebuilds the same arrays.
+    static bool cell_hold(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_CELL_HOLD"); return e ? atoi(e) != 0 : geo_balance(); }();
+        return v; }
+    std::vector<double> cell_vbar0, cell_ubar0;   // [i*jm + j], empty unless ATSAT_CELL_HOLD
+    void initCellHold();
 
     // ---- Numerical safety nets, ported from ATJUP. All off by default. ----
     // ATSAT_NANCHECK: census of non-finite cells, per field, with the index extent.
