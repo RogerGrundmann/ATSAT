@@ -468,7 +468,8 @@ public:
         static const bool v = [](){ const char* e = getenv("ATSAT_CORIOLIS_SPLIT"); return e ? atoi(e) != 0 : true; }();
         return v && metric_split(); }
     void computeMetricPressure();
-    // ATSAT_GEO_BALANCE (2026-10-17; default 0, which is byte-identical to the head before): the
+    // ATSAT_GEO_BALANCE (2026-10-17; DEFAULT 1 since 2026-10-25, user -- 0 restores the head before, the Coriolis
+    // force 1064x too weak; EVERY ATSAT NUMBER BEFORE IT WAS MADE WITHOUT FULL-SCALE CORIOLIS): the
     // geostrophically balanced start of the ice giants (ATNEPT / ATURAN GEO_BALANCE, from
     // ATOM_Precipitation), ported with ATJUP's, for lead (b). Measured 10-17 (ATJUP
     // satchk/cor_2026-10-17, 1000 it): with ATSAT_ND_COR=1 alone v grows at exactly f w (-4.10 m/s
@@ -481,14 +482,14 @@ public:
     //   ATSAT_PRESS_INCR 1      the shared solver's defect-correction source (PressureSolver.h)
     //   ATSAT_DAMP_PDYN 0       no Shapiro pass on p_dyn after the solver
     static bool geo_balance(){
-        static const bool v = [](){ const char* e = getenv("ATSAT_GEO_BALANCE"); return e ? atoi(e) != 0 : false; }();
+        static const bool v = [](){ const char* e = getenv("ATSAT_GEO_BALANCE"); return e ? atoi(e) != 0 : true; }();
         return v; }
     static bool pdyn_geo(){
         static const bool v = [](){ const char* e = getenv("ATSAT_PDYN_GEO"); return e ? atoi(e) != 0 : geo_balance(); }();
         return v; }
     std::vector<double> p_baro;          // [(i*jm + j)*km + k], empty unless ATSAT_PDYN_GEO
     void initGeoBalance();
-    // ATSAT_CELL_HOLD=1 (2026-10-25, default: follows ATSAT_GEO_BALANCE, so 0): ATJUP's CELL_HOLD (a80521b), the
+    // ATSAT_CELL_HOLD=1 (2026-10-25, default: follows ATSAT_GEO_BALANCE, so 1 since the same day): ATJUP's CELL_HOLD (a80521b), the
     // prescribed meridional cells held in rotating balance. With the Coriolis force at full scale the zonal
     // component 2 Omega (cos(theta) v + sin(theta) u) turns the cells into w -- SGEO1000 (satchk/geo_2026-10-17,
     // GEO_BALANCE, 1000 it): w +12.0 m/s at the polar cells (v 30-36 m/s, 80-87 deg), exactly f v t. With the
