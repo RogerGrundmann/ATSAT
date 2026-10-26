@@ -14,3 +14,4 @@
 class cSaturnModel;
 
 typedef ConvectiveAdjustment<cSaturnModel> ConvectiveAdjustmentSat;
+typedef MoistConvectiveAdjustment<cSaturnModel> MoistConvectiveAdjustmentSat;

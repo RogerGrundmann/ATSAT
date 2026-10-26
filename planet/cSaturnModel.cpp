@@ -84,6 +84,26 @@ cSaturnModel::~cSaturnModel(){
 // while conserving the column's mass-weighted enthalpy; nothing else in the model does that.
 // Whether ATSAT develops such columns at all is unmeasured — switching this on and reading the
 // per-iteration report (columns touched, layers mixed, max dT, enthalpy drift) is how to find out.
+// ATSAT_MCA=<N> (2026-10-26, DEFAULT 0 = off): the moist convective adjustment with the Ledoux criterion
+// (MoistConvectiveAdjustmentSat, shared ConvectiveAdjustment.h, where its note and knobs are) every N
+// iterations, right after the dry one. Ported from ATJUP. It mass-weights with rho_at() and reads mass
+// fractions as c / rho_at(), so it means what it says only with ATSAT_LOCAL_RHO=1 (with the constant r_mix
+// every layer weighs the same). No tracer carries a formation enthalpy here (the NH4SH chemistry
+// releases none).
+static int mca_stride(){
+    static const int v = [](){ const char* e = getenv("ATSAT_MCA"); return e ? std::max(0, atoi(e)) : 0; }();
+    return v;
+}
+
+// ATSAT_SVP_FIT: assign the shared sets (ATPhys.h). The H2O liquid, CH4 and H2S sets are not touched.
+void cSaturnModel::setSvpFit(){
+    const ATPhys::SvpSet hi = ATPhys::svp_fit_h2o_ice(), ni = ATPhys::svp_fit_nh3_ice(), nl = ATPhys::svp_fit_nh3_liq();
+    C_h2o_ice = hi.C; L0_h2o_ice = hi.L0; del_alf_h2o_ice = hi.del_alf; del_bet_h2o_ice = hi.del_bet;
+    C_nh3_ice = ni.C; L0_nh3_ice = ni.L0; del_alf_nh3_ice = ni.del_alf; del_bet_nh3_ice = ni.del_bet;
+    C_nh3     = nl.C; L0_nh3     = nl.L0; del_alf_nh3     = nl.del_alf; del_bet_nh3     = nl.del_bet;
+    printf("      ATSAT: ATSAT_SVP_FIT: NH3 liquid / NH3 ice / H2O ice vapour pressures from the shared fits (ATPhys.h)\n");
+}
+
 static int conv_adj_enabled(){
     static const int v = [](){ const char* e = getenv("ATSAT_CONV_ADJ"); return e ? atoi(e) : 0; }();
     return v;
@@ -426,6 +446,7 @@ void cSaturnModel::Run(){
 
 //    goto Printout;
 
+    if(svp_fit()) setSvpFit();                       // ATSAT_SVP_FIT, before any SVP is evaluated
     ChemistrySat(*this).ThermalPropertiesSat();
     init_temperature();
     init_PressureStatic();
@@ -935,6 +956,20 @@ void cSaturnModel::Run(){
         if(turb_active) TurbulenceSat(*this).run();
 
         if(conv_adj_enabled()) ConvectiveAdjustmentSat(*this).run();
+        if(mca_stride() > 0 && iter_n % mca_stride() == 0){
+            typedef MoistConvectiveAdjustmentSat::Gas    Gas_;
+            typedef MoistConvectiveAdjustmentSat::Tracer Tr_;
+            // H2S is not condensed on this model (no cloud / ice fields), so it is a tracer with its weight in T_v.
+            std::vector<Gas_> gases = {
+                { "H2O", &h2o, &h2o_cloud, &h2o_ice, ep_h2o, lv_h2o, ls_h2o, t_0_h2o,
+                  C_h2o, L0_h2o, R_h2o, del_alf_h2o, del_bet_h2o, C_h2o_ice, L0_h2o_ice, del_alf_h2o_ice, del_bet_h2o_ice },
+                { "NH3", &nh3, &nh3_cloud, &nh3_ice, ep_nh3, lv_nh3, ls_nh3, t_0_nh3,
+                  C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, C_nh3_ice, L0_nh3_ice, del_alf_nh3_ice, del_bet_nh3_ice },
+                { "CH4", &ch4, &ch4_cloud, &ch4_ice, ep_ch4, lv_ch4, ls_ch4, t_0_ch4,
+                  C_ch4, L0_ch4, R_ch4, del_alf_ch4, del_bet_ch4, C_ch4_ice, L0_ch4_ice, del_alf_ch4_ice, del_bet_ch4_ice } };
+            std::vector<Tr_> tracers = { { "H2S", &h2s, ep_h2s, false, 0.0 }, { "NH4SH", &nh4sh, 0.0, true, 0.0 } };
+            MoistConvectiveAdjustmentSat(*this, gases, tracers).run();
+        }
         tb_mark(TB_AFTER); cwb_mark(TB_AFTER);
         if(tb_on && iter_n % tb_every == 0){
             static const int lv_[] = { 0, 1, 2, 3, 5, 8, 12, 16, 20, 24, 28, 32, 35, 37, 38, 39, 40 };

@@ -74,6 +74,7 @@ class cSaturnModel{
     template<class M> friend class Reporting;
     template<class M> friend class ParaViewWriter;
     template<class M> friend class ConvectiveAdjustment;
+    template<class M> friend class MoistConvectiveAdjustment;
     template<class M> friend class Radiation;
     template<class M> friend class Precipitation;
     template<class M> friend class Turbulence;
@@ -185,6 +186,13 @@ public:
     // build their environment-variable names (ATSAT_CONV_ADJ_LAPSE and so on). It is the
     // only thing those files know about which planet they are running on.
     static const char* planet_tag(){ return "ATSAT"; }
+    // ATSAT_SVP_FIT=1 (2026-10-26, default 0 = off): the shared fitted NH3 liquid / NH3 ice / H2O ice vapour
+    // pressures (ATPhys.h, sources at ATJUP's setSvpFit), set before the thermal properties.
+    static bool svp_fit(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_SVP_FIT"); return e && atoi(e) != 0; }();
+        return v;
+    }
+    void setSvpFit();
 
     // p_dyn is stored as the NONDIMENSIONAL kinematic pressure, so displaying it in bar needs
     // r_mix*u_0^2*1e-5. Default OFF (returns 1.0) so the printed number is unchanged; ATSAT_PDYN_UNITS=1

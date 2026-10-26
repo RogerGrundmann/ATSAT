@@ -87,6 +87,8 @@ baseline.
 | Turbulence closure (k-ε / k-ω / k-ω SST) | `TurbulenceSat.h` | `turb_model` in the config (`ATSAT_TURB=0` switches it off) | **on** since 2026-10-11 |
 | └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | 0.0 |
 | Dry convective adjustment | `ConvectiveAdjustmentSat.h` | `ATSAT_CONV_ADJ` | off |
+| Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers), meaningful with `ATSAT_LOCAL_RHO=1` | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | off |
+| Fitted NH3 liquid / NH3 ice / H2O ice vapour pressures (NIST Antoine, Fray & Schmitt 2009, Murphy & Koop 2005) | shared `ATPhys.h` | `ATSAT_SVP_FIT` | off |
 | Thermal-wind residual (diagnostic only) | `ThermalWindDiagSat.h` | `ATSAT_TW_DIAG` | off |
 
 ### Numerical safety nets
