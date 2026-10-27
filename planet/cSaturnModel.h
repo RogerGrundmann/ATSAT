@@ -366,6 +366,7 @@ public:
     static double rad_albedo_bond() { return 0.342; }  // Saturn Bond albedo (so S*(1-A) is ABSORBED)
     static double rad_x_H2()        { return 0.96;  }  // H2 mole fraction
     static double rad_x_He()        { return 0.032; }  // He mole fraction (depleted vs Jupiter)
+    static double rad_default_cia_strength(){ return 1.0; }  // <TAG>_CIA_STRENGTH default (shared Radiation.h)
 
     static double sinthe_min(){
         static const double v = [](){
