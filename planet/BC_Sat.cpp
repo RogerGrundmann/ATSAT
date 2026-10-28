@@ -65,8 +65,15 @@ void BC_Sat::bcRadius() {
     // means of total H2O, NH3, CH4 and H2S are flat over i = 0..5 (satchk/giants/S1000pf,
     // iteration 1000: q0 - q1 is 3e-8 to 2e-6 of the column, against 1e-3 on ATJUP), so this
     // closes the wall before a profile forms there, and no gain from it has been measured.
+    // =2 (2026-10-28, row GIANTS-MCA-DEFAULT; DEFAULT 2 since 2026-10-28, user: "do (a) and (b) for ATSAT";
+    // 1 restores the density copy): copy the MASS FRACTION instead of
+    // the density, x[0] = x[1] * rho0 / rho1 with rho_at(). Why: =1 copies kg/m3, so under
+    // ATSAT_LOCAL_RHO=1 the denser floor cell holds rho1/rho0 = 0.9426 of the mass fraction above
+    // it (all gases alike, satchk/mcagiants_2026-10-28/dbg) -- lighter air under heavier, which the
+    // Ledoux test of the MCA fires on in every column (65341 dry triggers in call 1; 0 on r_mix).
+    // With ATSAT_LOCAL_RHO=0 rho_at() is r_mix on both cells and =2 is exactly =1.
     static const int wall_copy = [](){
-        const char* e = getenv("ATSAT_BC_SPECIES_WALL_COPY"); return e ? atoi(e) : 1; }();
+        const char* e = getenv("ATSAT_BC_SPECIES_WALL_COPY"); return e ? atoi(e) : 2; }();
     if(lid_copy == 0 && wall_copy == 0) return;
     Array* species[] = {
         &m.h2o, &m.h2o_cloud, &m.h2o_ice,
@@ -78,11 +85,13 @@ void BC_Sat::bcRadius() {
     const int im = m.im, jm = m.jm, km = m.km;
     #pragma omp parallel for
     for(int j = 0; j < jm; j++)
-        for(int k = 0; k < km; k++)
+        for(int k = 0; k < km; k++){
+            const double fr = (wall_copy == 2) ? m.rho_at(0, j, k) / m.rho_at(1, j, k) : 1.0;
             for(int f = 0; f < ns; f++){
                 if(lid_copy  != 0) species[f]->x[im-1][j][k] = species[f]->x[im-2][j][k];
-                if(wall_copy != 0) species[f]->x[0][j][k]    = species[f]->x[1][j][k];
+                if(wall_copy != 0) species[f]->x[0][j][k]    = species[f]->x[1][j][k] * fr;
             }
+        }
 }
 void BC_Sat::bcTheta()  { BoundaryConditions<cSaturnModel>(m).bcTheta();  }
 void BC_Sat::bcPhi()    { BoundaryConditions<cSaturnModel>(m).bcPhi();    }

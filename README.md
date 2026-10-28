@@ -88,7 +88,7 @@ baseline.
 | └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | 0.0 |
 | Dry convective adjustment | `ConvectiveAdjustmentSat.h` | `ATSAT_CONV_ADJ` | off |
 | Local density p/(R_mix T) in the saturation / precipitation / MCA groups (constant `r_mix` with 0); `ATSAT_INIT_SPECIES_LOCAL_RHO` follows it | `cSaturnModel.h` `rho_at()` | `ATSAT_LOCAL_RHO` | 1 (since 2026-10-27) |
-| Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers), meaningful with `ATSAT_LOCAL_RHO=1` | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | off |
+| Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | 1 (since 2026-10-27; 0 = off) |
 | Fitted NH3 liquid / NH3 ice / H2O ice vapour pressures (NIST Antoine, Fray & Schmitt 2009, Murphy & Koop 2005) | shared `ATPhys.h` | `ATSAT_SVP_FIT` | off |
 | Thermal-wind residual (diagnostic only) | `ThermalWindDiagSat.h` | `ATSAT_TW_DIAG` | off |
 
@@ -107,7 +107,8 @@ baseline.
 | Pole boundary form | `ATSAT_BC_POLE_COPY` | 1 since 2026-10-09 (0 = extrapolate, as before) |
 | Rows next to the pole | `ATSAT_BC_POLE_FILL` | 1 since 2026-10-11 (0 restores; sets `j = 1` and `j = jm-2`, which the Runge-Kutta step does not integrate and which otherwise keep the initial condition for the whole run, from `j = 2` / `jm-3`: copy for the scalars and `u`, half the value for `v`, `w`) |
 | Lid: species | `ATSAT_BC_SPECIES_LID_COPY` | 1 since 2026-10-11 (0 = the cubic extrapolation, which overshot on the lid: CH4 ice 93 g/m3 there against 42 one cell below) |
-| Bottom wall: species | `ATSAT_BC_SPECIES_WALL_COPY` | 1 since 2026-10-11 (0 = the cubic extrapolation; the copy closes the wall for the diffusion stencil, as on ATJUP. The species are flat at the bottom today, so no effect of it has been measured) |
+| Bottom wall: species | `ATSAT_BC_SPECIES_WALL_COPY` | 2 since 2026-10-28, 1 from 2026-10-11 (0 = the cubic extrapolation; the copy closes the wall for the diffusion stencil, as on ATJUP. The species are flat at the bottom today, so no effect of it has been measured. 2 (2026-10-28) copies the mass fraction, x[0] = x[1] rho0/rho1: with `ATSAT_LOCAL_RHO=1` the density copy of 1 leaves the floor 5.7 % lighter in composition than the cell above, which the MCA fires on in every column) |
+| Set-up density after the set-up saturation adjustment | `ATSAT_RHO_REFRESH_INIT` | 1 since 2026-10-28 (0 = the set-up `rho_mix` until iteration 2; the adjustment rewrites `p_stat` from the latent-heated T, so that array was 2..31 % too light in the H2O deck; acts only with `ATSAT_INIT_SPECIES_LOCAL_RHO` on) |
 | Lid: v and w | `ATSAT_BC_TOP_TAPER` | 2 since 2026-10-11 (0 = extrapolated, as before; 2 = tapered to zero over the top three layers) |
 | Adjustment kept by the time step | `ATSAT_RK_SCALAR_SYNC` | 2 since 2026-10-11 (0 = before: the Runge-Kutta step started from copies made before the saturation adjustment and discarded its condensate and its latent heat every step; 1 = keep the condensate only) |
 | Temperature budget by level (print-only) | `ATSAT_TB_DIAG=<n>` | off (prints every n iterations which stage of the loop and which term of `rhs_t` changed the level-mean temperature; `planet/TbSat.h`) |

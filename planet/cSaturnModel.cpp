@@ -84,14 +84,14 @@ cSaturnModel::~cSaturnModel(){
 // while conserving the column's mass-weighted enthalpy; nothing else in the model does that.
 // Whether ATSAT develops such columns at all is unmeasured — switching this on and reading the
 // per-iteration report (columns touched, layers mixed, max dT, enthalpy drift) is how to find out.
-// ATSAT_MCA=<N> (2026-10-26, DEFAULT 0 = off): the moist convective adjustment with the Ledoux criterion
+// ATSAT_MCA=<N> (2026-10-26; DEFAULT 1 since 2026-10-27, user: "port the MCA default to the giants"; 0 = off): the moist convective adjustment with the Ledoux criterion
 // (MoistConvectiveAdjustmentSat, shared ConvectiveAdjustment.h, where its note and knobs are) every N
 // iterations, right after the dry one. Ported from ATJUP. It mass-weights with rho_at() and reads mass
 // fractions as c / rho_at(), so it means what it says only with ATSAT_LOCAL_RHO=1 (with the constant r_mix
 // every layer weighs the same). No tracer carries a formation enthalpy here (the NH4SH chemistry
 // releases none).
 static int mca_stride(){
-    static const int v = [](){ const char* e = getenv("ATSAT_MCA"); return e ? std::max(0, atoi(e)) : 0; }();
+    static const int v = [](){ const char* e = getenv("ATSAT_MCA"); return e ? std::max(0, atoi(e)) : 1; }();
     return v;
 }
 
@@ -531,6 +531,16 @@ void cSaturnModel::Run(){
     damp_species_init(nh3);
     damp_species_init(nh3_cloud);
     damp_species_init(nh3_ice);
+
+    // ATSAT_RHO_REFRESH_INIT (2026-10-28, DEFAULT 1, row GIANTS-MCA-DEFAULT; 0 restores): rebuild rho_mix
+    // from t / p_stat after the set-up saturation adjustment. fill_rho_mix_init() runs before it, and
+    // on ATSAT the adjustment rewrites p_stat from the latent-heated T (satadj_updates_pstat), so the
+    // set-up array was 2..31 % too light in the H2O deck (i 8..26) until computeMixtureDensity() first
+    // ran in iteration 2: the MCA's first call read mass fractions that high and missed the deck's
+    // instability (satchk/mcagiants_2026-10-28 dbg / dbg2). Only where the set-up fill ran
+    // (init_species_local_rho()), so ATSAT_LOCAL_RHO=0 keeps rho_mix = 0 until iteration 2 as before.
+    static const bool rho_refresh_init = [](){ const char* e = getenv("ATSAT_RHO_REFRESH_INIT"); return e ? atoi(e) != 0 : true; }();
+    if(rho_refresh_init && init_species_local_rho()) computeMixtureDensity();
 
     ChemistrySat(*this).DiffMassFluxSat();
 
