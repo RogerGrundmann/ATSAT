@@ -289,6 +289,8 @@ public:
     // unsettled when the mirrored routine was written, and sharing the file was not the moment to
     // settle it. Answering true here keeps ATSAT doing exactly what it did.
     static bool satadj_updates_pstat(){ return true; }
+    // <TAG>_MCA_INTERIOR default (shared ConvectiveAdjustment.h): leave the radial boundary planes out of the MCA column.
+    static bool mca_default_interior(){ return false; }
     // Defaults of ATSAT_SATADJ_NEWTON and ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): ON since
     // 2026-10-09. They act only when the shared routine is selected (ATSAT_SATADJ, this model's
     // default since 2026-10-10). Run for 16 iterations: without them the shared

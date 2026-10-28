@@ -89,6 +89,7 @@ baseline.
 | Dry convective adjustment | `ConvectiveAdjustmentSat.h` | `ATSAT_CONV_ADJ` | off |
 | Local density p/(R_mix T) in the saturation / precipitation / MCA groups (constant `r_mix` with 0); `ATSAT_INIT_SPECIES_LOCAL_RHO` follows it | `cSaturnModel.h` `rho_at()` | `ATSAT_LOCAL_RHO` | 1 (since 2026-10-27) |
 | Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | 1 (since 2026-10-27; 0 = off) |
+| └ MCA column without the radial boundary planes | shared `ConvectiveAdjustment.h` | `ATSAT_MCA_INTERIOR` | 0 (1 = leave the radial boundary planes i = 0 and i = im-1 out of the MCA column (shared `ConvectiveAdjustment.h`; 1 by default on ATURAN only, where mixing the floor plane looped against `bcRadius`)) |
 | Fitted NH3 liquid / NH3 ice / H2O ice vapour pressures (NIST Antoine, Fray & Schmitt 2009, Murphy & Koop 2005) | shared `ATPhys.h` | `ATSAT_SVP_FIT` | off |
 | Thermal-wind residual (diagnostic only) | `ThermalWindDiagSat.h` | `ATSAT_TW_DIAG` | off |
 
