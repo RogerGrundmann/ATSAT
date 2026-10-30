@@ -506,6 +506,21 @@ public:
         return v; }
     std::vector<double> p_baro;          // [(i*jm + j)*km + k], empty unless ATSAT_PDYN_GEO
     void initGeoBalance();
+    // ATSAT_CHROM=1 (2026-10-30, default 0 = off: chrom stays 0 everywhere, no output, restart files unchanged):
+    // the chromophore tracer, ported from ATJUP_CHROM -- a passive species made by UV photolysis of NH3 where
+    // the UV reaches (NH3 vapour self-shielding) and destroyed with a lifetime. The rates live in ChromSat.h.
+    static bool chrom_on(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_CHROM"); return e && atoi(e) != 0; }();
+        return v; }
+    double chromSource(int i, int j, int k);           // ChromSat.h, nondimensional d(chrom)/dt
+    void chromUV();                                     // ChromSat.h, chrom_uv once per iteration
+    void chromInfo();                                   // ChromSat.h, the startup line
+    // ATSAT_CLOUDVIEW_STRIDE (2026-10-30, ported from ATJUP's): iterations between Saturn_cloudview_<n>.vtk writes
+    // (paraview_cloudview, ParaView_Sat.cpp). Unset (-1) = together with the panorama .vts (writeData), 0 = never.
+    void paraview_cloudview(int n);
+    static int cloudview_stride(){
+        static const int s = [](){ const char* e = getenv("ATSAT_CLOUDVIEW_STRIDE"); return e ? atoi(e) : -1; }();
+        return s; }
     // ATSAT_CELL_HOLD=1 (2026-10-25, default: follows ATSAT_GEO_BALANCE, so 1 since the same day): ATJUP's CELL_HOLD (a80521b), the
     // prescribed meridional cells held in rotating balance. With the Coriolis force at full scale the zonal
     // component 2 Omega (cos(theta) v + sin(theta) u) turns the cells into w -- SGEO1000 (satchk/geo_2026-10-17,
@@ -1119,6 +1134,8 @@ private:
     Array nh3_cloud;            // nh3-cloud
     Array nh3_ice;                // nh3-ice
     Array nh4sh;                    // nh4sh-vapour
+    Array chrom;                    // chromophore tracer, kg/m3 (ATSAT_CHROM; ChromSat.h)
+    Array chrom_uv;                 // UV fraction reaching the cell, exp(-N_NH3,above / N_uv) (ChromSat.h)
 
     Array tn;                    // temperature new
     Array un;                    // u-velocity component in r-direction new
@@ -1135,6 +1152,7 @@ private:
     Array nh3_cloudn;            // nh3_cloud new
     Array nh3_icen;                 // nh3_ice new
     Array nh4shn;                    // nh4sh new
+    Array chromn;                    // chromophore new
 
     Array massflux_h2s;   // mass flux h2s
     Array massflux_nh3;   // mass flux nh3
@@ -1174,6 +1192,7 @@ private:
     Array rhs_nh3_cloud;        // auxilliar field RHS nh3_cloud
     Array rhs_nh3_ice;            // auxilliar field RHS nh3_ice
     Array rhs_nh4sh;                // auxilliar field RHS nh4sh
+    Array rhs_chrom;                // auxilliar field RHS chromophore
 
     Array aux;                // auxilliar field u-velocity component
     Array aux_u;                // auxilliar field u-velocity component
@@ -1245,6 +1264,7 @@ private:
     Array acc_nh3_cloud;
     Array acc_nh3_ice;
     Array acc_nh4sh;
+    Array acc_chrom;
     Array acc_tke;
     Array acc_dis;
     Array nue;                     // eddy viscosity nue* (the closure's own name)

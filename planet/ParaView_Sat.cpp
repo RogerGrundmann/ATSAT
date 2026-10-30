@@ -113,10 +113,12 @@ void cSaturnModel::paraview_panorama_vts(int n){
     // SHARED ParaViewWriter.h. What stays here is the field list below and the
     // scalars string that has to agree with it.
     ParaViewWriter<cSaturnModel> pv(*this);
-    ofstream Saturn_panorama_vts_File = pv.open_panorama(n,
+    // ATSAT_CHROM (ChromSat.h): the chromophore array only when the tracer is on, so a default panorama is unchanged.
+    const std::string pano_scalars = std::string(
         "Temperature PressureDynamic PressureStatic CH4 CH4Cloud CH4Ice NH3 NH3Cloud "
         "NH3Ice H2O H2OCloud H2OIce Q_Latent Q_Sensible "
-        PANORAMA_EXTRA_SCALARS "BuoyancyForce ");
+        PANORAMA_EXTRA_SCALARS "BuoyancyForce ") + (chrom_on() ? "Chromophore_mgm3 " : "");
+    ofstream Saturn_panorama_vts_File = pv.open_panorama(n, pano_scalars.c_str());
     pv.panorama_velocity(Saturn_panorama_vts_File);
     pv.panorama_temperature(Saturn_panorama_vts_File);
 //    dump_array("Seamount", SeaMount, 1.0, Saturn_panorama_vts_File);
@@ -151,6 +153,7 @@ void cSaturnModel::paraview_panorama_vts(int n){
 
     dump_array("NH4SH", nh4sh, 1e9, Saturn_panorama_vts_File);
     dump_array("w_nh4sh", w_nh4sh, 1e9, Saturn_panorama_vts_File);
+    if(chrom_on()) dump_array("Chromophore_mgm3", chrom, 1e6, Saturn_panorama_vts_File);
 //    dump_array("j_nh4sh", j_nh4sh, 1e9, Saturn_panorama_vts_File);
 //    dump_array("jT_nh4sh", jT_nh4sh, 1e9, Saturn_panorama_vts_File);
 
@@ -161,6 +164,102 @@ void cSaturnModel::paraview_panorama_vts(int n){
 
     pv.close_panorama(Saturn_panorama_vts_File, n);
     return;
+}
+/*
+ * Saturn_cloudview_<n>.vtk (2026-10-30, ATSAT_CLOUDVIEW_STRIDE; ported from ATJUP's Jupiter_cloudview, d18961a /
+ * 5593beb / e930d03): what a camera above the planet would see of the two upper cloud decks. Every radial
+ * layer i is a horizontal (lat, lon) sheet holding the column mass ABOVE it, summed from the top down to and
+ * including layer i:
+ *
+ *     X_above(i, j, k) = sum_{i' = i .. im-2} X(i', j, k) * layer_thickness_m(i')       [g/m2]
+ *
+ * so layer 0 is the whole column (the photo's view), and stepping i upward strips the deeper cloud away.
+ * Layer im-1, the lid, has no thickness and holds 0. NH3Ice is the upper white deck; NH4SH the deeper layer
+ * that shows through where the NH3 deck is thin. Saturn's deck structure is Jupiter's, so the arrays are the
+ * same. Grid: (lat, lon) layout (x = 0.1 per latitude row, y = 0.1 per longitude), the layers stacked in z
+ * at 0.1 each and FLIPPED -- layer i at z = 0.1 (im-1-i), so layer 0 is the TOP face and a view from above
+ * shows the photo at once. With ATSAT_CHROM the chromophore column Chrom_above_mgm2 (mg/m2) is added.
+ */
+void cSaturnModel::paraview_cloudview(int n){
+    const std::string name = output_path + "/Saturn_cloudview_" + std::to_string(n) + ".vtk";
+    std::ofstream f;
+    f.precision(4);
+    f.setf(std::ios::fixed);
+    f.open(name);
+    if(!f.is_open()){
+        std::cerr << "ERROR: could not open cloudview file " << __FILE__ << " at line " << __LINE__ << "\n";
+        abort();
+    }
+    const size_t npt = (size_t)im * jm * km;
+    f << "# vtk DataFile Version 3.0" << std::endl;
+    f << "Cloudview_Data_Sat_Circulation\n";
+    f << "ASCII" << std::endl;
+    f << "DATASET STRUCTURED_GRID" << std::endl;
+    f << "DIMENSIONS " << km << " " << jm << " " << im << std::endl;
+    f << "POINTS " << npt << " float" << std::endl;
+    for(int i = 0; i < im; i++)
+        for(int j = 0; j < jm; j++)
+            for(int k = 0; k < km; k++)
+                f << j * 0.1 << " " << k * 0.1 << " " << (im - 1 - i) * 0.1 << std::endl;   // layer 0 on top
+    f << "POINT_DATA " << npt << std::endl;
+    auto above = [&](const char* desc, Array& a, double unit = 1.0e3){
+        std::vector<double> c((size_t)im * jm * km, 0.0);          // c[i][j][k], layer im-1 stays 0
+        for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+            double s = 0.0;
+            for(int i = im - 2; i >= 0; i--){
+                s += a.x[i][j][k] * layer_thickness_m(i) * unit;     // kg/m3 * m -> g/m2 (unit 1e3)
+                c[((size_t)i * jm + j) * km + k] = s;
+            }
+        }
+        f << "SCALARS " << desc << " float " << 1 << std::endl;
+        f << "LOOKUP_TABLE default" << std::endl;
+        for(size_t q = 0; q < c.size(); q++) f << c[q] << std::endl;
+        return c;
+    };
+    const std::vector<double> c_ice = above("NH3Ice_above_gm2", nh3_ice);
+    const std::vector<double> c_nhs = above("NH4SH_above_gm2", nh4sh);
+    std::vector<double> c_chr;
+    if(chrom_on()) c_chr = above("Chrom_above_mgm2", chrom, 1.0e6);     // ATSAT_CHROM, ChromSat.h: the colour
+
+    // PhotoRGB: one colour per point, red / green / blue in 0..1 (ParaView: colour by PhotoRGB, untick
+    // "Map Scalars"). A RECIPE, not radiative transfer -- ATJUP's, with Saturn's paler tints:
+    //   b  brightness of the NH3 ice column             -> pale cream deck, B = 0.15 + 0.85 b
+    //   n  NH4SH column where the NH3 deck is thin, n (1 - b) -> mixed toward tan (0.78, 0.66, 0.46)
+    //   c  chromophore column                            -> mixed toward butterscotch (0.86, 0.66, 0.34)
+    // Weaker mixing than on Jupiter (0.5 / 0.6 against 0.7 / 0.8): Saturn's haze mutes the contrasts.
+    // Each column scaled between its 2nd and 98th percentile of LAYER 0 over |lat| <= 80 deg (the
+    // chromophore between its 2nd percentile and its maximum), so the same scale holds on every layer.
+    // The scale is per file: two files are not on one scale.
+    {
+        auto range = [&](const std::vector<double>& c, bool to_max){
+            std::vector<double> v;
+            for(int j = 10; j < jm - 10; j++) for(int k = 0; k < km - 1; k++) v.push_back(c[(size_t)j * km + k]);
+            std::sort(v.begin(), v.end());
+            const double lo = v[v.size() * 2 / 100], hi = to_max ? v.back() : v[v.size() * 98 / 100];
+            return std::make_pair(lo, hi > lo ? hi : lo + 1.0);
+        };
+        auto unit01 = [](double x, const std::pair<double, double>& r){
+            return std::min(1.0, std::max(0.0, (x - r.first) / (r.second - r.first))); };
+        const auto r_ice = range(c_ice, false), r_nhs = range(c_nhs, false);
+        const auto r_chr = c_chr.empty() ? std::make_pair(0.0, 1.0) : range(c_chr, true);
+        f << "COLOR_SCALARS PhotoRGB 3" << std::endl;
+        for(size_t q = 0; q < c_ice.size(); q++){
+            const double b  = unit01(c_ice[q], r_ice);
+            const double nb = unit01(c_nhs[q], r_nhs) * (1.0 - b);
+            const double cc = c_chr.empty() ? 0.0 : unit01(c_chr[q], r_chr);
+            double rgb[3] = { 1.0, 0.97, 0.90 };
+            const double tan_[3] = { 0.78, 0.66, 0.46 }, butter[3] = { 0.86, 0.66, 0.34 };
+            for(int m_ = 0; m_ < 3; m_++){
+                rgb[m_] += 0.5 * nb * (tan_[m_] - rgb[m_]);
+                rgb[m_] += 0.6 * cc * (butter[m_] - rgb[m_]);
+                rgb[m_] *= 0.15 + 0.85 * b;
+            }
+            f << rgb[0] << " " << rgb[1] << " " << rgb[2] << std::endl;
+        }
+    }
+    f.close();
+    std::cout << "   File:  Saturn_cloudview_" << n << ".vtk"
+              << "  has been written to Directory:  " << output_path << std::endl;
 }
 /*
  * 
@@ -209,6 +308,8 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
     dump_radial("difflux_nh3", difflux_nh3, 1e3, i_radial, Saturn_vtk_radial_File);
 
     dump_radial("NH4SH", nh4sh, 1e9, i_radial, Saturn_vtk_radial_File);
+    if(chrom_on()){ dump_radial("Chromophore_mgm3", chrom, 1e6, i_radial, Saturn_vtk_radial_File);
+                    dump_radial("ChromUV", chrom_uv, 1.0, i_radial, Saturn_vtk_radial_File); }
     dump_radial("w_nh4sh", w_nh4sh, 1e9, i_radial, Saturn_vtk_radial_File);
     dump_radial("j_nh4sh", j_nh4sh, 1e9, i_radial, Saturn_vtk_radial_File);
     dump_radial("jT_nh4sh", jT_nh4sh, 1e9, i_radial, Saturn_vtk_radial_File);
@@ -304,6 +405,8 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
     dump_zonal("difflux_nh3", difflux_nh3, 1e3, k_zonal, Saturn_vtk_zonal_File);
 
     dump_zonal("NH4SH", nh4sh, 1e9, k_zonal, Saturn_vtk_zonal_File);
+    if(chrom_on()){ dump_zonal("Chromophore_mgm3", chrom, 1e6, k_zonal, Saturn_vtk_zonal_File);
+                    dump_zonal("ChromUV", chrom_uv, 1.0, k_zonal, Saturn_vtk_zonal_File); }
     dump_zonal("w_nh4sh", w_nh4sh, 1e9, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("j_nh4sh", j_nh4sh, 1e9, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("jT_nh4sh", jT_nh4sh, 1e9, k_zonal, Saturn_vtk_zonal_File);
@@ -381,6 +484,8 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
     dump_longal("difflux_nh3", difflux_nh3, 1e3, j_longal, Saturn_vtk_longal_File);
 
     dump_longal("NH4SH", nh4sh, 1e9, j_longal, Saturn_vtk_longal_File);
+    if(chrom_on()){ dump_longal("Chromophore_mgm3", chrom, 1e6, j_longal, Saturn_vtk_longal_File);
+                    dump_longal("ChromUV", chrom_uv, 1.0, j_longal, Saturn_vtk_longal_File); }
     dump_longal("w_nh4sh", w_nh4sh, 1e9, j_longal, Saturn_vtk_longal_File);
     dump_longal("j_nh4sh", j_nh4sh, 1e9, j_longal, Saturn_vtk_longal_File);
     dump_longal("jT_nh4sh", jT_nh4sh, 1e9, j_longal, Saturn_vtk_longal_File);

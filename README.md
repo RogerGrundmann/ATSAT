@@ -92,6 +92,7 @@ baseline.
 | └ MCA column without the radial boundary planes | shared `ConvectiveAdjustment.h` | `ATSAT_MCA_INTERIOR` | 1 (1 = leave the radial boundary planes i = 0 and i = im-1 out of the MCA column (shared `ConvectiveAdjustment.h`, `mca_default_interior()`; 1 by default on all four since 2026-10-30, on ATURAN since 10-28, where mixing the floor plane looped against `bcRadius`; 0 = the old column)) |
 | Fitted NH3 liquid / NH3 ice / H2O ice vapour pressures (NIST Antoine, Fray & Schmitt 2009, Murphy & Koop 2005) | shared `ATPhys.h` | `ATSAT_SVP_FIT` | off |
 | Thermal-wind residual (diagnostic only) | `ThermalWindDiagSat.h` | `ATSAT_TW_DIAG` | off |
+| Chromophore tracer (the colouring agent: J c_NH3 sin(colat) A_uv - chrom/tau, A_uv = exp(-N_NH3 vapour above / N_uv); passive, uncalibrated = relative colour intensity; knobs `ATSAT_CHROM_J` 1e-6 1/s, `_NUV` 3e-4 kg/m2, `_TAU` 30 d, `_SRC` 1; ported from ATJUP_CHROM 2026-10-30) | `ChromSat.h` | `ATSAT_CHROM` | off |
 
 ### Numerical safety nets
 
@@ -266,6 +267,7 @@ into `<output_path>-Saturn/`:
 | `Saturn_zonal_180_<n>.vtk` | meridional slice at k = 180 |
 | `Saturn_longal_112_<n>.vtk` | longitudinal slice at j = 112 |
 | `Saturn_panorama_<n>.vts` | the full 3-D volume (~900 MB), needs `paraview_flag` |
+| `Saturn_cloudview_<n>.vtk` | the view from above (since 2026-10-30, ported from ATJUP): per layer the column above it of NH3 ice and NH4SH (g/m2; + chromophore mg/m2 with `ATSAT_CHROM`), layer 0 = whole column on the top face, and `PhotoRGB` (a colour recipe, per-file scale). Written with every panorama by default; `ATSAT_CLOUDVIEW_STRIDE=<n>` every n iterations, 0 = never |
 | `sat_restart_<n>.bin` | binary restart, 37 prognostic arrays (~756 MB) |
 
 Restart is controlled by `checkpoint_save_iter` (explicit dump) and `restart_from_iter`

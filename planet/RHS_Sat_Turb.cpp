@@ -14,6 +14,7 @@
 */
 
 #include "cSaturnModel.h"
+#include "ChromSat.h"         // ATSAT_CHROM, the chromophore tracer
 #include "TbSat.h"
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
 #include "UbSat.h"           // ATSAT_UB_DIAG, print-only
@@ -904,6 +905,27 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 //        + chemical_reaction * w_nh4sh.x[i][j][k];
         + chemical_reaction * massflux_nh4sh.x[i][j][k];
 
+    // ===== Chromophore tracer (ATSAT_CHROM, ChromSat.h) =====
+    // Transported and diffused as NH3 is (its Schmidt number), plus the UV production / lifetime loss.
+    // Built ahead of the species_divu term below, which adds to it when both are on.
+    if(chrom_on()){
+        const Array& c_ = chrom;
+        const double c0 = c_.x[i][j][k];
+        const double dcdr    = (c_.x[i+1][j][k] - c_.x[i-1][j][k]) * inv_2dr * exp_rm;
+        const double d2cdr2  = (c_.x[i+1][j][k] - 2.0 * c0 + c_.x[i-1][j][k]) * inv_dr2 * exp_2_rm;
+        const double dcdthe  = (c_.x[i][j+1][k] - c_.x[i][j-1][k]) * inv_2dthe;
+        const double d2cdth2 = (c_.x[i][j+1][k] - 2.0 * c0 + c_.x[i][j-1][k]) * inv_dthe2;
+        const double dcdphi  = (c_.x[i][j][ke] - c_.x[i][j][kw]) * inv_2dphi;
+        const double d2cdph2 = (c_.x[i][j][ke] - 2.0 * c0 + c_.x[i][j][kw]) * inv_dphi2;
+        const double transport_chrom = u_ijk * dcdr + v_ijk * dcdthe * inv_rm + w_ijk * dcdphi * inv_rmsinthe;
+        const double diffusion_chrom = d2cdr2 + dcdr * two_inv_rm + d2cdth2 * inv_rm2
+            + dcdthe * costhe_inv_rm2sinthe + d2cdph2 * inv_rm2sinthe2;
+        rhs_chrom.x[i][j][k] =
+            - transport_chrom
+            + diffusion_chrom / (sc_nh3 * re) + diffusion_chrom * nue_t_s
+            + chromSource(i, j, k);
+    }
+
     // ATSAT_SPECIES_DIVU=<s> (2026-10-12), DEFAULT 0 = OFF (block skipped, byte-identical): the
     // flux form of the species transport, ATJUP's ATJUP_SPECIES_DIVU. Every species here is a
     // DENSITY [kg/m3], so its conservation law is
@@ -952,6 +974,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         rhs_ch4_cloud.x[i][j][k] -= sd * ch4_cloud.x[i][j][k];
         rhs_ch4_ice.x[i][j][k]   -= sd * ch4_ice.x[i][j][k];
         rhs_nh4sh.x[i][j][k]     -= sd * nh4sh.x[i][j][k];
+        if(chrom_on()) rhs_chrom.x[i][j][k] -= sd * chrom.x[i][j][k];
     }
 
     aux_u.x[i][j][k] = rhs_u.x[i][j][k] + dpdr;

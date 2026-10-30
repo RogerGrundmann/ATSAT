@@ -80,7 +80,7 @@ void BC_Sat::bcRadius() {
         &m.h2s,
         &m.nh3, &m.nh3_cloud, &m.nh3_ice,
         &m.ch4, &m.ch4_cloud, &m.ch4_ice,
-        &m.nh4sh };
+        &m.nh4sh, &m.chrom };
     const int ns = (int)(sizeof(species) / sizeof(species[0]));
     const int im = m.im, jm = m.jm, km = m.km;
     #pragma omp parallel for
@@ -105,7 +105,7 @@ std::vector<Array*> cSaturnModel::bc_fields_radius(){
         &h2o, &h2o_cloud, &h2o_ice,
         &h2s,
         &nh3, &nh3_cloud, &nh3_ice,
-        &nh4sh,
+        &nh4sh, &chrom,
         &j_h2s,  &j_nh3,  &j_nh4sh,
         &jT_h2s, &jT_nh3, &jT_nh4sh,
         &w_h2s,  &w_nh3,  &w_nh4sh,
@@ -128,7 +128,7 @@ std::vector<Array*> cSaturnModel::bc_fields_theta_extrap(){
         &h2o, &h2o_cloud, &h2o_ice,
         &h2s,
         &nh3, &nh3_cloud, &nh3_ice,
-        &nh4sh,
+        &nh4sh, &chrom,
         &j_h2s,  &j_nh3,  &j_nh4sh,
         &jT_h2s, &jT_nh3, &jT_nh4sh,
         &w_h2s,  &w_nh3,  &w_nh4sh,
@@ -154,7 +154,7 @@ std::vector<Array*> cSaturnModel::bc_fields_phi(){
         &h2o, &h2o_cloud, &h2o_ice,
         &h2s,
         &nh3, &nh3_cloud, &nh3_ice,
-        &nh4sh,
+        &nh4sh, &chrom,
         &j_h2s,  &j_nh3,  &j_nh4sh,
         &jT_h2s, &jT_nh3, &jT_nh4sh,
         &w_h2s,  &w_nh3,  &w_nh4sh,

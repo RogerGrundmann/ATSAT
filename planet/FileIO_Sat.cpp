@@ -46,6 +46,8 @@ void cSaturnModel::writeData(){
     if(paraview_flag && (iter_n % panorama_print == 0 || iter_n % 100 == 0)){
         paraview_panorama_vts(iter_n);
         paraview_sphere_vts(iter_n);
+        // ATSAT_CLOUDVIEW_STRIDE (cSaturnModel.h): unset = the from-above cloud columns with every panorama.
+        if(cloudview_stride() < 0) paraview_cloudview(iter_n);
     }
 
     SaturnPlotData();
@@ -517,6 +519,9 @@ void cSaturnModel::save_state(int iter){
 
     std::vector<Array*> arrs = restart_arrays();
     if(!restart_arrays_allocated(arrs, "save_state")) return;
+    // ATSAT_CHROM (ChromSat.h): chrom and chromn after the fixed list, only when the tracer is on, so a
+    // default restart file keeps its size and bytes.
+    if(chrom_on()){ arrs.push_back(&chrom); arrs.push_back(&chromn); }
     for(size_t a = 0; a < arrs.size(); a++)
         for(int i = 0; i < im; i++)
             for(int j = 0; j < jm; j++)
@@ -562,6 +567,20 @@ bool cSaturnModel::load_state(int iter){
                 }
             }
 
+    // ATSAT_CHROM: the two tracer arrays, if the file carries them; a file written without the tracer
+    // starts it from 0.
+    if(chrom_on()){
+        Array* ca[] = { &chrom, &chromn };
+        bool got = true;
+        for(Array* a_ : ca) for(int i = 0; i < im && got; i++) for(int j = 0; j < jm && got; j++){
+            f.read(reinterpret_cast<char*>(a_->x[i][j]), km * sizeof(double));
+            if(!f) got = false;
+        }
+        if(!got){
+            for(Array* a_ : ca) for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++) a_->x[i][j][k] = 0.0;
+            cout << "      ATSAT: load_state: no chromophore arrays in " << fn << " - ATSAT_CHROM starts from 0" << endl;
+        } else cout << "      ATSAT: load_state: chromophore arrays restored" << endl;
+    }
     cout << "      ATSAT: load_state restored " << arrs.size() << " arrays from "
          << fn << " (resuming after iteration " << hdr[4] << ")" << endl;
     return true;
