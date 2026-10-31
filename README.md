@@ -268,12 +268,20 @@ into `<output_path>-Saturn/`:
 | `Saturn_longal_112_<n>.vtk` | longitudinal slice at j = 112 |
 | `Saturn_panorama_<n>.vts` | the full 3-D volume (~900 MB), needs `paraview_flag` |
 | `Saturn_cloudview_<n>.vtk` | the view from above (since 2026-10-30, ported from ATJUP): per layer the column above it of NH3 ice and NH4SH (g/m2; + chromophore mg/m2 with `ATSAT_CHROM`), layer 0 = whole column on the top face, and `PhotoRGB` (a colour recipe, per-file scale). Written with every panorama by default; `ATSAT_CLOUDVIEW_STRIDE=<n>` every n iterations, 0 = never |
-| `sat_restart_<n>.bin` | binary restart, 37 prognostic arrays (~756 MB) |
+| `sat_restart_<n>.bin` | binary restart, 38 prognostic + 34 carried arrays (~1.5 GB, magic `"SAT2"`; + chrom / chromn with `ATSAT_CHROM`) |
 
 Restart is controlled by `checkpoint_save_iter` (explicit dump) and `restart_from_iter`
 (resume), both default −1. The periodic dump is written **only when the state is finite**, so a
 diverged run can never overwrite a good restart point. The file magic is `"SAT1"`: ATJUP
 restarts have identical grid dimensions and would otherwise be read as nonsense.
+
+Since 2026-10-31 (`"SAT2"`) a resumed run reproduces the straight run byte for byte, at an even or
+odd resume iteration and with `ATSAT_CHROM` (checked on the whole 3D state, not only the slices): the file also carries the 34 derived arrays the next
+iteration reads before it rewrites them (`restart_arrays_carried()` in planet/FileIO_Sat.cpp: the
+fluxes and sinks of the even-iteration physics block, the turbulence sources, the projection's
+rhs_u / rhs_v, the seam corners of six output fields). Before, a restart differed from the straight
+run (NH4SH in every cell, T up to 0.16 K at 8 -> 16). A `"SAT1"` file still loads, with the old
+behaviour and a warning; `ATSAT_RESTART_CARRIED=0` writes `"SAT1"` (the old bytes).
 
 ---
 

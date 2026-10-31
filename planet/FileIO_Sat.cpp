@@ -454,11 +454,19 @@ bool cSaturnModel::nan_watch(int iter){
  * iterations had to be paid for again from scratch. The file is a raw dump — a 5-int header
  * followed by the arrays, each written as im*jm contiguous rows of km doubles.
  *
- * Only the genuinely PROGNOSTIC arrays are stored, with the same reasoning as ATJUP: the
- * reaction rates, the diffusive and thermal mass fluxes, the forces, the radiation and
- * precipitation fluxes and the latent and sensible heat fields are all recomputed from these at
- * the top of the next iteration, so storing them would add bulk and one more way for the file to
- * disagree with itself.
+ * Only the genuinely PROGNOSTIC arrays were stored at first, with the same reasoning as ATJUP:
+ * the derived fields were taken to be recomputed from these at the top of the next iteration.
+ * That premise was WRONG for some of them (row SAT-RESTART-REPRO, satchk/restartrepro_2026-10-31):
+ * a restart at 8 -> 16 differed from the straight run (NH4SH in every cell, T up to 0.16 K), and
+ * loading every array from a dump of the straight run made it byte-identical, so the gap is state
+ * carried in arrays the file did not hold. Leave-one-out named them, see restart_arrays_carried():
+ * the physics block runs on even iterations only, so an odd iteration reads the fluxes, rho_mix and
+ * the precipitation sinks of the last even one; Turbulence::run computes tke_source / dis_source at
+ * the end of an iteration for the RK step of the next; and the chemistry and the projection read
+ * planes of their own previous output. Recomputing them after the load is not exact (the turbulence
+ * sources are computed before apply_wall_bc / clamp_nue, and the MCA runs after them), so they are
+ * stored: magic "SAT2" = the fixed list, then the carried list, then chrom. A "SAT1" file still
+ * loads, with the set-up values in the carried arrays as before. ATSAT_RESTART_CARRIED=0 writes SAT1.
  *
  * p_stat is stored although it is quasi-static: the buoyancy term and the whole saturation chain
  * read it, and it has to match the temperature field it was built with.
@@ -489,6 +497,25 @@ std::vector<Array*> cSaturnModel::restart_arrays(){
              &tke, &dis, &tken, &disn, &nue };
 }
 
+// Read by the next iteration before it rewrites them (see the note above restart_arrays). Each of
+// them alone breaks the byte match of a resumed run; only in SAT2 files.
+std::vector<Array*> cSaturnModel::restart_arrays_carried(){
+    return { &tke_source, &dis_source,
+             &difflux_h2s,  &difflux_nh3,  &difflux_nh4sh,
+             &j_h2s,        &j_nh3,        &j_nh4sh,
+             &massflux_h2s, &massflux_nh3, &massflux_nh4sh,
+             &thermalmassflux, &fluxlim_nh4sh,
+             &rhs_u, &rhs_v,
+             &rho_mix, &Q_precip,
+             &S_precip_h2o, &S_precip_h2o_cloud, &S_precip_h2o_ice,
+             &S_precip_nh3, &S_precip_nh3_ice,
+             &S_precip_nh3_cloud, &S_precip_ch4_cloud, &S_precip_ch4_ice,
+             &w_h2s, &w_nh3, &w_nh4sh,
+             // only the seam meridian k = km-1 on the two radial planes, a copy of k = 0 made before the
+             // boundary pass writes k = 0, so it lags one physics call: output-only, but it is in the slices
+             &BuoyancyForce, &PresGradForce, &Q_Sensible, &jT_h2s, &jT_nh3, &jT_nh4sh };
+}
+
 // Every array in restart_arrays() must actually own storage. An Array that was declared but
 // never initArray'd has x == NULL, and the three routines below walk these pointers without
 // looking — which is how p_dynn took down the first checkpoint. Checked once, on the first call,
@@ -514,10 +541,11 @@ void cSaturnModel::save_state(int iter){
     // Header: magic, grid dimensions, and the iteration this state belongs to. The grid is
     // checked on load, so a restart written at another resolution is rejected rather than read
     // as garbage.
-    const int32_t hdr[5] = { 0x53415431 /*"SAT1"*/, im, jm, km, iter };
+    const int32_t hdr[5] = { restart_carried() ? 0x53415432 /*"SAT2"*/ : 0x53415431 /*"SAT1"*/, im, jm, km, iter };
     f.write(reinterpret_cast<const char*>(hdr), sizeof(hdr));
 
     std::vector<Array*> arrs = restart_arrays();
+    if(restart_carried()){ std::vector<Array*> c_ = restart_arrays_carried(); arrs.insert(arrs.end(), c_.begin(), c_.end()); }
     if(!restart_arrays_allocated(arrs, "save_state")) return;
     // ATSAT_CHROM (ChromSat.h): chrom and chromn after the fixed list, only when the tracer is on, so a
     // default restart file keeps its size and bytes.
@@ -548,13 +576,17 @@ bool cSaturnModel::load_state(int iter){
     }
     int32_t hdr[5];
     f.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
-    if(!f || hdr[0] != 0x53415431 || hdr[1] != im || hdr[2] != jm || hdr[3] != km){
+    const bool sat2 = f && hdr[0] == 0x53415432;
+    if(!f || (hdr[0] != 0x53415431 && !sat2) || hdr[1] != im || hdr[2] != jm || hdr[3] != km){
         cout << "      ATSAT: load_state: bad header / grid mismatch in " << fn
              << " - running from scratch" << endl;
         return false;
     }
 
     std::vector<Array*> arrs = restart_arrays();
+    if(sat2){ std::vector<Array*> c_ = restart_arrays_carried(); arrs.insert(arrs.end(), c_.begin(), c_.end()); }
+    else cout << "      ATSAT: load_state: SAT1 file without the carried arrays - the resumed run will not"
+                 " reproduce the straight one (row SAT-RESTART-REPRO)" << endl;
     if(!restart_arrays_allocated(arrs, "load_state")) return false;
     for(size_t a = 0; a < arrs.size(); a++)
         for(int i = 0; i < im; i++)

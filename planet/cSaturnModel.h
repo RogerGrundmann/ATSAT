@@ -554,6 +554,11 @@ public:
 
     // ---- Restart checkpoint, ported from ATJUP (see FileIO_Sat.cpp) ----
     std::vector<Array*> restart_arrays();   // the prognostic 3D fields a checkpoint serialises
+    std::vector<Array*> restart_arrays_carried();   // derived fields the next iteration reads before it rewrites them (SAT2)
+    static bool restart_carried(){          // ATSAT_RESTART_CARRIED=0: write the old SAT1 file without them
+        static const bool v = [](){ const char* e = getenv("ATSAT_RESTART_CARRIED"); return e ? atoi(e) != 0 : true; }();
+        return v;
+    }
     void save_state(int iter);              // dump them to output_path/sat_restart_<iter>.bin
     bool load_state(int iter);              // restore them; false (run from scratch) if absent
     bool restart_state_is_clean();          // true when every serialised field is finite
