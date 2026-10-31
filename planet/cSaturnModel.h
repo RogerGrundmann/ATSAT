@@ -554,6 +554,11 @@ public:
 
     // ---- Restart checkpoint, ported from ATJUP (see FileIO_Sat.cpp) ----
     std::vector<Array*> restart_arrays();   // the prognostic 3D fields a checkpoint serialises
+    // ATSAT_PANORAMA_STRIDE=<n> (2026-10-31, as ATJUP_PANORAMA_STRIDE): the panorama, sphere and (by default) cloudview
+    // every n iterations on which writeData runs; unset = every 100 and at panorama_print, as before.
+    static int panorama_stride(){
+        static const int s_ = [](){ const char* e = getenv("ATSAT_PANORAMA_STRIDE"); return (e && atoi(e) > 0) ? atoi(e) : 0; }();
+        return s_; }
     std::vector<Array*> restart_arrays_carried();   // derived fields the next iteration reads before it rewrites them (SAT2)
     static bool restart_carried(){          // ATSAT_RESTART_CARRIED=0: write the old SAT1 file without them
         static const bool v = [](){ const char* e = getenv("ATSAT_RESTART_CARRIED"); return e ? atoi(e) != 0 : true; }();

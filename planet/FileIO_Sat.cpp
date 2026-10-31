@@ -43,7 +43,8 @@ void cSaturnModel::writeData(){
     // checkpoint = 100 a run now writes .vtk, .vts and .bin together at 100 and at 200.
     // panorama_print is kept as an additional trigger so existing configurations still get
     // what they asked for.
-    if(paraview_flag && (iter_n % panorama_print == 0 || iter_n % 100 == 0)){
+    if(paraview_flag && (panorama_stride() > 0 ? iter_n % panorama_stride() == 0
+                                               : (iter_n % panorama_print == 0 || iter_n % 100 == 0))){
         paraview_panorama_vts(iter_n);
         paraview_sphere_vts(iter_n);
         // ATSAT_CLOUDVIEW_STRIDE (cSaturnModel.h): unset = the from-above cloud columns with every panorama.

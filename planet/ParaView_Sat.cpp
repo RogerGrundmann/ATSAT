@@ -53,10 +53,8 @@ using namespace std;
     DUMP("P_graupel",     P_graupel,  86400.0, IDX, F);                       \
     DUMP("P_nh3_rain",    P_nh3_rain, 86400.0, IDX, F);                       \
     DUMP("P_nh3_snow",    P_nh3_snow, 86400.0, IDX, F);                       \
-    DUMP("P_nh3_graupel", P_nh3_graupel, 86400.0, IDX, F);                    \
     DUMP("P_ch4_rain",    P_ch4_rain, 86400.0, IDX, F);                       \
     DUMP("P_ch4_snow",    P_ch4_snow, 86400.0, IDX, F);                       \
-    DUMP("P_ch4_graupel", P_ch4_graupel, 86400.0, IDX, F);                    \
     DUMP("P_nh4sh",       P_nh4sh,    86400.0, IDX, F);                       \
     DUMP("Q_precip",      Q_precip,   1.0e3,   IDX, F);   /* mW/m3  */        \
     DUMP("tke",           tke,        u_0 * u_0, IDX, F); /* m2/s2  */        \
@@ -81,10 +79,8 @@ using namespace std;
     dump_array("P_graupel_mmd",     P_graupel,     86400.0, F);               \
     dump_array("P_nh3_rain_mmd",    P_nh3_rain,    86400.0, F);               \
     dump_array("P_nh3_snow_mmd",    P_nh3_snow,    86400.0, F);               \
-    dump_array("P_nh3_graupel_mmd", P_nh3_graupel, 86400.0, F);               \
     dump_array("P_ch4_rain_mmd",    P_ch4_rain,    86400.0, F);               \
     dump_array("P_ch4_snow_mmd",    P_ch4_snow,    86400.0, F);               \
-    dump_array("P_ch4_graupel_mmd", P_ch4_graupel, 86400.0, F);               \
     dump_array("P_nh4sh_mmd",       P_nh4sh,       86400.0, F);               \
     dump_array("Q_precip_mW_m3",    Q_precip,      1.0e3,   F);               \
     dump_array("tke_m2s2",          tke,           u_0 * u_0, F);             \
@@ -100,8 +96,8 @@ using namespace std;
 #define PANORAMA_EXTRA_SCALARS                                                \
     "rho_mix Q_rad_mW_m3 Radiation Emissivity P_rain_mmd P_snow_mmd "         \
     "P_graupel_mmd "                                                          \
-    "P_nh3_rain_mmd P_nh3_snow_mmd P_nh3_graupel_mmd "                        \
-    "P_ch4_rain_mmd P_ch4_snow_mmd P_ch4_graupel_mmd P_nh4sh_mmd "            \
+    "P_nh3_rain_mmd P_nh3_snow_mmd "                        \
+    "P_ch4_rain_mmd P_ch4_snow_mmd P_nh4sh_mmd "            \
     "Q_precip_mW_m3 tke_m2s2 dis_nd nue_t_m2s prod_nd tke_source_nd "         \
     "dis_source_nd "
 /*
@@ -113,27 +109,24 @@ void cSaturnModel::paraview_panorama_vts(int n){
     // SHARED ParaViewWriter.h. What stays here is the field list below and the
     // scalars string that has to agree with it.
     ParaViewWriter<cSaturnModel> pv(*this);
-    // ATSAT_CHROM (ChromSat.h): the chromophore array only when the tracer is on, so a default panorama is unchanged.
+    // ATSAT_CHROM (ChromSat.h): the chromophore arrays only when the tracer is on, so a default panorama is unchanged.
+    // The list names exactly the arrays written below (2026-10-31: it announced PressureDynamic, PressureStatic and
+    // Q_Sensible, which were never written, and left out seven that were).
     const std::string pano_scalars = std::string(
-        "Temperature PressureDynamic PressureStatic CH4 CH4Cloud CH4Ice NH3 NH3Cloud "
-        "NH3Ice H2O H2OCloud H2OIce Q_Latent Q_Sensible "
-        PANORAMA_EXTRA_SCALARS "BuoyancyForce ") + (chrom_on() ? "Chromophore_mgm3 " : "");
+        "Temperature u-component v-component w-component PressureDyn CoriolisForce BuoyancyForce "
+        "CH4 CH4Cloud CH4Ice H2O H2OCloud H2OIce H2S w_h2s NH3 NH3Cloud NH3Ice w_nh3 NH4SH w_nh4sh ")
+        + (chrom_on() ? "Chromophore_mgm3 ChromUV " : "") + "Q_Latent " PANORAMA_EXTRA_SCALARS;
     ofstream Saturn_panorama_vts_File = pv.open_panorama(n, pano_scalars.c_str());
     pv.panorama_velocity(Saturn_panorama_vts_File);
     pv.panorama_temperature(Saturn_panorama_vts_File);
-//    dump_array("Seamount", SeaMount, 1.0, Saturn_panorama_vts_File);
     dump_array("u-component", u, u_0, Saturn_panorama_vts_File);
     dump_array("v-component", v, u_0, Saturn_panorama_vts_File);
     dump_array("w-component", w, u_0, Saturn_panorama_vts_File);
 
     dump_array("PressureDyn", p_dyn, 1.0, Saturn_panorama_vts_File);
-//    dump_array("PressureStat", p_stat, 1.0, Saturn_panorama_vts_File);
-//    dump_array("rho_mix", rho_mix, 1.0, Saturn_panorama_vts_File);
 
     dump_array("CoriolisForce", CoriolisForce, 1.0, Saturn_panorama_vts_File);
-//    dump_array("CentrifugalForce", CentrifugalForce, 1e3, Saturn_panorama_vts_File);
     dump_array("BuoyancyForce", BuoyancyForce, 1.0, Saturn_panorama_vts_File);
-//    dump_array("PresGradForce", PresGradForce, 1.0, Saturn_panorama_vts_File);
 
     dump_array("CH4", ch4, 1e3, Saturn_panorama_vts_File);
     dump_array("CH4Cloud", ch4_cloud, 1e3, Saturn_panorama_vts_File);
@@ -153,12 +146,10 @@ void cSaturnModel::paraview_panorama_vts(int n){
 
     dump_array("NH4SH", nh4sh, 1e9, Saturn_panorama_vts_File);
     dump_array("w_nh4sh", w_nh4sh, 1e9, Saturn_panorama_vts_File);
-    if(chrom_on()) dump_array("Chromophore_mgm3", chrom, 1e6, Saturn_panorama_vts_File);
-//    dump_array("j_nh4sh", j_nh4sh, 1e9, Saturn_panorama_vts_File);
-//    dump_array("jT_nh4sh", jT_nh4sh, 1e9, Saturn_panorama_vts_File);
+    if(chrom_on()){ dump_array("Chromophore_mgm3", chrom, 1e6, Saturn_panorama_vts_File);
+                    dump_array("ChromUV", chrom_uv, 1.0, Saturn_panorama_vts_File); }
 
     dump_array("Q_Latent", Q_Latent, 1.0, Saturn_panorama_vts_File);
-//    dump_array("Q_Sensible", Q_Sensible, 1.0, Saturn_panorama_vts_File);
 
     DUMP_EXTRA_FIELDS_VTS(Saturn_panorama_vts_File)
 
@@ -319,7 +310,6 @@ void cSaturnModel::paraview_vtk_radial(int n, int i_radial){
 
     dump_radial("PressureDyn", p_dyn, 1.0, i_radial, Saturn_vtk_radial_File);
     dump_radial("PressureStat", p_stat, 1.0, i_radial, Saturn_vtk_radial_File);
-//    dump_radial("Density", rho, 1.0, i_radial, Saturn_vtk_radial_File);
     dump_radial("rho_mix", rho_mix, 1.0, i_radial, Saturn_vtk_radial_File);
 
     dump_radial("CoriolisForce", CoriolisForce, 1.0, i_radial, Saturn_vtk_radial_File);
@@ -363,7 +353,6 @@ void cSaturnModel::paraview_vtk_zonal(int n, int k_zonal){
     ofstream Saturn_vtk_zonal_File = ParaViewWriter<cSaturnModel>(*this)
         .open_slice("zonal", "Zonal", k_zonal, n, jm, im, 0.05, false);
     const double z = 0.0;   // out-of-plane component, as in the radial writer
-//    dump_zonal("Seamount", SeaMount, 1.0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("u-Component", u, u_0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("v-Component", v, u_0, k_zonal, Saturn_vtk_zonal_File);
     dump_zonal("w-Component", w, u_0, k_zonal, Saturn_vtk_zonal_File);
@@ -494,7 +483,6 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
 
     dump_longal("PressureDyn", p_dyn, 1.0, j_longal, Saturn_vtk_longal_File);
     dump_longal("PressureStat", p_stat, 1.0, j_longal, Saturn_vtk_longal_File);
-//    dump_longal("rho_mix", rho_mix, 1.0, j_longal, Saturn_vtk_longal_File);
 
     dump_longal("CoriolisForce", CoriolisForce, 1.0, j_longal, Saturn_vtk_longal_File);
     dump_longal("CentrifugalForce", CentrifugalForce, 1e3, j_longal, Saturn_vtk_longal_File);
@@ -536,7 +524,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "<VTKFile type=\"StructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"  << endl;
     Saturn_sphere_vts_File <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
     Saturn_sphere_vts_File <<  "  <Piece Extent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
-    Saturn_sphere_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDyn PressureStat  H2S H2SCloud H2SIce CH4 CH4Cloud CH4Ice NH3 NH3Cloud NH3Ice H2O H2OCloud H2OIce \">\n"  << endl;
+    Saturn_sphere_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDyn H2O H2S NH3 NH4SH H2OCloud NH3Cloud H2OIce NH3Ice CH4 CH4Cloud CH4Ice u-Component v-Component w-Component\">\n"  << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" Name=\"Velocity\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
         sinphi = sin( phi.z[k]);

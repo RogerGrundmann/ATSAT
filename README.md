@@ -266,7 +266,7 @@ into `<output_path>-Saturn/`:
 | `Saturn_radial_20_<n>.vtk` | one radial level, all fields, plus the 2-D surface maps |
 | `Saturn_zonal_180_<n>.vtk` | meridional slice at k = 180 |
 | `Saturn_longal_112_<n>.vtk` | longitudinal slice at j = 112 |
-| `Saturn_panorama_<n>.vts` | the full 3-D volume (~900 MB), needs `paraview_flag` |
+| `Saturn_panorama_<n>.vts` | the full 3-D volume (~900 MB), needs `paraview_flag`; written with the sphere every 100 iterations on which writeData runs and at `panorama_print`, or with `ATSAT_PANORAMA_STRIDE=<n>` (since 2026-10-31, as ATJUP's) every n instead. With `ATSAT_CHROM` it carries `Chromophore_mgm3` and `ChromUV`, as the slices do. Since 2026-10-31 the panorama and sphere headers name exactly the arrays written, and `P_nh3_graupel` / `P_ch4_graupel` are no longer written (zero in every Saturn output, 16 and 1000 it) |
 | `Saturn_cloudview_<n>.vtk` | the view from above (since 2026-10-30, ported from ATJUP): per layer the column above it of NH3 ice and NH4SH (g/m2; + chromophore mg/m2 with `ATSAT_CHROM`), layer 0 = whole column on the top face, and `PhotoRGB` (a colour recipe, per-file scale). Written with every panorama by default; `ATSAT_CLOUDVIEW_STRIDE=<n>` every n iterations, 0 = never |
 | `sat_restart_<n>.bin` | binary restart, 38 prognostic + 34 carried arrays (~1.5 GB, magic `"SAT2"`; + chrom / chromn with `ATSAT_CHROM`) |
 
