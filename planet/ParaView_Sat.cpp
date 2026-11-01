@@ -530,7 +530,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "<VTKFile type=\"StructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"  << endl;
     Saturn_sphere_vts_File <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< im << " "<< 2 << " " << jm - 1 << " "<< 1 << " " << km << "\">\n"  << endl;
     Saturn_sphere_vts_File <<  "  <Piece Extent=\"" << 1 << " "<< im << " "<< 2 << " " << jm - 1 << " "<< 1 << " " << km << "\">\n"  << endl;
-    Saturn_sphere_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDyn H2O H2S NH3 NH4SH H2OCloud NH3Cloud H2OIce NH3Ice CH4 CH4Cloud CH4Ice u-Component v-Component w-Component\">\n"  << endl;
+    Saturn_sphere_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDyn H2O H2S NH3 NH4SH H2OCloud NH3Cloud H2OIce NH3Ice CH4 CH4Cloud CH4Ice u-Component v-Component w-Component tke_m2s2 dis_nd prod_nd\">\n"  << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" Name=\"Velocity\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
         sinphi = sin( phi.z[k]);
@@ -789,6 +789,46 @@ void cSaturnModel::paraview_sphere_vts(int n){
 */
     Saturn_sphere_vts_File <<  "\n"  << endl;
     Saturn_sphere_vts_File <<  "    </DataArray>\n"  << endl;
+    // tke / dis / prod (2026-11-01, user: "add tke, dis and prod to the sphere printout in all giants"): the panorama's names
+    // and units (tke_m2s2 = tke * u_0^2, dis_nd and prod_nd as computed); scientific, since dis and prod are far below
+    // the 4 fixed decimals of this file (reset afterwards). Pole rows left out as for every array here.
+    Saturn_sphere_vts_File.setf(ios::scientific, ios::floatfield); Saturn_sphere_vts_File.precision(6);
+    Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"tke_m2s2\" format=\"ascii\">\n"  << endl;
+    for(int k = 0; k < km; k++){
+        for(int j = 1; j < jm - 1; j++){
+            for(int i = 0; i < im; i++){
+                Saturn_sphere_vts_File << u_0 * u_0 * tke.x[i][j][k] << endl;
+            }
+            Saturn_sphere_vts_File <<  "\n"  << endl;
+        }
+        Saturn_sphere_vts_File <<  "\n"  << endl;
+    }
+    Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
+    Saturn_sphere_vts_File.setf(ios::scientific, ios::floatfield); Saturn_sphere_vts_File.precision(6);
+    Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"dis_nd\" format=\"ascii\">\n"  << endl;
+    for(int k = 0; k < km; k++){
+        for(int j = 1; j < jm - 1; j++){
+            for(int i = 0; i < im; i++){
+                Saturn_sphere_vts_File << 1.0 * dis.x[i][j][k] << endl;
+            }
+            Saturn_sphere_vts_File <<  "\n"  << endl;
+        }
+        Saturn_sphere_vts_File <<  "\n"  << endl;
+    }
+    Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
+    Saturn_sphere_vts_File.setf(ios::scientific, ios::floatfield); Saturn_sphere_vts_File.precision(6);
+    Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"prod_nd\" format=\"ascii\">\n"  << endl;
+    for(int k = 0; k < km; k++){
+        for(int j = 1; j < jm - 1; j++){
+            for(int i = 0; i < im; i++){
+                Saturn_sphere_vts_File << 1.0 * prod.x[i][j][k] << endl;
+            }
+            Saturn_sphere_vts_File <<  "\n"  << endl;
+        }
+        Saturn_sphere_vts_File <<  "\n"  << endl;
+    }
+    Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
+    Saturn_sphere_vts_File.setf(ios::fixed, ios::floatfield); Saturn_sphere_vts_File.precision(4);
     Saturn_sphere_vts_File <<  "   </PointData>\n" << endl;
     Saturn_sphere_vts_File <<  "   <Points>\n"  << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" format=\"ascii\">\n"  << endl;
