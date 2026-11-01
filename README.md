@@ -88,6 +88,7 @@ baseline.
 | Turbulence closure (k-ε / k-ω / k-ω SST) | `TurbulenceSat.h` | `turb_model` in the config (`ATSAT_TURB=0` switches it off) | **on** since 2026-10-11 |
 | └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | **1.0** since 2026-11-01 (0 restores) |
 | └ no wall, uniform background start | `Turbulence.h` | `ATSAT_TURB_FREE` | **1** since 2026-11-01: no wall law and no surface boundary layer in the closure: uniform background k / omega at the start, u_tau the calm-air floor everywhere, the k-epsilon / SST wall distance 'far' (free-flow form); 0 restores the ATOM surface picture (row GIANTS-TURB-FREE, 2026-11-01) |
+| └ thread-independent source loop | `Turbulence.h` | `ATSAT_TURB_CLAMP_PASS` | **1** since 2026-11-01: the closure's clamp (k >= 0, omega >= min) runs as a pass before its source loop and the k floor / caps as a pass after it, so the loop no longer reads half-updated neighbours and the result does not depend on the thread count; 0 restores the in-loop form (row SAT-TURB-THREADS, 2026-11-01) |
 | Dry convective adjustment | `ConvectiveAdjustmentSat.h` | `ATSAT_CONV_ADJ` | off |
 | Local density p/(R_mix T) in the saturation / precipitation / MCA groups (constant `r_mix` with 0); `ATSAT_INIT_SPECIES_LOCAL_RHO` follows it | `cSaturnModel.h` `rho_at()` | `ATSAT_LOCAL_RHO` | 1 (since 2026-10-27) |
 | Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | 1 (since 2026-10-27; 0 = off) |
