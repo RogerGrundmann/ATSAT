@@ -86,7 +86,8 @@ baseline.
 | └ coupling into rhs_t | | `ATSAT_RAD_COUPLING` | 0.0 |
 | └ deep boundary: no radiative divergence in the bottom layer (removes the level-0 jump in Radiation / Q_rad; 0 = the old F_int bottom; the bottom is opaque, so only level 0 changes) | `Radiation.h` | `ATSAT_RAD_BOTTOM` | **1** since 2026-11-01 (`rad_default_bottom()`) |
 | Turbulence closure (k-ε / k-ω / k-ω SST) | `TurbulenceSat.h` | `turb_model` in the config (`ATSAT_TURB=0` switches it off) | **on** since 2026-10-11 |
-| └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | 0.0 |
+| └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | **1.0** since 2026-11-01 (0 restores) |
+| └ no wall, uniform background start | `Turbulence.h` | `ATSAT_TURB_FREE` | **1** since 2026-11-01: no wall law and no surface boundary layer in the closure: uniform background k / omega at the start, u_tau the calm-air floor everywhere, the k-epsilon / SST wall distance 'far' (free-flow form); 0 restores the ATOM surface picture (row GIANTS-TURB-FREE, 2026-11-01) |
 | Dry convective adjustment | `ConvectiveAdjustmentSat.h` | `ATSAT_CONV_ADJ` | off |
 | Local density p/(R_mix T) in the saturation / precipitation / MCA groups (constant `r_mix` with 0); `ATSAT_INIT_SPECIES_LOCAL_RHO` follows it | `cSaturnModel.h` `rho_at()` | `ATSAT_LOCAL_RHO` | 1 (since 2026-10-27) |
 | Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | 1 (since 2026-10-27; 0 = off) |

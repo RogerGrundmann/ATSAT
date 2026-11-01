@@ -545,8 +545,9 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 // ATSAT has no obstacle and therefore no wall-adjacent eddy viscosity: ATJUP adds a wall_nue term
 // here that its computeWallViscosity() fills around the SeaMount. ATSAT's wall_nue array exists
 // (it came with the port) and is identically zero, so it is not read.
+    // DEFAULT 1.0 since 2026-11-01 (user: "turbulence should be default always", closure on + coupling 1; row GIANTS-TURB-FREE); =0 restores.
     static const double turb_coupling = [](){
-        const char* e = getenv("ATSAT_TURB_COUPLING"); return e ? atof(e) : 0.0; }();
+        const char* e = getenv("ATSAT_TURB_COUPLING"); return e ? atof(e) : 1.0; }();
     constexpr double Pr_t = 0.9;
     const double nue_t   = (turb_coupling != 0.0 && std::isfinite(nue.x[i][j][k]))
                          ? turb_coupling * std::max(0.0, nue.x[i][j][k]) : 0.0;
