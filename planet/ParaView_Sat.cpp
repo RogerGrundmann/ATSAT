@@ -507,6 +507,12 @@ void cSaturnModel::paraview_vtk_longal(int n, int j_longal){
  * 
 */
 void cSaturnModel::paraview_sphere_vts(int n){
+    // The pole rows j = 0 and j = jm-1 (the = 0 / 180 deg) are NOT written. There sin(the) = 0, so
+    // all km longitudes are one point and every cell touching the pole is collapsed; ParaView's
+    // Contour (vtkGridSynchronizedTemplates3D, normals on) cannot invert that cell's Jacobian and
+    // prints "Unable to factor linear system" / "Cannot compute gradient of grid". The sphere
+    // therefore spans 1..179 deg (a 1 deg hole at each pole, extent j = 2..jm-1). The pole values
+    // remain in the panorama .vts, whose grid is flat and has no degenerate cells.
     using namespace ParaViewIO;
     double x, y, z, sinthe, sinphi, costhe, cosphi;
     string Saturn_sphere_vts_File_Name = output_path + "/Saturn_sphere_" 
@@ -522,14 +528,14 @@ void cSaturnModel::paraview_sphere_vts(int n){
     }
     Saturn_sphere_vts_File <<  "<?xml version=\"1.0\"?>\n"  << endl;
     Saturn_sphere_vts_File <<  "<VTKFile type=\"StructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"  << endl;
-    Saturn_sphere_vts_File <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
-    Saturn_sphere_vts_File <<  "  <Piece Extent=\"" << 1 << " "<< im << " "<< 1 << " " << jm << " "<< 1 << " " << km << "\">\n"  << endl;
+    Saturn_sphere_vts_File <<  " <StructuredGrid WholeExtent=\"" << 1 << " "<< im << " "<< 2 << " " << jm - 1 << " "<< 1 << " " << km << "\">\n"  << endl;
+    Saturn_sphere_vts_File <<  "  <Piece Extent=\"" << 1 << " "<< im << " "<< 2 << " " << jm - 1 << " "<< 1 << " " << km << "\">\n"  << endl;
     Saturn_sphere_vts_File <<  "   <PointData Vectors=\"Velocity\" Scalars=\"Temperature PressureDyn H2O H2S NH3 NH4SH H2OCloud NH3Cloud H2OIce NH3Ice CH4 CH4Cloud CH4Ice u-Component v-Component w-Component\">\n"  << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" Name=\"Velocity\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
         sinphi = sin( phi.z[k]);
         cosphi = cos( phi.z[k]);
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             sinthe = sin(the.z[j]);
             costhe = cos(the.z[j]);
             for(int i = 0; i < im; i++){
@@ -559,7 +565,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"Temperature\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
 //                Saturn_sphere_vts_File << t.x[i][j][k] * t_ref << endl;
                 Saturn_sphere_vts_File << t.x[i][j][k] * t_ref/10.0 << endl;
@@ -572,7 +578,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"PressureDyn\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << p_dyn.x[i][j][k] << endl;
             }
@@ -585,7 +591,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"PressureStat\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e-3 * p_stat.x[i][j][k] << endl;
             }
@@ -598,7 +604,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"H2O\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * h2o.x[i][j][k] << endl;
             }
@@ -610,7 +616,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"H2S\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * h2s.x[i][j][k] << endl;
             }
@@ -622,7 +628,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"NH3\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * nh3.x[i][j][k] << endl;
             }
@@ -634,7 +640,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"NH4SH\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * nh4sh.x[i][j][k] << endl;
             }
@@ -646,7 +652,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"H2OCloud\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * h2o_cloud.x[i][j][k] << endl;
             }
@@ -659,7 +665,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"NH3Cloud\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * nh3_cloud.x[i][j][k] << endl;
             }
@@ -673,7 +679,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"H2OIce\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * h2o_ice.x[i][j][k] << endl;
             }
@@ -686,7 +692,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"NH3Ice\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * nh3_ice.x[i][j][k] << endl;
             }
@@ -699,7 +705,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"CH4\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * ch4.x[i][j][k] << endl;
             }
@@ -711,7 +717,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"CH4Cloud\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * ch4_cloud.x[i][j][k] << endl;
             }
@@ -723,7 +729,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"CH4Ice\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << 1e3 * ch4_ice.x[i][j][k] << endl;
             }
@@ -735,9 +741,9 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"u-Component\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
-                Saturn_sphere_vts_File << u_0 * aux_u.x[i][j][k] << endl;
+                Saturn_sphere_vts_File << u_0 * u.x[i][j][k] << endl;
             }
             Saturn_sphere_vts_File <<  "\n"  << endl;
         }
@@ -747,9 +753,9 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"v-Component\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
-                Saturn_sphere_vts_File << u_0 * aux_v.x[i][j][k] << endl;
+                Saturn_sphere_vts_File << u_0 * v.x[i][j][k] << endl;
             }
             Saturn_sphere_vts_File <<  "\n"  << endl;
         }
@@ -759,9 +765,9 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"w-Component\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
-                Saturn_sphere_vts_File << u_0 * aux_w.x[i][j][k] << endl;
+                Saturn_sphere_vts_File << u_0 * w.x[i][j][k] << endl;
             }
             Saturn_sphere_vts_File <<  "\n"  << endl;
         }
@@ -772,7 +778,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "    </DataArray>\n" << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" Name=\"Seamount\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 Saturn_sphere_vts_File << SeaMount.x[i][j][k] << endl;
             }
@@ -787,7 +793,7 @@ void cSaturnModel::paraview_sphere_vts(int n){
     Saturn_sphere_vts_File <<  "   <Points>\n"  << endl;
     Saturn_sphere_vts_File <<  "    <DataArray type=\"Float32\" NumberOfComponents=\"3\" format=\"ascii\">\n"  << endl;
     for(int k = 0; k < km; k++){
-        for(int j = 0; j < jm; j++){
+        for(int j = 1; j < jm - 1; j++){
             for(int i = 0; i < im; i++){
                 x = rad.z[i] * sin( the.z[j])* cos(phi.z[k]);
                 y = rad.z[i] * sin( the.z[j])* sin(phi.z[k]);
