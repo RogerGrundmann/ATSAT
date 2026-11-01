@@ -84,6 +84,7 @@ baseline.
 | Shared saturation adjustment (0 = the inherited routine) | `SaturationAdjustmentSat.*` | `ATSAT_SATADJ` | **on** |
 | Grey multi-layer radiation | `RadiationSat.h` | `ATSAT_RADIATION` | **on** since 2026-10-11 (0 = off) |
 | └ coupling into rhs_t | | `ATSAT_RAD_COUPLING` | 0.0 |
+| └ deep boundary: no radiative divergence in the bottom layer (removes the level-0 jump in Radiation / Q_rad; 0 = the old F_int bottom; the bottom is opaque, so only level 0 changes) | `Radiation.h` | `ATSAT_RAD_BOTTOM` | **1** since 2026-11-01 (`rad_default_bottom()`) |
 | Turbulence closure (k-ε / k-ω / k-ω SST) | `TurbulenceSat.h` | `turb_model` in the config (`ATSAT_TURB=0` switches it off) | **on** since 2026-10-11 |
 | └ coupling into momentum and scalars | | `ATSAT_TURB_COUPLING` | 0.0 |
 | Dry convective adjustment | `ConvectiveAdjustmentSat.h` | `ATSAT_CONV_ADJ` | off |

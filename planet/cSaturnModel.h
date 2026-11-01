@@ -372,6 +372,7 @@ public:
     static double rad_x_H2()        { return 0.96;  }  // H2 mole fraction
     static double rad_x_He()        { return 0.032; }  // He mole fraction (depleted vs Jupiter)
     static double rad_default_cia_strength(){ return 1.0; }  // <TAG>_CIA_STRENGTH default (shared Radiation.h)
+    static int    rad_default_bottom(){ return 1; }    // <TAG>_RAD_BOTTOM default (shared Radiation.h; 2026-11-01, opaque bottom here: only the level-0 output changes)
 
     static double sinthe_min(){
         static const double v = [](){
