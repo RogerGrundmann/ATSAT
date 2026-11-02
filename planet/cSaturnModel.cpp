@@ -1,3 +1,4 @@
+#include <cstdlib>
 /*
  * Saturn Atmosphere Circulation Model (JACM) applied to laminar flow
  * program for the computation of saturn-atmospherical circulating flows in a spherical shell
@@ -1078,7 +1079,22 @@ void cSaturnModel::Run(){
 
         // Non-finite census, opt-in. Runs at the checkpoint cadence so it costs nothing on the
         // iterations in between.
-        if(nancheck_on() && iter_n % checkpoint == 0) nan_watch(iter_n);
+        //
+        // ATSAT_NANCHECK=1 reports and goes on; =2 reports and STOPS the run with exit code 3
+        // (row SAT-NAN-LEAK, 2026-11-02). Why a stop is worth having: the model's guards keep a
+        // NaN inside t on purpose -- buoyancy only where t > 0, isfinite guards on nue_t, rho,
+        // radiation_t and precip_t, the reference level and the MCA skip such cells -- so u, v, w,
+        // p and the species stay finite, printMinMax (bare > comparisons) prints healthy
+        // extrema, and the run exits 0. Measured with an injected NaN in t (satchk/
+        // watchdog_2026-11-02, arm N1): 1 cell after it 1, 491 after it 2, nothing else in the
+        // census non-finite; only the mean OLR line printed nan. Exit code 3, not 1, so a script
+        // can tell the census stop from an ordinary failure.
+        if(nancheck_on() && iter_n % checkpoint == 0 && !nan_watch(iter_n) && nancheck_on() >= 2){
+            printf("      ATSAT: ATSAT_NANCHECK=2 -- stopping at iteration %d on a non-finite state"
+                   " (exit code 3; ATSAT_NANCHECK=1 reports and goes on)\n", iter_n);
+            fflush(stdout);
+            std::exit(3);
+        }
 
         // Per-iteration trace, opt-in and read-only. ATSAT_TRACE=n emits a line every n
         // iterations (1 = every one); 0, the default, emits nothing and costs one integer test.

@@ -412,11 +412,18 @@ void cSaturnModel::Forces(){
                     // the equation by the whole hydrostatic mean — the same trap the centrifugal
                     // diagnostic was in. buoy_ref_level is filled by RungeKuttaSat, so before the
                     // first step it is empty and the anomaly is reported as zero.
+                    //
+                    // Where t is not positive (or NaN) the RHS applies NO buoyancy (its
+                    // `if(t > 0)` guard), so the diagnostic reports 0 there too. It used to set
+                    // b_cell = 0 and print -(0 - ref), the full mean weight, a force the equation
+                    // never applied: 11.9 N/m3 against a real maximum of 4.7 at an injected NaN
+                    // (row SAT-NAN-LEAK, 2026-11-02). No change on a run where t stays positive.
                     const bool ref_ready = ((int)buoy_ref_level.size() == im);
-                    const double b_cell = (t.x[i][j][k] > 0.0)
+                    const bool t_ok = (t.x[i][j][k] > 0.0);   // also false for NaN
+                    const double b_cell = t_ok
                         ? g * p_stat.x[i][j][k] / (r_mix * R_mix * t.x[i][j][k] * t_ref)
                         : 0.0;
-                    BuoyancyForce.x[i][j][k] = ref_ready
+                    BuoyancyForce.x[i][j][k] = (ref_ready && t_ok)
                         ? - buoyancy * r_mix * (b_cell - buoy_ref_level[i]) * 1e5  // in N/m³
                         : 0.0;
 
