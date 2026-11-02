@@ -773,8 +773,8 @@ void cSaturnModel::Run(){
             getPressureSolver().run();
             if(ub_on) ub_f1 = ub_force(false);
             // ATSAT_DAMP_PDYN: Shapiro (1-2-1) pass on p_dyn after the solver. 0 = none; 1 = along r,
-            // theta and phi (the default without ATSAT_GEO_BALANCE); 2 = along r ONLY (the default
-            // with ATSAT_GEO_BALANCE since 2026-11-02, before that 0). Not 1 under GEO_BALANCE
+            // theta and phi (the default without ATSAT_GEO_BALANCE); 2 = along r ONLY; 3 = along r and
+            // phi (the default with ATSAT_GEO_BALANCE since 2026-11-02, before that 0). Not 1 under GEO_BALANCE
             // because the 3-D pass halved the balancing meridional gradient on ATNEPT in 224
             // iterations (DAMP_P_HORIZ).
             // =2 (2026-11-02, row SAT-U-ODDEVEN): the odd and even radial levels of p_dyn drift apart
@@ -783,9 +783,18 @@ void cSaturnModel::Run(){
             // 2nd differences of the step increment du correlate +0.995 with Fp's (satchk/
             // zzstage_2026-11-02). The radial pass removes exactly that mode and leaves the
             // horizontal (balancing) gradients alone.
-            static const int damp_pdyn = [](){ const char* e = getenv("ATSAT_DAMP_PDYN"); return e ? atoi(e) : (geo_balance() ? 2 : 1); }();
+            // =3 (2026-11-02, DEFAULT, row SAT-U-ODDEVEN, the "vertical stripes"): along r AND phi. The shared
+            // solver does one red-black (i+j+k) sweep per call, so its two colours end up different
+            // and every solve stamps a checkerboard into p_dyn; after the radial pass the (j+k) part
+            // is left, -dp_dyn/dr carries it into u (q(du) ~ q(dpdr) +0.994, satchk/cbdiag_2026-11-02).
+            // p_dyn is zonally symmetric, so the phi pass removes that mode and cannot touch the
+            // balancing meridional gradient. 1000 it from scratch (satchk/pdynphi_2026-11-02 A3 vs
+            // pdynlong N2): every field zonally symmetric to the last digit at 1000, u latitude sign
+            // changes 55 -> 21 %, v, w, T, OLR, residuum unchanged.
+            static const int damp_pdyn = [](){ const char* e = getenv("ATSAT_DAMP_PDYN"); return e ? atoi(e) : (geo_balance() ? 3 : 1); }();
             if(damp_pdyn == 1)      AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
             else if(damp_pdyn == 2) AtomUtils::damp_wiggles(p_dyn, nullptr, true, false, false);
+            else if(damp_pdyn == 3) AtomUtils::damp_wiggles(p_dyn, nullptr, true, false, true);
             if(ub_on){
                 const ub_tab ub_f2 = ub_force(false);
                 for(int r_ = 0; r_ < SatUb::NREG; r_++) for(int i = 0; i < im; i++){
