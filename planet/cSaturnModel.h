@@ -498,7 +498,7 @@ public:
     //                           metric force of each latitude's jet-level wind in rhs_v, and p_baro
     //                           (frozen, added to p_metric) the per-level rest; see initGeoBalance()
     //   ATSAT_PRESS_INCR 1      the shared solver's defect-correction source (PressureSolver.h)
-    //   ATSAT_DAMP_PDYN 0       no Shapiro pass on p_dyn after the solver
+    //   ATSAT_DAMP_PDYN 0       no Shapiro pass on p_dyn after the solver (1 = 3-D, 2 = radial only)
     static bool geo_balance(){
         static const bool v = [](){ const char* e = getenv("ATSAT_GEO_BALANCE"); return e ? atoi(e) != 0 : true; }();
         return v; }
