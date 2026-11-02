@@ -22,6 +22,7 @@
 #include "TbSat.h"
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
 #include "UbSat.h"           // ATSAT_UB_DIAG, print-only
+#include "KbSat.h"           // ATSAT_KB_DIAG, print-only
 #include "ThermalWindDiagSat.h"
 #include "PrecipitationSat.h"
 #include "TurbulenceSat.h"
@@ -968,6 +969,7 @@ void cSaturnModel::Run(){
         // column back on the dry adiabat. Off by default (ATSAT_CONV_ADJ).
         // Reads the velocity field left by RK4 and the BCs, so it runs after them.
         if(turb_active) TurbulenceSat(*this).run();
+        kbDiag(iter_n);                                   // ATSAT_KB_DIAG, print-only (KbSat.h)
 
         if(conv_adj_enabled()) ConvectiveAdjustmentSat(*this).run();
         if(mca_stride() > 0 && iter_n % mca_stride() == 0){

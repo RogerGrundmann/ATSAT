@@ -542,6 +542,8 @@ public:
     // ATSAT_TRACE: one read-only line per iteration, for dating the onset of things the
     // checkpoint-cadence printMinMax is too coarse to see. See FileIO_Sat.cpp.
     void trace_line(int iter);
+    // ATSAT_KB_DIAG=<n>: the k budget by latitude band and level, print-only, KbSat.h (row GIANTS-TURB-POLE).
+    void kbDiag(int iter);
     // ATSAT_VEL_SHAPIRO_INLOOP / ATSAT_SHAPIRO_STRENGTH: 1-2-1 filter on u, v, w.
     void dampVelocities();
 
