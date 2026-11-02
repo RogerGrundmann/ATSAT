@@ -101,7 +101,7 @@ baseline.
 
 | | knob | default |
 |---|---|---|
-| Non-finite census, per field, with index extent (=1 report, =2 report and stop with exit code 3) | `ATSAT_NANCHECK` | off |
+| Non-finite census, per field, with index extent (=0 off, =1 report, =2 report and stop with exit code 3) | `ATSAT_NANCHECK` | 2 (since 2026-11-02) |
 | SIGFPE on the first invalid operation | `ATSAT_FPE` | off |
 | Temperature limiter (clip to the neighbour range) | `ATSAT_T_LIMITER` | off |
 | Shapiro filter on u, v, w | `ATSAT_VEL_SHAPIRO_INLOOP` | 0 passes |

@@ -211,9 +211,12 @@ static double shapiro_strength(){
         const char* e = getenv("ATSAT_SHAPIRO_STRENGTH"); return e ? atof(e) : 1.0; }();
     return v;
 }
+// ATSAT_NANCHECK: DEFAULT 2 since 2026-11-02 (user: "ATSAT_NANCHECK=2 make it default", row
+// SAT-NAN-LEAK) = census at the checkpoint cadence + stop with exit code 3 on a non-finite state;
+// =1 reports and goes on, =0 restores the old default (no census).
 static int nancheck_on(){
     static const int v = [](){
-        const char* e = getenv("ATSAT_NANCHECK"); return e ? atoi(e) : 0; }();
+        const char* e = getenv("ATSAT_NANCHECK"); return e ? atoi(e) : 2; }();
     return v;
 }
 
@@ -1079,8 +1082,8 @@ void cSaturnModel::Run(){
         if(shapiro_vel_inloop() > 0)
             for(int n = 0; n < shapiro_vel_inloop(); n++) dampVelocities();
 
-        // Non-finite census, opt-in. Runs at the checkpoint cadence so it costs nothing on the
-        // iterations in between.
+        // Non-finite census, ON BY DEFAULT since 2026-11-02 (ATSAT_NANCHECK default 2; 0 = off).
+        // Runs at the checkpoint cadence so it costs nothing on the iterations in between.
         //
         // ATSAT_NANCHECK=1 reports and goes on; =2 reports and STOPS the run with exit code 3
         // (row SAT-NAN-LEAK, 2026-11-02). Why a stop is worth having: the model's guards keep a
@@ -1093,7 +1096,7 @@ void cSaturnModel::Run(){
         // can tell the census stop from an ordinary failure.
         if(nancheck_on() && iter_n % checkpoint == 0 && !nan_watch(iter_n) && nancheck_on() >= 2){
             printf("      ATSAT: ATSAT_NANCHECK=2 -- stopping at iteration %d on a non-finite state"
-                   " (exit code 3; ATSAT_NANCHECK=1 reports and goes on)\n", iter_n);
+                   " (exit code 3; ATSAT_NANCHECK=1 reports and goes on, =0 no census)\n", iter_n);
             fflush(stdout);
             std::exit(3);
         }
