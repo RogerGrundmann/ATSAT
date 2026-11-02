@@ -772,17 +772,18 @@ void cSaturnModel::Run(){
             if(ub_on) ub_f0 = ub_force(false);
             getPressureSolver().run();
             if(ub_on) ub_f1 = ub_force(false);
-            // ATSAT_DAMP_PDYN: Shapiro (1-2-1) pass on p_dyn after the solver. 0 = none (the default
-            // with ATSAT_GEO_BALANCE, else 1); 1 = along r, theta and phi; 2 = along r ONLY.
-            // 0 under GEO_BALANCE because the 3-D pass halved the balancing meridional gradient on
-            // ATNEPT in 224 iterations (DAMP_P_HORIZ).
+            // ATSAT_DAMP_PDYN: Shapiro (1-2-1) pass on p_dyn after the solver. 0 = none; 1 = along r,
+            // theta and phi (the default without ATSAT_GEO_BALANCE); 2 = along r ONLY (the default
+            // with ATSAT_GEO_BALANCE since 2026-11-02, before that 0). Not 1 under GEO_BALANCE
+            // because the 3-D pass halved the balancing meridional gradient on ATNEPT in 224
+            // iterations (DAMP_P_HORIZ).
             // =2 (2026-11-02, row SAT-U-ODDEVEN): the odd and even radial levels of p_dyn drift apart
             // (collocated grid: the 2-cell central gradient and divergence do not see that mode), so
             // Fp = -dp_dyn/dr alternates level to level and drives the 2-cell zig-zag of u -- radial
             // 2nd differences of the step increment du correlate +0.995 with Fp's (satchk/
             // zzstage_2026-11-02). The radial pass removes exactly that mode and leaves the
             // horizontal (balancing) gradients alone.
-            static const int damp_pdyn = [](){ const char* e = getenv("ATSAT_DAMP_PDYN"); return e ? atoi(e) : (geo_balance() ? 0 : 1); }();
+            static const int damp_pdyn = [](){ const char* e = getenv("ATSAT_DAMP_PDYN"); return e ? atoi(e) : (geo_balance() ? 2 : 1); }();
             if(damp_pdyn == 1)      AtomUtils::damp_wiggles(p_dyn, nullptr, true, true, true);
             else if(damp_pdyn == 2) AtomUtils::damp_wiggles(p_dyn, nullptr, true, false, false);
             if(ub_on){
