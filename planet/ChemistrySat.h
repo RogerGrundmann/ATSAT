@@ -104,7 +104,8 @@ public:
         // flagged, not settled, and it is the reason a straight A/B against ATJUP's numbers would
         // not mean what it looks like.
         // ====================================================================================
-        // (3) ATSAT_CHEM_DIFFLUX_PLUS — the sign of the diffusive term in massflux_*.
+        // (3) ATSAT_CHEM_DIFFLUX_PLUS — the sign of the diffusive term in massflux_*. DEFAULT 1 since 2026-11-03
+        //     with ATSAT_CHEM_DIFFLUX_LAPLACIAN=1 (the correct pair, see DiffMassFluxSat); =0 restores the minus.
         //
         //     WHAT ATSAT COMPUTES, which is NOT what ATJUP computes. ATJUP forms difflux_* in one
         //     step as D_x * laplacian_spherical(c_x), the diffusive tendency directly. ATSAT does
@@ -159,8 +160,10 @@ public:
         static const int molar_conc = [](){
             const char* e = getenv("ATSAT_CHEM_MOLAR_CONC"); return e ? atoi(e) : 0; }();
         static const double dsign = [](){
-            const char* e = getenv("ATSAT_CHEM_DIFFLUX_PLUS");
-            return (e && atoi(e) != 0) ? 1.0 : -1.0; }();
+            const char* e = getenv("ATSAT_CHEM_DIFFLUX_PLUS");      // DEFAULT 1 since 2026-11-03, see below
+            return (e ? atoi(e) != 0 : true) ? 1.0 : -1.0; }();
+        // ATSAT_NH4SH_EQ=1: the rate law contributes nothing (w_* = 0); the diffusion term stays.
+        const bool eq_on = nh4sh_eq();
 
         #pragma omp parallel for collapse(3) schedule(static)
         for(int k = ATPhys::phi_first(ATPhys::phi_periodic<cSaturnModel>()); k < km-1; k++){   // ATSAT_BC_PHI_PERIODIC
@@ -170,7 +173,13 @@ public:
                     double kf = react_rate_const(t_u, T_d, A, B);
                     double kb = kf / keq;
 
-                    if((t_u <= m.t_0_nh4sh) && (t_u >= m.t_00_nh4sh))
+                    if(eq_on){
+                        // ATSAT_NH4SH_EQ: EquilibriumNH4SH forms / decomposes the solid; no rate law.
+                        m.w_nh3.x[i][j][k]   = 0.0;
+                        m.w_h2s.x[i][j][k]   = 0.0;
+                        m.w_nh4sh.x[i][j][k] = 0.0;
+                    }
+                    else if((t_u <= m.t_0_nh4sh) && (t_u >= m.t_00_nh4sh))
                         react_rate_ordinary(i, j, k, kf, kb, molar_conc,
                             m.nh3, m.h2s, m.nh4sh, m.w_nh3, m.w_h2s, m.w_nh4sh);
                     else if(gate_zero){
@@ -202,8 +211,130 @@ public:
     // this one routine could be shared while the rest of the chemistry cannot.
     void FluxLimiterNH4SH(){ FluxLimiter<cSaturnModel>(m).nh4sh(); }
 
+    // ===================================================================================================
+    // ATSAT_NH4SH_EQ (2026-11-03, row SAT-CHEM-DIVERGE; DEFAULT 1 since 2026-11-03, =0 restores the rate law):
+    // NH4SH as an EQUILIBRIUM ADJUSTMENT, replacing the rate law of ChemMassRateSat (whose w_* are then
+    // zero). Ported from ATJUP (ATJUP_NH4SH_EQ, ChemistryJup.h, default 1 there since 2026-10-26).
+    //
+    // WHY. The rate law has no source for any of its numbers: kb = kf / keq with keq = m_nh4sh /
+    // (m_nh3 m_h2s), a ratio of molar masses, not an equilibrium constant; A / B / T_d = 1500 / -0.3 / 3020
+    // here against 15000 / -0.5 / 3020 on ATJUP; the window 140-230 K here against 200-230 K; both rates
+    // divided by m.dt (an increment per step, not a rate); and no heat is released. The equilibrium makes
+    // all of those moot: K_p is a property of the reaction, not of the planet.
+    //
+    // WHAT. NH3(g) + H2S(g) <-> NH4SH(s) is in equilibrium where p_NH3 p_H2S = K_p(T),
+    //     log10 K_p [atm^2] = 14.82 - 4705 / T          (Lewis 1969; Weidenschilling & Lewis 1973),
+    // with p_x = (c_x / m_x) R* T [Pa] and c_x the species density [kg/m3] (the convention of the shared
+    // saturation adjustment, target rho ep E / p). Per fluid cell x [kmol/m3] of NH4SH forms (x > 0,
+    // product above K_p) or decomposes (x < 0, product below K_p and solid present, at most all of it),
+    // heating the cell by L x m_nh4sh / (cp_mix rho): L = 4705 ln(10) R* / m_nh4sh = 1.762e6 J/kg, the
+    // van't Hoff enthalpy of the same K_p (90.1 kJ/mol; dh_nh4sh in cSaturnModel.h is 1.7687e6), so the
+    // heat and the equilibrium agree. T and K_p are solved together (bisection on x; f(x) = (a-x)(b-x)
+    // (R* T(x))^2 - K_p(T(x)) falls monotonically). m_nh3 + m_h2s = m_nh4sh, so N, S and the mass are
+    // conserved by construction. No window. Called after the saturation adjustments (set-up and loop);
+    // H2S and NH4SH join ATSAT_RK_SCALAR_SYNC; the MCA carries the enthalpy in NH4SH's tracer L.
+    // MEASURED (satchk/chemeq_2026-11-03, 1000 it from scratch, K0 = rate law vs KE = equilibrium, diffusion pair on in
+    // both): NH4SH max settles at 21.9-22.2 g/m3 from it 300 (rate law 3.67 -> 1.92 g/m3, still falling); NH3 ice max
+    // 2.9-3.1 (rate law 4.24 -> 5.39, growing); per call ~1.42 M cells form / ~1.19 M decompose, constant 100 -> 1000;
+    // T, u, OLR 1.375, residuum identical to the printed digit; the MCA fires in 77-94 % of the columns (rate law
+    // 4-39 %), max dT per call <= 0.44 K.
+    // ===================================================================================================
+    static double nh4sh_formation_heat(){ return 4705.0 * std::log(10.0) * 8314.46 / 51.1114; }
+
+    static bool nh4sh_eq(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_NH4SH_EQ"); return e ? atoi(e) != 0 : true; }();
+        return v;
+    }
+
+    // One cell to equilibrium; returns x [kmol/m3] formed (> 0) or decomposed (< 0) and applies it.
+    double equilibrateNH4SHCell(int i, int j, int k, bool& all_decomposed, double& sat_entry, double& dT)
+    {
+        constexpr double R_univ = 8314.46, atm = 101325.0;
+        static const double L_f = nh4sh_formation_heat();
+        auto Kp = [&](double T){ return std::pow(10.0, 14.82 - 4705.0 / T) * atm * atm; };   // Pa^2
+        all_decomposed = false; sat_entry = 0.0; dT = 0.0;
+        const double T0 = m.t.x[i][j][k] * m.t_ref;
+        if (!(T0 > 0.0)) return 0.0;
+        double rho = m.rho_mix.x[i][j][k];
+        if (!(rho > 0.0) || !std::isfinite(rho)) rho = m.r_mix;
+        const double a = std::max(0.0, m.nh3.x[i][j][k])   / m.m_nh3;          // kmol/m3
+        const double b = std::max(0.0, m.h2s.x[i][j][k])   / m.m_h2s;
+        const double s = std::max(0.0, m.nh4sh.x[i][j][k]) / m.m_nh4sh;
+        const double heat = L_f * m.m_nh4sh / (m.cp_mix * rho);                // K per kmol/m3 formed
+        auto f = [&](double x){
+            const double T = T0 + heat * x, RT = R_univ * T;
+            return (a - x) * (b - x) * RT * RT - Kp(T); };
+        const double f0 = f(0.0);
+        double lo, hi;
+        if (f0 > 0.0)         { lo = 0.0; hi = std::min(a, b); sat_entry = f0 / Kp(T0); }
+        else if (s > 0.0) {
+            if (f(-s) <= 0.0) { lo = hi = -s; all_decomposed = true; }
+            else              { lo = -s; hi = 0.0; }
+        } else return 0.0;
+        if (hi > lo) for (int it = 0; it < 80; it++) {
+            const double xm = 0.5 * (lo + hi);
+            if (f(xm) > 0.0) lo = xm; else hi = xm;
+            if (hi - lo <= 1.0e-15 * std::max(a, std::max(b, s))) break;
+        }
+        const double x = (f0 > 0.0) ? lo : hi;                                 // never past the root
+        if (x == 0.0) return 0.0;
+        m.nh3.x[i][j][k]   = std::max(0.0, m.nh3.x[i][j][k]   - m.m_nh3   * x);
+        m.h2s.x[i][j][k]   = std::max(0.0, m.h2s.x[i][j][k]   - m.m_h2s   * x);
+        m.nh4sh.x[i][j][k] = std::max(0.0, m.nh4sh.x[i][j][k] + m.m_nh4sh * x);
+        dT = heat * x;
+        m.t.x[i][j][k] = (T0 + dT) / m.t_ref;
+        return x;
+    }
+
+    // where == "init": the set-up's column construction (Weidenschilling & Lewis 1973): each column is
+    // swept bottom-up with a rising parcel; a cell takes NH3 and H2S as the parcel's remaining mass
+    // fractions (capped by its own set-up value), is equilibrated, and passes what is left upward. Not
+    // conservative by design (it builds a state). Any other where: every fluid cell in place, conservative.
+    // Each column is independent, so the result does not depend on the thread count.
+    void EquilibriumNH4SH(const char* where)
+    {
+        using namespace std;
+        auto begin = chrono::high_resolution_clock::now();
+        const bool sweep = std::string(where) == "init";
+        long n_form = 0, n_decomp = 0, n_all = 0;
+        double dm_form = 0.0, dm_decomp = 0.0, dT_max = 0.0, s_max = 0.0;
+        #pragma omp parallel for collapse(2) schedule(dynamic, 8) \
+            reduction(+:n_form, n_decomp, n_all, dm_form, dm_decomp) reduction(max:dT_max, s_max)
+        for (int j = 0; j < m.jm; j++) {
+            for (int k = 0; k < m.km; k++) {
+                double q_nh3 = 1.0e300, q_h2s = 1.0e300;                            // the parcel, mass fractions
+                for (int i = 0; i < m.im; i++) {
+                    if (m.SeaMount.x[i][j][k] == 1.0) continue;
+                    double rho = m.rho_mix.x[i][j][k];
+                    if (!(rho > 0.0) || !isfinite(rho)) rho = m.r_mix;
+                    if (sweep) {
+                        m.nh3.x[i][j][k] = min(m.nh3.x[i][j][k], q_nh3 * rho);
+                        m.h2s.x[i][j][k] = min(m.h2s.x[i][j][k], q_h2s * rho);
+                    }
+                    bool all_ = false; double sat_ = 0.0, dT_ = 0.0;
+                    const double x = equilibrateNH4SHCell(i, j, k, all_, sat_, dT_);
+                    if (sweep) { q_nh3 = m.nh3.x[i][j][k] / rho; q_h2s = m.h2s.x[i][j][k] / rho; }
+                    s_max = max(s_max, sat_); dT_max = max(dT_max, fabs(dT_));
+                    if (all_) n_all++;
+                    if (x > 0.0)      { n_form++;   dm_form   += m.m_nh4sh * x; }
+                    else if (x < 0.0) { n_decomp++; dm_decomp -= m.m_nh4sh * x; }
+                }
+            }
+        }
+        auto end = chrono::high_resolution_clock::now();
+        printf("      ATSAT: EquilibriumNH4SH (%s%s, Lewis K_p, L %.4e J/kg): formed in %ld cells (sum %.4e kg/m3),"
+               " decomposed in %ld (sum %.4e kg/m3, %ld completely), max p_NH3 p_H2S / K_p - 1 at entry %.3e,"
+               " max dT %.4f K; %.3f s\n", where, sweep ? ", parcel sweep" : "",
+               nh4sh_formation_heat(), n_form, dm_form, n_decomp, dm_decomp, n_all, s_max, dT_max,
+               chrono::duration_cast<chrono::nanoseconds>(end - begin).count() * 1e-9);
+    }
+
     // -----------------------------------------------------------------------
-    // ATSAT_CHEM_DIFFLUX_LAPLACIAN — what difflux_* actually is. Default 0 = unchanged.
+    // ATSAT_CHEM_DIFFLUX_LAPLACIAN — what difflux_* actually is. DEFAULT 1 since 2026-11-03 together with
+    // ATSAT_CHEM_DIFFLUX_PLUS=1 (row SAT-CHEM-DIVERGE item 4); =0 + PLUS=0 restores the old two-pass scalar.
+    // 200 it from scratch (satchk/chemeq_2026-11-03 L1 vs D0): the spurious massflux_nh4sh at the lid
+    // 652 -> 7 ug/(m3 s), NH4SH / NH3 / H2S maxima within 0.01 %, u / v / w / residuum / OLR unchanged
+    // (1.382 -> 1.380 W/m2), top T min -0.03 K.
     //
     // WHAT THE DEFAULT COMPUTES, and it is worth being exact because it is easy to misread as a
     // divergence. Pass 1 builds a SCALAR per species,
@@ -237,7 +368,7 @@ public:
         cout << endl << "      ATSAT: DiffMassFluxSat" << endl;
 
         static const int difflux_laplacian = [](){
-            const char* e = getenv("ATSAT_CHEM_DIFFLUX_LAPLACIAN"); return e ? atoi(e) : 0; }();
+            const char* e = getenv("ATSAT_CHEM_DIFFLUX_LAPLACIAN"); return e ? atoi(e) : 1; }();   // DEFAULT 1 since 2026-11-03
 
         auto begin = chrono::high_resolution_clock::now();
 

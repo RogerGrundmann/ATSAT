@@ -548,6 +548,10 @@ void cSaturnModel::Run(){
     static const bool rho_refresh_init = [](){ const char* e = getenv("ATSAT_RHO_REFRESH_INIT"); return e ? atoi(e) != 0 : true; }();
     if(rho_refresh_init && init_species_local_rho()) computeMixtureDensity();
 
+    // ATSAT_NH4SH_EQ (default 1): build the NH4SH cloud as the equilibrium of the set-up NH3 / H2S
+    // (parcel sweep, ChemistrySat::EquilibriumNH4SH), on a density rebuilt from the adjusted state.
+    if(ChemistrySat::nh4sh_eq()){ computeMixtureDensity(); ChemistrySat(*this).EquilibriumNH4SH("init"); }
+
     ChemistrySat(*this).DiffMassFluxSat();
 
     AtomUtils::damp_wiggles(difflux_h2s,     nullptr, true, true, true);
@@ -825,6 +829,10 @@ void cSaturnModel::Run(){
                 C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, m_nh3,
                 nh3, nh3_cloud, nh3_ice);
 
+            // ATSAT_NH4SH_EQ (default 1): the NH4SH equilibrium adjustment on the adjusted NH3. Counted in
+            // the TB / CWB stage "SaturationAdjustment" (the mark follows).
+            if(ChemistrySat::nh4sh_eq()) ChemistrySat(*this).EquilibriumNH4SH("loop");
+
             // After the saturation adjustments, whose condensate it consumes; before the
             // chemistry, as in ATJUP.
             tb_mark(TB_SATADJ); cwb_mark(TB_SATADJ);
@@ -845,6 +853,8 @@ void cSaturnModel::Run(){
             // from the adjusted state; 2 copies the temperature too, so the latent heat goes with
             // the condensate. The in-place precipitation above is kept by it as well.
             static const int rk_scalar_sync = [](){ const char* e = getenv("ATSAT_RK_SCALAR_SYNC"); return e ? atoi(e) : 2; }();
+            // ATSAT_NH4SH_EQ: the equilibrium adjustment writes H2S and NH4SH directly, so they join the sync.
+            const bool nh4sh_sync_ = ChemistrySat::nh4sh_eq();
             if(rk_scalar_sync >= 1){
                 #pragma omp parallel for collapse(2) schedule(static)
                 for(int i = 0; i < im; i++){
@@ -860,6 +870,7 @@ void cSaturnModel::Run(){
                             ch4_cloudn.x[i][j][k] = ch4_cloud.x[i][j][k];
                             ch4_icen.x[i][j][k]   = ch4_ice.x[i][j][k];
                             if(rk_scalar_sync >= 2) tn.x[i][j][k] = t.x[i][j][k];
+                            if(nh4sh_sync_){ h2sn.x[i][j][k] = h2s.x[i][j][k]; nh4shn.x[i][j][k] = nh4sh.x[i][j][k]; }
                         }
                     }
                 }
@@ -1005,7 +1016,10 @@ void cSaturnModel::Run(){
                   C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, C_nh3_ice, L0_nh3_ice, del_alf_nh3_ice, del_bet_nh3_ice },
                 { "CH4", &ch4, &ch4_cloud, &ch4_ice, ep_ch4, lv_ch4, ls_ch4, t_0_ch4,
                   C_ch4, L0_ch4, R_ch4, del_alf_ch4, del_bet_ch4, C_ch4_ice, L0_ch4_ice, del_alf_ch4_ice, del_bet_ch4_ice } };
-            std::vector<Tr_> tracers = { { "H2S", &h2s, ep_h2s, false, 0.0 }, { "NH4SH", &nh4sh, 0.0, true, 0.0 } };
+            // NH4SH carries its heat of formation in the conserved energy when ATSAT_NH4SH_EQ forms it with
+            // that heat (ChemistrySat::EquilibriumNH4SH); the rate law releases none, so 0 (as before).
+            const double L_nh4sh_ = ChemistrySat::nh4sh_eq() ? ChemistrySat::nh4sh_formation_heat() : 0.0;
+            std::vector<Tr_> tracers = { { "H2S", &h2s, ep_h2s, false, 0.0 }, { "NH4SH", &nh4sh, 0.0, true, L_nh4sh_ } };
             if(chrom_on()) tracers.push_back({ "chrom", &chrom, 0.0, false, 0.0 });   // ATSAT_CHROM: mixed as ATJUP mixes it
             MoistConvectiveAdjustmentSat(*this, gases, tracers).run();
         }
