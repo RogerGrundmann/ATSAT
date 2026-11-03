@@ -157,8 +157,16 @@ static int tw_diag_enabled(){
 // and 0.005 run clean, min T flat at -243.1 degC, max|w| 267 -> 259 and 263 -> 251 m/s;
 // dt = 0.025 goes non-finite after iteration 160. ATSAT_DT=<value> overrides; ATSAT_DT=-1
 // gives the old formula.
+//
+// DEFAULT 0.01 SINCE 2026-11-03 (10.6 s of Saturn time per iteration; one rotation ~3600 iterations;
+// user: "dt 0.01 become the default once the 800-iteration run confirms it"; row SAT-SPINUP-DRIFT).
+// MEASURED (satchk/cellinit_2026-11-03, defaults, from scratch): dt 0.001 / 0.002 / 0.005 / 0.01 /
+// 0.02 all run 400 iterations clean; at EQUAL MODEL TIME (532 / 1064 / 2128 s) max|w| agrees to 1e-4,
+// v to 1e-3, the top T min within 0.7 K; only the small radial u depends on dt (-20 % per doubling).
+// A v maximum at 60 S / 425 km appears from 5320 s in dt 0.02 (38.27 m/s) AND dt 0.01 (38.24, run
+// DT10L), so it is the model's development, not the step. ATSAT_DT=0.001 restores the old default.
 static double timestep_override(){
-    static const double v = [](){ const char* e = getenv("ATSAT_DT"); return e ? atof(e) : 0.001; }();
+    static const double v = [](){ const char* e = getenv("ATSAT_DT"); return e ? atof(e) : 0.01; }();
     return v;
 }
 
@@ -449,6 +457,8 @@ void cSaturnModel::Run(){
     AtomUtils::damp_wiggles(u, nullptr, true, true, true);
     AtomUtils::damp_wiggles(v, nullptr, true, true, true);
     AtomUtils::damp_wiggles(w, nullptr, true, true, true);
+
+    if(cell_init()) initCellStreamfunction();          // ATSAT_CELL_INIT (default 1): divergence-free initial cells
 
 //    goto Printout;
 
@@ -1011,11 +1021,11 @@ void cSaturnModel::Run(){
             // H2S is not condensed on this model (no cloud / ice fields), so it is a tracer with its weight in T_v.
             std::vector<Gas_> gases = {
                 { "H2O", &h2o, &h2o_cloud, &h2o_ice, ep_h2o, lv_h2o, ls_h2o, t_0_h2o,
-                  C_h2o, L0_h2o, R_h2o, del_alf_h2o, del_bet_h2o, C_h2o_ice, L0_h2o_ice, del_alf_h2o_ice, del_bet_h2o_ice },
+                  C_h2o, L0_h2o, R_h2o, del_alf_h2o, del_bet_h2o, C_h2o_ice, L0_h2o_ice, del_alf_h2o_ice, del_bet_h2o_ice, t_00_h2o },
                 { "NH3", &nh3, &nh3_cloud, &nh3_ice, ep_nh3, lv_nh3, ls_nh3, t_0_nh3,
-                  C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, C_nh3_ice, L0_nh3_ice, del_alf_nh3_ice, del_bet_nh3_ice },
+                  C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, C_nh3_ice, L0_nh3_ice, del_alf_nh3_ice, del_bet_nh3_ice, t_00_nh3 },
                 { "CH4", &ch4, &ch4_cloud, &ch4_ice, ep_ch4, lv_ch4, ls_ch4, t_0_ch4,
-                  C_ch4, L0_ch4, R_ch4, del_alf_ch4, del_bet_ch4, C_ch4_ice, L0_ch4_ice, del_alf_ch4_ice, del_bet_ch4_ice } };
+                  C_ch4, L0_ch4, R_ch4, del_alf_ch4, del_bet_ch4, C_ch4_ice, L0_ch4_ice, del_alf_ch4_ice, del_bet_ch4_ice, t_00_ch4 } };
             // NH4SH carries its heat of formation in the conserved energy when ATSAT_NH4SH_EQ forms it with
             // that heat (ChemistrySat::EquilibriumNH4SH); the rate law releases none, so 0 (as before).
             const double L_nh4sh_ = ChemistrySat::nh4sh_eq() ? ChemistrySat::nh4sh_formation_heat() : 0.0;

@@ -1,5 +1,9 @@
 #include "cSaturnModel.h"
 #include "VelocityInitializerSat.h"
+#include <vector>
+#include <cmath>
+#include <cstdio>
+#include <algorithm>
 
 using namespace std;
 using namespace AtomUtils;
@@ -805,4 +809,81 @@ void  cSaturnModel::init_v_or_w_above_tropopause(Array &v_or_w, int j, double co
     }
 //     cout << "      AGCM: init_v_or_w_above_tropopause ended" << endl;
     return;
+}
+
+/*
+ * ATSAT_CELL_INIT=1 (2026-11-03, default 0; row SAT-SPINUP-DRIFT, user: "1." for consistent initial cells).
+ *
+ * WHY. SaturnCellStructure prescribes Hadley / Ferrel / polar cells as a meridional wind v that reverses with
+ * height, plus a radial branch u (init_u) shaped by hand. The two do not satisfy continuity: the radial branch
+ * WAS the velocity divergence of the initial state, the species transport (advective form) created or destroyed
+ * column mass on it, and on 2026-10-12 it was switched off (ATSAT_U_INIT_SCALE 0). Since then the cells have no
+ * vertical branch and cannot close.
+ *
+ * WHAT. The model's continuity (Reporting.h residual; incompressible, metric radius rm, colatitude theta) for an
+ * axisymmetric flow is  d(rm^2 sin u)/dr + d(rm sin v)/dtheta = 0,  so with a streamfunction psi
+ *     rm^2 sin(theta) u = d psi / d theta,        rm sin(theta) v = - d psi / dr.
+ * psi is integrated from the prescribed v upward from the bottom (trapezoid on rad.z, psi = 0 at i = 0, so u = 0
+ * there). A column whose v does not integrate to zero leaves psi(top) != 0, i.e. a net meridional mass flux
+ * through the column; it is removed by subtracting psi(top) x s(r), s linear from 0 at the bottom to 1 at the lid,
+ * which is a column-uniform return wind Delta v = psi(top) / (rm sin (r_top - r_0)) and makes u = 0 at the lid
+ * too. Then u = (psi(j+1) - psi(j-1)) / (2 dtheta) / (rm^2 sin) (central, as the residual differences it); pole
+ * rows copy their neighbours (psi = 0 there by the sin factor). Built on k = 0 and copied to every longitude
+ * (the prescribed state is zonally symmetric). w is untouched. ATSAT_U_INIT_SCALE is overridden (u replaced).
+ * Printed: max |u|, max |Delta v| in m/s, and the interior continuity residual before / after.
+ */
+double cSaturnModel::continuityResidualMax(int& i_m, int& j_m){
+    double mx = 0.0; i_m = j_m = 0;
+    const int k = 1;
+    for(int i = 1; i < im-1; i++) for(int j = 1; j < jm-1; j++){
+        const double sinthe = sin(the.z[j]);
+        double costhe = cos(the.z[j]);
+        if(costhe_abs() && j > 90) costhe = - costhe;
+        const double rm = metricRadius(rad.z[i]);
+        const double res = (u.x[i+1][j][k] - u.x[i-1][j][k]) / (2. * dr) + 2. * u.x[i][j][k] / rm
+                         + (v.x[i][j+1][k] - v.x[i][j-1][k]) / (2. * dthe) / rm + costhe / (rm * sinthe) * v.x[i][j][k];
+        if(fabs(res) > mx){ mx = fabs(res); i_m = i; j_m = j; }
+    }
+    return mx;
+}
+
+void cSaturnModel::initCellStreamfunction(){
+    int i0_, j0_, i1_, j1_;
+    const double res0 = continuityResidualMax(i0_, j0_);
+    std::vector<double> psi((size_t)im * jm, 0.0), corr(jm, 0.0);
+    const double r_span = rad.z[im-1] - rad.z[0];
+    for(int j = 1; j < jm-1; j++){
+        const double sj = sin(the.z[j]);
+        double s_ = 0.0;
+        for(int i = 1; i < im; i++){
+            const double f0 = metricRadius(rad.z[i-1]) * sj * v.x[i-1][j][0], f1 = metricRadius(rad.z[i]) * sj * v.x[i][j][0];
+            s_ -= 0.5 * (f0 + f1) * (rad.z[i] - rad.z[i-1]);
+            psi[(size_t)i * jm + j] = s_;
+        }
+        corr[j] = psi[(size_t)(im-1) * jm + j];
+        for(int i = 0; i < im; i++) psi[(size_t)i * jm + j] -= corr[j] * (rad.z[i] - rad.z[0]) / r_span;
+    }
+    double u_mx = 0.0, dv_mx = 0.0;
+    std::vector<double> u_c((size_t)im * jm, 0.0), v_c((size_t)im * jm, 0.0);
+    for(int i = 0; i < im; i++){
+        const double rm = metricRadius(rad.z[i]);
+        for(int j = 1; j < jm-1; j++){
+            const double sj = sin(the.z[j]);
+            u_c[(size_t)i * jm + j] = (psi[(size_t)i * jm + j+1] - psi[(size_t)i * jm + j-1]) / (2. * dthe) / (rm * rm * sj);
+            const double dv = corr[j] / (rm * sj * r_span);          // - d(-psi_top s)/dr / (rm sin): the return wind
+            v_c[(size_t)i * jm + j] = v.x[i][j][0] + dv;
+            u_mx = std::max(u_mx, fabs(u_c[(size_t)i * jm + j])); dv_mx = std::max(dv_mx, fabs(dv));
+        }
+        u_c[(size_t)i * jm + 0] = u_c[(size_t)i * jm + 1];           u_c[(size_t)i * jm + jm-1] = u_c[(size_t)i * jm + jm-2];
+        v_c[(size_t)i * jm + 0] = v.x[i][0][0];                      v_c[(size_t)i * jm + jm-1] = v.x[i][jm-1][0];
+    }
+    #pragma omp parallel for collapse(2)
+    for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+        u.x[i][j][k] = u_c[(size_t)i * jm + j];
+        v.x[i][j][k] = v_c[(size_t)i * jm + j];
+    }
+    const double res1 = continuityResidualMax(i1_, j1_);
+    printf("      ATSAT: ATSAT_CELL_INIT: u from the streamfunction of v, max |u| %.4f m/s, column return wind max |dv| %.4f m/s;"
+           " continuity residual (interior, k = 1) %.6f at (%d, %d) -> %.6f at (%d, %d)\n",
+           u_mx * u_0, dv_mx * u_0, res0, i0_, j0_, res1, i1_, j1_);
 }

@@ -82,6 +82,7 @@ baseline.
 | Precipitation microphysics | `PrecipitationSat.h` | `ATSAT_PRECIP` | **on** |
 | └ coupling into rhs_t and the moisture RHS | `RHS_Sat_Turb.cpp` | `ATSAT_PRECIP_COUPLING` | **1.0** |
 | Shared saturation adjustment (0 = the inherited routine) | `SaturationAdjustmentSat.*` | `ATSAT_SATADJ` | **on** |
+| └ condensate re-evaporation in the shared adjustment (sub-saturated cells take cloud / ice back to vapour) | shared `SaturationAdjustment.h` | `ATSAT_SATADJ_EVAP` | **1** since 2026-11-03 (0 restores; ATJUP's setting; measured 200 it: NH3 liquid share 0.018x -> 0.38x of the temperature split, CH4 condensate cells 1419 -> 715) |
 | Grey multi-layer radiation | `RadiationSat.h` | `ATSAT_RADIATION` | **on** since 2026-10-11 (0 = off) |
 | └ coupling into rhs_t | | `ATSAT_RAD_COUPLING` | 0.0 |
 | └ deep boundary: no radiative divergence in the bottom layer (removes the level-0 jump in Radiation / Q_rad; 0 = the old F_int bottom; the bottom is opaque, so only level 0 changes) | `Radiation.h` | `ATSAT_RAD_BOTTOM` | **1** since 2026-11-01 (`rad_default_bottom()`) |
@@ -93,6 +94,7 @@ baseline.
 | Local density p/(R_mix T) in the saturation / precipitation / MCA groups (constant `r_mix` with 0); `ATSAT_INIT_SPECIES_LOCAL_RHO` follows it | `cSaturnModel.h` `rho_at()` | `ATSAT_LOCAL_RHO` | 1 (since 2026-10-27) |
 | Moist convective adjustment (Ledoux; H2O, NH3, CH4; H2S / NH4SH as tracers) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA=<stride>` | 1 (since 2026-10-27; 0 = off) |
 | └ MCA column without the radial boundary planes | shared `ConvectiveAdjustment.h` | `ATSAT_MCA_INTERIOR` | 1 (1 = leave the radial boundary planes i = 0 and i = im-1 out of the MCA column (shared `ConvectiveAdjustment.h`, `mca_default_interior()`; 1 by default on all four since 2026-10-30, on ATURAN since 10-28, where mixing the floor plane looped against `bcRadius`; 0 = the old column)) |
+| └ MCA mixed-phase split (the MCA's re-equilibrated cells partitioned by the adjustment's t_00..t_0 split instead of all ice below t_0; only where `SATADJ_BERGERON` = 0) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA_PHASE` | 0 (2026-11-03; unset byte-identical to before on all four giants) |
 | Fitted NH3 liquid / NH3 ice / H2O ice vapour pressures (NIST Antoine, Fray & Schmitt 2009, Murphy & Koop 2005) | shared `ATPhys.h` | `ATSAT_SVP_FIT` | off |
 | Thermal-wind residual (diagnostic only) | `ThermalWindDiagSat.h` | `ATSAT_TW_DIAG` | off |
 | Chromophore tracer (the colouring agent: J c_NH3 sin(colat) A_uv - chrom/tau, A_uv = exp(-N_NH3 vapour above / N_uv); passive, uncalibrated = relative colour intensity; knobs `ATSAT_CHROM_J` 1e-6 1/s, `_NUV` 3e-4 kg/m2, `_TAU` 30 d, `_SRC` 1; ported from ATJUP_CHROM 2026-10-30) | `ChromSat.h` | `ATSAT_CHROM` | off |
@@ -108,7 +110,8 @@ baseline.
 | Zero floor on the condensable species | `ATSAT_NO_CLAMP` to disable | **on** |
 | Polar metric floor on sin θ | `ATSAT_SINTHE_MIN` | 0.0 (no floor) |
 | Metric radius (see the note in `cSaturnModel.h`) | `ATSAT_METRIC_RADIUS` | 58232 km since 2026-10-09 (0 = the unit sphere of before) |
-| Timestep | `ATSAT_DT` | 0.001 = 1.06 s / iteration since 2026-10-09 (−1 = the old formula, 0.032 s / iteration) |
+| Timestep | `ATSAT_DT` | **0.01** = 10.6 s / iteration since 2026-11-03 (equal-model-time agreement of dt 0.001 … 0.02, see `cSaturnModel.cpp`; 0.001 = the default from 2026-10-09; −1 = the old formula, 0.032 s / iteration) |
+| Divergence-free initial cells (radial u from a streamfunction of the prescribed v) | `ATSAT_CELL_INIT` | **1** since 2026-11-03 (0 = u = 0, v-only cells as before; 400 it: radial u ±3 m/s kept, continuity residuum 0.026 -> 0.007) |
 | Pole boundary form | `ATSAT_BC_POLE_COPY` | 1 since 2026-10-09 (0 = extrapolate, as before) |
 | Rows next to the pole | `ATSAT_BC_POLE_FILL` | 1 since 2026-10-11 (0 restores; sets `j = 1` and `j = jm-2`, which the Runge-Kutta step does not integrate and which otherwise keep the initial condition for the whole run, from `j = 2` / `jm-3`: copy for the scalars and `u`, half the value for `v`, `w`) |
 | Lid: species | `ATSAT_BC_SPECIES_LID_COPY` | 1 since 2026-10-11 (0 = the cubic extrapolation, which overshot on the lid: CH4 ice 93 g/m3 there against 42 one cell below) |

@@ -294,6 +294,10 @@ public:
     // radial boundary planes from the interior and RK does not integrate them, so mixing them is undone every iteration.
     // <TAG>_MCA_INTERIOR=0 restores.
     static bool mca_default_interior(){ return true; }
+    // <TAG>_MCA_PHASE default (shared ConvectiveAdjustment.h): 1 since 2026-11-03 (user: "yes, as you propose"; row
+    // GIANTS-CH4-PHASE): the MCA settles mixed cells with the saturation adjustment's temperature split instead
+    // of all ice below t_0, which had removed the liquid the adjustment made. =0 restores.
+    static bool mca_default_phase(){ return true; }
     // Defaults of ATSAT_SATADJ_NEWTON and ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): ON since
     // 2026-10-09. They act only when the shared routine is selected (ATSAT_SATADJ, this model's
     // default since 2026-10-10). Run for 16 iterations: without them the shared
@@ -301,9 +305,13 @@ public:
     // fifth to a half of its cell-calls unconverged; with them both are zero.
     static bool satadj_default_newton(){ return true; }
     static bool satadj_default_conserve(){ return true; }
-    // <TAG>_SATADJ_EVAP of the shared SaturationAdjustment.h (2026-10-21): off here -- it needs the
-    // local density, and <TAG>_LOCAL_RHO is not measured on this planet (ATSAT diverged with it).
-    static bool satadj_default_evap(){ return false; }
+    // <TAG>_SATADJ_EVAP of the shared SaturationAdjustment.h (2026-10-21): ON since 2026-11-03 (ATSAT_SATADJ_EVAP=0
+    // restores; row GIANTS-CH4-PHASE). It was held back because it needs the local density; ATSAT_LOCAL_RHO is
+    // default 1 since 2026-10-27 (GIANTS-LOCAL-RHO). Without it cloud and ice never evaporate or sublimate once
+    // the air warms or dries. MEASURED (satchk/evapberg_2026-11-03, 200 it from scratch, SATE vs SAT0, zonal 180):
+    // NH3 liquid in the mixed band 0.018x -> 0.38x of the temperature split; CH4 condensate cells 1419 -> 715,
+    // the mixed-band CH4 sublimated (row SAT-CH4-ICE); H2O unchanged (0.67x); exit 0, no NaN.
+    static bool satadj_default_evap(){ return true; }
     // <TAG>_SATADJ_BERGERON of the shared SaturationAdjustment.h (2026-10-25): off here -- measured on ATJUP only.
     static int satadj_default_bergeron(){ return 0; }
     // Shared Precipitation.h: the factor on its five rate coefficients. RECALIBRATED 2026-10-09
@@ -1009,6 +1017,20 @@ private:
         static const double v = [](){ const char* e = getenv("ATSAT_U_INIT_SCALE"); return e ? atof(e) : 0.0; }();
         return v;
     }
+    // ATSAT_CELL_INIT (2026-11-03; user: "1." = consistent initial cells): the prescribed
+    // cells made divergence-free -- u from a streamfunction of the prescribed v (InitVelocity_Sat.cpp,
+    // initCellStreamfunction), so the radial branch matches the horizontal one. See the note there.
+    // DEFAULT 1 since 2026-11-03 (user: "CELL_INIT become default 1"). MEASURED 400 it from scratch
+    // (satchk/cellinit_2026-11-03 C0 vs C1): radial u max/min 2.97/-2.36 m/s against 0.016/-0.031
+    // without (initial 3.10, decays slowly), continuity residuum 0.0071 against 0.0261, zonal w,
+    // T and clouds unchanged to 1e-3. Without it no cell forms within practical run lengths.
+    // ATSAT_CELL_INIT=0 restores the old initial state (u = 0, v-only cells).
+    static int cell_init(){
+        static const int v = [](){ const char* e = getenv("ATSAT_CELL_INIT"); return e ? atoi(e) : 1; }();
+        return v;
+    }
+    void initCellStreamfunction();
+    double continuityResidualMax(int& i_m, int& j_m);
     void form_diagonals(Array &a, int start, int end);
     void init_v_or_w(Array &v_or_w, int j, double coeff_trop, double coeff_sl);
     void init_v_or_w_above_tropopause(Array &v_or_w, int j, double coeff);
