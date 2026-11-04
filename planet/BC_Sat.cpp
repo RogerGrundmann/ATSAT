@@ -32,6 +32,9 @@
 
 #include "cSaturnModel.h"
 #include "BC_Sat.h"
+#include "BoundaryConditions.h"
+#include <algorithm>
+#include <vector>
 
 using namespace std;
 
@@ -57,6 +60,38 @@ namespace {
 // on the lid this copy now replaces a Neumann value rather than a cubic one.
 void BC_Sat::bcRadius() {
     BoundaryConditions<cSaturnModel>(m).bcRadius();
+
+    // ATSAT_BC_BOTTOM_FORM (2026-11-04, row SAT-LID-CUBIC; DEFAULT 3 since 2026-11-04, user:
+    // "1. + 2."; =0 = off, the shared form ATSAT_BC_RADIUS_COPY on both planes): 1 / 2 / 3
+    // re-apply COPY / NEUMANN / CUBIC (BCForm encoding) on the BOTTOM plane i = 0 only, over the
+    // shared routine's field list and index range, after it ran. So the default 3 with the
+    // default ATSAT_BC_RADIUS_COPY 2 is "Neumann on the lid, cubic at the bottom".
+    // u is skipped: its bottom value is the rigid wall's zero (BC_RIGID_LID), set by the shared
+    // routine after its extrapolation. Why: RN (satchk/rotation_2026-11-04, Neumann on both
+    // planes from scratch to 1000) kept the lid bounded but cooled the bottom plane 377 -> 346 K
+    // (zonal mean, 100 -> 1000), still falling; the cubic holds it flat. RB (=3, satchk/
+    // lidonly_2026-11-04, same 1000 it): bottom zonal means equal to the all-cubic run to every
+    // printed digit (i0 393.2 -> 394.7 K), lid equal to RN (T min -204 C, i40 mean 60.7 -> 95.8 K),
+    // OLR 5.79 in both. MCA 0 % of the columns in RN AND RB (all-cubic 39.8 %): that follows the
+    // lid, not the bottom.
+    static const int bottom_form = [](){
+        const char* e = getenv("ATSAT_BC_BOTTOM_FORM"); return e ? atoi(e) : 3; }();
+    if(bottom_form != 0){
+        const int jm = m.jm, km = m.km;
+        const int mg = cSaturnModel::bc_margin();
+        const int k_lo = ATPhys::phi_periodic<cSaturnModel>() ? 0 : mg;
+        std::vector<Array*> fields = m.bc_fields_radius();
+        fields.erase(std::remove(fields.begin(), fields.end(), &m.u), fields.end());
+        const int nf = (int)fields.size();
+        #pragma omp parallel for
+        for(int j = mg; j < jm-mg; j++)
+            for(int k = k_lo; k < km-mg; k++)
+                for(int f = 0; f < nf; f++){
+                    Array& F = *fields[f];
+                    F.x[0][j][k] = BCForm::apply(bottom_form, cSaturnModel::bc_default_form(),
+                        F.x[1][j][k], F.x[2][j][k], F.x[3][j][k], m.c43, m.c13);
+                }
+    }
 
     static const int lid_copy = [](){
         const char* e = getenv("ATSAT_BC_SPECIES_LID_COPY"); return e ? atoi(e) : 1; }();
