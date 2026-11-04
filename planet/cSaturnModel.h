@@ -269,7 +269,17 @@ public:
     // -243 -> -329 degC in 224 iterations at dt = 0.005 (DTL5); with the copy it stays at
     // -243.1 (G5). ATSAT_BC_POLE_COPY=0 restores.
     static int bc_default_pole_copy(){ return 1; }
-    static int bc_default_radius_copy(){ return 0; }
+    // 2 = NEUMANN f[s] = (4/3) f[a] - (1/3) f[b] on BOTH radial planes since 2026-11-03 (row
+    // SAT-LID-CUBIC; user: "Neumann", picked over a lid-only Neumann; as ATJUP / ATNEPT / ATURAN).
+    // ATSAT_BC_RADIUS_COPY=0 (or 3) restores the 3-point cubic f[c] - 3 f[b] + 3 f[a]
+    // (bc_default_form). The cubic overshot without bound at the lid once the top cooled: one
+    // rotation at dt 0.01 (satchk/rotation_2026-11-03 R3600) and dt 0.005 (H5) both went below
+    // 0 K at the lid and NaN at ~10-12 ks of model time. Resumed 1000 -> 1200 (lid.sh, L2 vs L3):
+    // lid T min bounded at -247 .. -248.5 C (cubic -351 C at 1090, NaN at 1110), T_eff(OLR)
+    // 94.55 K vs 94.12 K in (cubic 86.6 K at 1100), winds and residuum as with the copy. COST, by
+    // the user's choice: the bottom plane loses the cubic's lapse rate -- zonal 180 mean T at
+    // i = 0 / 1 394.7 / 385.8 K (RS 1000) -> 372.5 / 371.2 K at 1200 (cubic 394.9 / 386.0 at 1100).
+    static int bc_default_radius_copy(){ return 2; }
     static int bc_default_phi_periodic(){ return 1; }   // ATSAT_BC_PHI_PERIODIC, see ATPhys.h; 1 since 2026-10-13 on the user's word, 0 restores
     static int bc_pole_open_rows(){ return 1; }   // rows next to each pole that RungeKutta does not integrate; bcTheta fills them (<TAG>_BC_POLE_FILL, default 1)
 

@@ -52,7 +52,9 @@ namespace {
 // against SYNC2): max ch4_ice 93.2 g/m3 ON the lid -> 42.2 one cell below it, min w -16.5 m/s on
 // the lid -> -12.8 at 412 km, the temperature untouched, 60 of 100 printed extrema identical.
 // Changing the whole radial form instead (ATSAT_BC_RADIUS_COPY = 1 or 2, LID1 / LID2) removed the
-// overshoot as well but flattened the bottom temperature by 10 to 13 K.
+// overshoot as well but flattened the bottom temperature by 10 to 13 K. Since 2026-11-03 the
+// radial form IS Neumann (ATSAT_BC_RADIUS_COPY default 2, row SAT-LID-CUBIC, cSaturnModel.h), so
+// on the lid this copy now replaces a Neumann value rather than a cubic one.
 void BC_Sat::bcRadius() {
     BoundaryConditions<cSaturnModel>(m).bcRadius();
 
