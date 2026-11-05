@@ -27,7 +27,7 @@
         <lv>2520000.0</lv>  <!-- specific latent evaporation heat(condensation heat) in J/kg (double) -->
         <ls>2830000.0</ls>  <!-- specific latent vaporisation heat(sublimation heat) in J/kg (double) -->
         <cp_l>1005.0</cp_l>  <!-- specific heat capacity of dry air at constant pressure and 20°C in J/(kg K) (double) -->
-        <pr>0.69</pr>  <!-- Prandtl number of h2oe for laminar flows (double) -->
+        <pr>69.0</pr>  <!-- Prandtl number of the T equation: thermal diffusivity u_0 L / (re pr); 69 since 2026-11-05 (row SAT-LID-CUBIC; 0.69 = before: kappa 3.4e5 m2/s warmed the top ~2.8 K per 100 it) (double) -->
         <g>10.0</g>  <!-- gravitational acceleration of Saturn in m/s² (double) -->
         <omega>0.000163</omega>  <!-- rotation number of Saturn in 1/s (double) -->
         <gam>0.7</gam>  <!-- temperature lapse rate   gam = 0.7 K/km (double) -->

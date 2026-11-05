@@ -58,7 +58,7 @@ def main():
             ('ls', 'specific latent vaporisation heat(sublimation heat) in J/kg', 'double', 2.83e6),
             ('cp_l', 'specific heat capacity of dry air at constant pressure and 20°C in J/(kg K)', 'double', 1005.0),
 
-            ('pr', 'Prandtl number of h2oe for laminar flows', 'double', 0.69),
+            ('pr', 'Prandtl number of the T equation: thermal diffusivity u_0 L / (re pr); 69 since 2026-11-05 (row SAT-LID-CUBIC; 0.69 = before: kappa 3.4e5 m2/s warmed the top ~2.8 K per 100 it)', 'double', 69.0),
             ('g', 'gravitational acceleration of Saturn in m/s²', 'double', 10.0),
             ('omega', 'rotation number of Saturn in 1/s', 'double', 1.63e-4),
 

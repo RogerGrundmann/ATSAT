@@ -33,7 +33,7 @@ void cSaturnModel::SetDefaultConfig() {
   lv = 2520000.0;
   ls = 2830000.0;
   cp_l = 1005.0;
-  pr = 0.69;
+  pr = 69.0;
   g = 10.0;
   omega = 0.000163;
   gam = 0.7;
