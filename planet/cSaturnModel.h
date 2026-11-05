@@ -280,6 +280,13 @@ public:
     // the user's choice: the bottom plane loses the cubic's lapse rate -- zonal 180 mean T at
     // i = 0 / 1 394.7 / 385.8 K (RS 1000) -> 372.5 / 371.2 K at 1200 (cubic 394.9 / 386.0 at 1100).
     static int bc_default_radius_copy(){ return 2; }
+    // ATSAT_BC_BOTTOM_FORM, read in the SHARED BoundaryConditions.h since 2026-11-05 (was BC_Sat.cpp,
+    // ec6c426). 3 = CUBIC on the bottom plane i = 0 since 2026-11-04 (row SAT-LID-CUBIC; user
+    // "1. + 2."), so with the radial default 2 the lid is Neumann and the bottom cubic; u keeps the
+    // rigid-wall zero. =0 = Neumann on both planes (01be09e). RN (Neumann on both, from scratch to
+    // 1000) cooled the bottom-plane zonal mean 377 -> 346 K, still falling; RB (=3) held it at
+    // 393.2 -> 394.7 K, equal to the all-cubic run, with the lid equal to RN.
+    static int bc_default_bottom_form(){ return 3; }
     static int bc_default_phi_periodic(){ return 1; }   // ATSAT_BC_PHI_PERIODIC, see ATPhys.h; 1 since 2026-10-13 on the user's word, 0 restores
     static int bc_pole_open_rows(){ return 1; }   // rows next to each pole that RungeKutta does not integrate; bcTheta fills them (<TAG>_BC_POLE_FILL, default 1)
 
