@@ -291,6 +291,8 @@ public:
     // 1000) cooled the bottom-plane zonal mean 377 -> 346 K, still falling; RB (=3) held it at
     // 393.2 -> 394.7 K, equal to the all-cubic run, with the lid equal to RN.
     static int bc_default_bottom_form(){ return 3; }
+    // <TAG>_TURB_BUOY default (shared Turbulence.h): 3 = moist N^2 since 2026-11-06 (row SAT-LID-CUBIC); =0 restores.
+    static int turb_default_buoy(){ return 3; }
     static int bc_default_phi_periodic(){ return 1; }   // ATSAT_BC_PHI_PERIODIC, see ATPhys.h; 1 since 2026-10-13 on the user's word, 0 restores
     static int bc_pole_open_rows(){ return 1; }   // rows next to each pole that RungeKutta does not integrate; bcTheta fills them (<TAG>_BC_POLE_FILL, default 1)
 
