@@ -89,6 +89,10 @@ public:
     cSaturnModel(const cSaturnModel&) = delete;
     cSaturnModel& operator=(const cSaturnModel&) = delete;
 
+    // ATSAT_TURB_BUOY=3 (shared Turbulence.h, moist N^2): gas n = 0 H2O, 1 NH3, 2 CH4 -- the moist convective
+    // adjustment's list (cSaturnModel.cpp); false past the last. Read through turb_moist_gas() (TurbulenceSat.h).
+    bool moist_gas_for_turb(int n, Array*& v, Array*& c, Array*& ice, double& ep, double& lv, double& ls, double& t_0);
+
     static cSaturnModel* get_model(){
         if(!m_model){
             m_model = new cSaturnModel();

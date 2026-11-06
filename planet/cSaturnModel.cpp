@@ -250,6 +250,21 @@ static int turb_env_enabled(){
 }
 
 #include "cSaturnDefaults.cpp.inc"
+
+// ATSAT_TURB_BUOY=3: see the declarations in cSaturnModel.h / TurbulenceSat.h. Same gases and coefficients as the
+// MoistConvectiveAdjustmentSat call in run() (H2S has no condensate on this model, so it is not one).
+bool cSaturnModel::moist_gas_for_turb(int n, Array*& v, Array*& c, Array*& ice, double& ep, double& lv, double& ls, double& t_0){
+    switch(n){
+        case 0: v = &h2o; c = &h2o_cloud; ice = &h2o_ice; ep = ep_h2o; lv = lv_h2o; ls = ls_h2o; t_0 = t_0_h2o; return true;
+        case 1: v = &nh3; c = &nh3_cloud; ice = &nh3_ice; ep = ep_nh3; lv = lv_nh3; ls = ls_nh3; t_0 = t_0_nh3; return true;
+        case 2: v = &ch4; c = &ch4_cloud; ice = &ch4_ice; ep = ep_ch4; lv = lv_ch4; ls = ls_ch4; t_0 = t_0_ch4; return true;
+        default: return false;
+    }
+}
+bool turb_moist_gas(cSaturnModel& m, int n, Array*& v, Array*& c, Array*& ice,
+                    double& ep, double& lv, double& ls, double& t_0){
+    return m.moist_gas_for_turb(n, v, c, ice, ep, lv, ls, t_0);
+}
 /*
 *
 */
