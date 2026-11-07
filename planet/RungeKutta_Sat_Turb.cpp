@@ -58,6 +58,23 @@ void cSaturnModel::computeBuoyancyRefLevel(){
  * Trapezoid in r, in the radial operator rhs_u uses (exp_rm d/dr).
  */
 void cSaturnModel::computeMetricPressure(){
+    // ATSAT_HYDRO_BUOY (cSaturnModel.h): the buoyancy joins the integrand. Tbar_i is the sin(theta)-
+    // weighted level mean of t (the seam copy k = km-1 left out), taken before the column loop.
+    // Coefficient: b = g (T - Tbar)/Tbar in m/s2, times L / u_0^2 into rhs_u's unit (L = L_atm in m,
+    // the length rad.z is measured in; dr x L = 12.5 km = the layer thickness).
+    const bool hb = hydro_buoy() && !hydro_tbar_off_;
+    const double hb_coeff = hb ? g * (L_atm * 1.0e3) / (u_0 * u_0) : 0.0;
+    if(hb){
+        if((int)hydro_tbar.size() != im) hydro_tbar.assign(im, 0.0);
+        for(int i = 0; i < im; i++){
+            double s = 0.0, sw = 0.0;
+            for(int j = 0; j < jm; j++){
+                const double wgt = std::abs(sin(the.z[j]));
+                for(int k = 0; k < km - 1; k++){ s += wgt * t.x[i][j][k]; sw += wgt; }
+            }
+            hydro_tbar[i] = (sw > 0.0) ? s / sw : 1.0;
+        }
+    }
     #pragma omp parallel for collapse(2) schedule(static)
     for(int j = 0; j < jm; j++){
         for(int k = 0; k < km; k++){
@@ -72,8 +89,14 @@ void cSaturnModel::computeMetricPressure(){
             auto f_ = [&](int i)->double{
                 const double rm_     = metricRadius(rad.z[i]);
                 const double exp_rm_ = coord_stretching ? 1.0 / (rm_ + 1.0) : 1.0;
+                if(!hb)
+                    return ((v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) / rm_
+                            + cor_ * w.x[i][j][k]) / exp_rm_;
+                const double tb_ = hydro_tbar[i];
+                const double b_  = (tb_ > 0.0 && std::isfinite(t.x[i][j][k]))
+                                 ? hb_coeff * (t.x[i][j][k] - tb_) / tb_ : 0.0;
                 return ((v.x[i][j][k] * v.x[i][j][k] + w.x[i][j][k] * w.x[i][j][k]) / rm_
-                        + cor_ * w.x[i][j][k]) / exp_rm_; };
+                        + cor_ * w.x[i][j][k] + b_) / exp_rm_; };
             p_metric.x[0][j][k] = 0.0;
             for(int i = 1; i < im; i++)
                 p_metric.x[i][j][k] = p_metric.x[i-1][j][k] + 0.5 * (f_(i-1) + f_(i)) * dr;

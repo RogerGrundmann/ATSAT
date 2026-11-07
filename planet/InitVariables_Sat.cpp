@@ -54,12 +54,108 @@ void cSaturnModel::init_temperature(){
         }
     }
 
+    // ATSAT_HYDRO_INIT_T (cSaturnModel.h): the horizontal structure per level from the jets' thermal wind
+    if(hydro_init_t()) initThermalWindT();
+
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     printf(" time measured: %.3f seconds for init_Temperature\n", elapsed.count() * 1e-9);
 
     cout << "      ATSAT: init_Temperature ended" << endl;
     return;
+}
+/*
+ * ATSAT_HYDRO_INIT_T (2026-11-07, row SAT-SPINUP-DRIFT): the initial temperature DERIVED FROM THE JETS.
+ * With ATSAT_HYDRO_BUOY the per-level rest of the balanced start -- what initGeoBalance() otherwise
+ * freezes as p_baro -- has to come from T. In the model's own discrete balance (initGeoBalance's G,
+ * integrated in theta the same way): every level needs a total pressure Q_i(theta) with
+ * dQ_i/dtheta = rm Cor nd_cor 2 Omega cos(theta) wbar + wbar^2 cot(theta); p_metric without buoyancy
+ * gives part of it; the rest R = Q_i - p_metric is carried by the buoyancy integral up to a column
+ * constant (p_dyn's), so b = dR/dr (centred in r, one-sided at the planes) and
+ *     T(i, theta) = Tbar_i (1 + (b - bbar_i) / (g L / u_0^2)),
+ * Tbar_i the sin-weighted level mean of the parabola + lapse start, which is kept. Called from
+ * init_temperature(), i.e. after VelocityInitializerSat and before p_stat, the species and the set-up
+ * saturation adjustment, so all of them see this T. The balance error left is O(dr^2) (the centred b
+ * against the trapezoid integral); initGeoBalance() prints it as the p_baro rest it drops.
+ */
+void cSaturnModel::initThermalWindT(){
+    static const int nd_all_ = [](){ const char* n = getenv("ATSAT_NONDIM"); return n ? atoi(n) : 0; }();
+    static const int nd_cor_on_ = [](){
+        const char* e = getenv("ATSAT_ND_COR"); return e ? atoi(e) : (geo_balance() ? 1 : -1); }();
+    const double nd_cor = ((nd_cor_on_ >= 0 ? nd_cor_on_ : nd_all_) != 0) ? L_atm * 1.0e3 / u_0 : 1.0;
+    const double smin = sinthe_min();
+    const double hb_coeff = g * (L_atm * 1.0e3) / (u_0 * u_0);
+
+    // p_metric WITHOUT the buoyancy (T is not the final one yet), p_baro empty at this point
+    p_baro.clear();
+    hydro_tbar_off_ = true;
+    computeMetricPressure();
+    hydro_tbar_off_ = false;
+
+    // zonal means per (i, j): w for G, p_metric for R
+    std::vector<double> wbar((size_t)im * jm, 0.0), pm((size_t)im * jm, 0.0);
+    for(int i = 0; i < im; i++) for(int j = 0; j < jm; j++){
+        double s = 0.0, sp = 0.0;
+        for(int k = 0; k < km - 1; k++){ s += w.x[i][j][k]; sp += p_metric.x[i][j][k]; }
+        wbar[(size_t)i * jm + j] = s / (km - 1);
+        pm[(size_t)i * jm + j]   = sp / (km - 1);
+    }
+    // R(i, j) = Q_i(j) - p_metric, Q_i integrated from the north pole exactly as initGeoBalance does
+    std::vector<double> R((size_t)im * jm, 0.0);
+    for(int i = 0; i < im; i++){
+        std::vector<double> gi(jm, 0.0), Q(jm, 0.0);
+        for(int j = 1; j < jm - 1; j++){                         // G as in initGeoBalance (0 at the poles)
+            double sth = sin(the.z[j]);
+            if(sth < smin) sth = smin;
+            if(!(sth > 0.0)) continue;
+            const double cth = cos(the.z[j]);
+            const double wb = wbar[(size_t)i * jm + j];
+            gi[j] = metricRadius(rad.z[i]) * Coriolis * nd_cor * 2.0 * omega * cth * wb + wb * wb * cth / sth;
+        }
+        Q[0] = 0.0;
+        for(int j = 1; j < jm; j++)
+            Q[j] = (j >= 2) ? Q[j-2] + 2.0 * dthe * gi[j-1] : Q[j-1] + 0.5 * (gi[j-1] + gi[j]) * dthe;
+        for(int j = 0; j < jm; j++) R[(size_t)i * jm + j] = Q[j] - pm[(size_t)i * jm + j];
+    }
+    // b = dR/dr -> the relative anomaly a = b / hb_coeff, level mean removed (sin-weighted)
+    auto Rat = [&](int i, int j){ return R[(size_t)i * jm + j]; };
+    std::vector<double> a((size_t)im * jm, 0.0);
+    for(int i = 0; i < im; i++){
+        double s = 0.0, sw = 0.0;
+        for(int j = 0; j < jm; j++){
+            double b;
+            if(i == 0)           b = (-3.0 * Rat(0, j) + 4.0 * Rat(1, j) - Rat(2, j)) / (2.0 * dr);
+            else if(i == im - 1) b = ( 3.0 * Rat(im-1, j) - 4.0 * Rat(im-2, j) + Rat(im-3, j)) / (2.0 * dr);
+            else                 b = (Rat(i+1, j) - Rat(i-1, j)) / (2.0 * dr);
+            a[(size_t)i * jm + j] = b / hb_coeff;
+            const double wgt = std::abs(sin(the.z[j]));
+            s += wgt * a[(size_t)i * jm + j]; sw += wgt;
+        }
+        for(int j = 0; j < jm; j++) a[(size_t)i * jm + j] -= s / sw;
+    }
+    // apply around the existing level mean; report
+    int nclip = 0;
+    double amin = 1e30, amax = -1e30;
+    for(int i = 0; i < im; i++){
+        double s = 0.0, sw = 0.0;
+        for(int j = 0; j < jm; j++){
+            const double wgt = std::abs(sin(the.z[j]));
+            for(int k = 0; k < km - 1; k++){ s += wgt * t.x[i][j][k]; sw += wgt; }
+        }
+        const double tbar = s / sw;
+        for(int j = 0; j < jm; j++){
+            double f = 1.0 + a[(size_t)i * jm + j];
+            amin = std::min(amin, f - 1.0); amax = std::max(amax, f - 1.0);
+            if(f < 0.3){ f = 0.3; nclip++; }                      // a warning, not a working limit
+            for(int k = 0; k < km; k++) t.x[i][j][k] = tbar * f;
+        }
+    }
+    const int jq = (jm - 1) / 2, j45 = jq + 45 < jm ? jq + 45 : jm - 1;
+    printf("      ATSAT: initThermalWindT: T from the jets' thermal wind, (T - Tbar)/Tbar %.4f .. %.4f, clipped at 0.3 x Tbar in %d cells\n",
+           amin, amax, nclip);
+    for(int i : {0, 10, 20, 33, 40}) if(i < im)
+        printf("      ATSAT: initThermalWindT: level %2d  T equator %.1f  45 S %.1f  pole %.1f K\n",
+               i, t.x[i][jq][0] * t_ref, t.x[i][j45][0] * t_ref, t.x[i][jm-1][0] * t_ref);
 }
 /*
 *
@@ -250,6 +346,32 @@ void cSaturnModel::initGeoBalance(){
     p_baro.swap(pb);
     computeMetricPressure();                                       // now with p_baro
     printf("      ATSAT: initGeoBalance: p_baro (the per-level rest, added to p_metric, frozen) %.6e .. %.6e\n", bmin, bmax);
+    // ATSAT_HYDRO_BUOY (cSaturnModel.h): T carries the per-level rest now (p_metric above already holds the
+    // buoyancy integral). What p_baro still holds is a column constant -- the buoyancy integral starts at
+    // 0 at i = 0, the balance does not -- plus the O(dr^2) error of initThermalWindT. The column mean goes
+    // into p_dyn (barotropic, where it belongs), the rest is reported and dropped.
+    if(hydro_buoy()){
+        double rmax = 0.0, cmax = 0.0;
+        int ri = -1, rj = -1;
+        double pmax_ = 0.0;
+        for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+            double s = 0.0;
+            for(int i = 0; i < im; i++) s += p_baro[((size_t)i * jm + j) * km + k];
+            const double c = s / im;
+            cmax = std::max(cmax, std::abs(c));
+            for(int i = 0; i < im; i++){
+                p_dyn.x[i][j][k] += c;                                  // every row, the radial planes too
+                const double r_ = std::abs(p_baro[((size_t)i * jm + j) * km + k] - c);
+                if(i == 0 || i == im - 1){ pmax_ = std::max(pmax_, r_); continue; }   // the radial planes: BC rows, no RHS
+                if(r_ > rmax){ rmax = r_; ri = i; rj = j; }
+            }
+        }
+        p_baro.clear();
+        computeMetricPressure();
+        printf("      ATSAT: initGeoBalance: ATSAT_HYDRO_BUOY: p_baro column mean (max |.| %.6e) moved into p_dyn, rest max |.| %.6e at i %d j %d (interior; %.6e on the radial planes) dropped (T carries the per-level balance)\n",
+               cmax, rmax, ri, rj, pmax_);
+        return;
+    }
     // ATSAT_PBARO=0 (2026-11-07, default 1 = keep; row SAT-SPINUP-DRIFT): drop the frozen per-level
     // rest, so nothing holds the initial jet's vertical shear. A restart rebuilds p_baro here from the
     // initial fields before load_state, so the knob acts on a resumed run as well.

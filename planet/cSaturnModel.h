@@ -541,6 +541,29 @@ public:
         return v; }
     std::vector<double> p_baro;          // [(i*jm + j)*km + k], empty unless ATSAT_PDYN_GEO
     void initGeoBalance();
+    // ATSAT_HYDRO_BUOY (2026-11-07, DEFAULT 0 = off, byte-identical; row SAT-SPINUP-DRIFT): the
+    // HYDROSTATIC PRESSURE FROM TEMPERATURE. Buoyancy b = g (T - Tbar_i) / Tbar_i at its physical size
+    // (x L / u_0^2, the model's acceleration unit; Tbar_i the sin(theta)-weighted level mean) joins the
+    // radial forces whose column integral is p_metric, so its horizontal gradient in rhs_v / rhs_w is the
+    // thermal wind; rhs_u drops its own buoyancy term (it and -dp_metric/dr cancel by construction).
+    // ATOM_Precipitation's hydrostatic split (AtmHydroSplit.h): integrated UPWARD from i = 0, from the
+    // temperature at the start of the RK step. WHY: until now T never reached the horizontal pressure
+    // gradient -- rhs_u's buoyancy is at the inherited scale (ATSAT_ND_BUOY off, ~1e-5 of physical) and
+    // the jets' vertical shear was held by the frozen p_baro. Needs ATSAT_METRIC_SPLIT (default 1).
+    // With it: ATSAT_PRESS_BAROTROPIC defaults to 1 (the column constant answers continuity), and
+    // initGeoBalance() folds p_baro's column mean into p_dyn and drops the rest (T carries it).
+    static bool hydro_buoy(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_HYDRO_BUOY"); return e ? atoi(e) != 0 : false; }();
+        return v && metric_split(); }
+    // ATSAT_HYDRO_INIT_T (follows ATSAT_HYDRO_BUOY): the initial temperature is DERIVED FROM THE JETS --
+    // its horizontal structure per level is the thermal wind of the prescribed winds, in the model's own
+    // discrete balance (initThermalWindT(), called from init_temperature()); 0 keeps the parabola.
+    static bool hydro_init_t(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_HYDRO_INIT_T"); return e ? atoi(e) != 0 : hydro_buoy(); }();
+        return v && metric_split(); }
+    void initThermalWindT();
+    std::vector<double> hydro_tbar;      // Tbar_i of the last computeMetricPressure() call (hydro_buoy)
+    bool hydro_tbar_off_ = false;        // initThermalWindT(): p_metric without the buoyancy (T not set yet)
     // ATSAT_CHROM=1 (2026-10-30, default 0 = off: chrom stays 0 everywhere, no output, restart files unchanged):
     // the chromophore tracer, ported from ATJUP_CHROM -- a passive species made by UV photolysis of NH3 where
     // the UV reaches (NH3 vapour self-shielding) and destroyed with a lifetime. The rates live in ChromSat.h.

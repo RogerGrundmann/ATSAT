@@ -352,8 +352,30 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     double coeff_energy_p = u_0 * u_0/(cp_mix * t_ref); // coefficient for the source terms = 2.33e-4 (Eckert-number)
 
 
+    // ATSAT_ADIABATIC (port of ATJUP_ADIABATIC, RHS_Jup_Turb.cpp, see the long note there): the
+    // compression work against the HYDROSTATIC pressure, i.e. the adiabatic lapse rate
+    // dT/dt = -(g/cp)*u. Without it a rising parcel keeps its temperature, so the model has no
+    // static stability; harmless while the buoyancy is ~1e-5 of physical (ND_BUOY off), fatal once
+    // ATSAT_HYDRO_BUOY puts T into the pressure: arm H (satchk/hydro_2026-11-07) grew an overturning
+    // cell at 32 deg under the lid, v max 40 -> 97 -> 275 -> 6344 m/s at it 100 / 300 / 500 / 1000.
+    // DEFAULT follows hydro_buoy() (off in every default run, so those stay bit-identical).
+    // p_stat is in bar; r_mix*u_0^2*1e-5 converts bar to the nondimensional kinematic pressure
+    // (ATSAT's p_dyn_to_bar() returns 1.0 unless ATSAT_PDYN_UNITS, so it is spelled out here).
+    // ATSAT_ADIABATIC_RHO (default 1, as ATJUP): divide by the LOCAL density instead of r_mix.
+    static const bool adiabatic = [](){
+        const char* e = getenv("ATSAT_ADIABATIC"); return e ? atoi(e) != 0 : hydro_buoy(); }();
+    static const bool adiabatic_rho = [](){
+        const char* e = getenv("ATSAT_ADIABATIC_RHO"); return e ? atoi(e) != 0 : true; }();
+    double dpstatdr = 0.0;
+    if(adiabatic){
+        const double to_nd = 1.0 / (r_mix * u_0 * u_0 * 1.0e-5);    // bar -> nondimensional kinematic
+        dpstatdr = (p_stat.x[i+1][j][k] - p_stat.x[i-1][j][k]) * inv_2dr * exp_rm * to_nd;
+        const double rho_l = rho_mix.x[i][j][k];
+        if(adiabatic_rho && rho_l > 0.0 && std::isfinite(rho_l)) dpstatdr *= r_mix / rho_l;
+    }
+
 // transport terms in the Navier-Stokes-equations
-    double pressure_t = coeff_energy_p * (u_ijk * dpdr
+    double pressure_t = coeff_energy_p * (u_ijk * (dpdr + dpstatdr)
         + v_ijk * dpdthe * inv_rm
         + w_ijk * dpdphi * inv_rmsinthe);
 
@@ -672,7 +694,9 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     static const int buoy_legacy = [](){
         const char* e = getenv("ATSAT_BUOY_LEGACY"); return e ? atoi(e) : 0; }();
     double buoyancy_u = 0.0;
-    if(t.x[i][j][k] > 0.0){
+    // ATSAT_HYDRO_BUOY (cSaturnModel.h): the buoyancy is carried by p_metric (its radial integral), so
+    // it and -dp_metric/dr cancel and rhs_u takes neither, as with the metric term.
+    if(t.x[i][j][k] > 0.0 && !hydro_buoy()){
         if(buoy_legacy != 0){
             buoyancy_u = + buoyancy * g * (p_stat.x[i][j][k] + p_dyn.x[i][j][k])
                          / (r_mix * R_mix * t.x[i][j][k] * t_ref);

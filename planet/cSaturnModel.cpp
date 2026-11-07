@@ -603,6 +603,9 @@ void cSaturnModel::Run(){
     // solver half is the shared PressureSolver's ATSAT_PRESS_INCR, whose default is 0 there; the
     // balanced start sets it unless the knob is given.
     if(geo_balance()) setenv("ATSAT_PRESS_INCR", "1", 0);
+    // ATSAT_HYDRO_BUOY (cSaturnModel.h): with the per-level balance carried by T, the column constant of
+    // the pressure has to answer continuity, i.e. the shared solver's exact column-mean solve.
+    if(hydro_buoy()) setenv("ATSAT_PRESS_BAROTROPIC", "1", 0);
     initCellHold();                                                     // ATSAT_CELL_HOLD, cSaturnModel.h
     initGeoBalance();
     chromInfo();                                                        // ATSAT_CHROM: one line when the tracer is on

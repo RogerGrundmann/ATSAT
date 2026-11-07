@@ -774,6 +774,26 @@ void  cSaturnModel::init_v_or_w(Array &v_or_w, int j, double coeff_trop, double 
 //    int tropopause_layer = get_tropopause_layer(j);
     int tropopause_layer = im_tropopause[j];
     double tropopause_height = get_layer_height(tropopause_layer);
+    // ATSAT_JET_DEEP=<f> (2026-11-07, unset = off, byte-identical; row SAT-SPINUP-DRIFT): DEEP ZONAL JETS.
+    // The profile below is ATOM's Earth one -- the wind grows linearly from its bottom value (0 for every
+    // jet here) to the tropopause and falls linearly to 0 at the lid. On Saturn that vertical structure
+    // cannot be in thermal-wind balance with any realistic temperature (the latitude-integrated jet
+    // pressure is ~3e6 m2/s2; a 100 % change of it within the 500 km shell needs (T - Tbar)/Tbar ~ 1:
+    // initThermalWindT measured -1.77 .. +1.31), and Saturn's jets are deep (Cassini gravity). With f
+    // set, w (only; v keeps its cells) is the tropopause value at every level below the tropopause and
+    // falls linearly above it to f times that value at the lid.
+    static const double jet_deep = [](){ const char* e = getenv("ATSAT_JET_DEEP"); return e ? atof(e) : -1.0; }();
+    if(jet_deep >= 0.0 && &v_or_w == &w){
+        const double h_lid = get_layer_height(im-1);
+        for(int k = 0; k < km; k++)
+            for(int i = 0; i < im; i++){
+                const double h = get_layer_height(i);
+                v_or_w.x[i][j][k] = (i < tropopause_layer || h_lid <= tropopause_height)
+                    ? coeff_trop
+                    : coeff_trop * (1.0 - (1.0 - jet_deep) * (h - tropopause_height) / (h_lid - tropopause_height));
+            }
+        return;
+    }
     for(int k = 0; k < km; k++){
         if(is_ocean_surface(SeaMount, 20, j, k)){ // velocity v changes sign at i=20
             coeff_sl = v_or_w.x[0][j][k];
