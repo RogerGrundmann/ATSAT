@@ -528,7 +528,10 @@ public:
     //   ATSAT_PDYN_GEO 1        p_dyn starts as the barotropic pressure that balances Coriolis and
     //                           metric force of each latitude's jet-level wind in rhs_v, and p_baro
     //                           (frozen, added to p_metric) the per-level rest; see initGeoBalance()
-    //   ATSAT_PRESS_INCR 1      the shared solver's defect-correction source (PressureSolver.h)
+    //     ATSAT_PBARO 1         (2026-11-07, row SAT-SPINUP-DRIFT) 0 drops p_baro after it is built
+    //                           (also on a restart, which rebuilds it from the initial jet), so
+    //                           p_metric is the metric / Coriolis integral alone; 1 keeps it
+    //   ATSAT_PRESS_INCR 1     the shared solver's defect-correction source (PressureSolver.h)
     //   ATSAT_DAMP_PDYN 3       Shapiro pass on p_dyn along r and phi after the solver (0 = none, 1 = 3-D, 2 = r only; was 0 until 2026-11-02)
     static bool geo_balance(){
         static const bool v = [](){ const char* e = getenv("ATSAT_GEO_BALANCE"); return e ? atoi(e) != 0 : true; }();

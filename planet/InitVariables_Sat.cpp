@@ -250,6 +250,15 @@ void cSaturnModel::initGeoBalance(){
     p_baro.swap(pb);
     computeMetricPressure();                                       // now with p_baro
     printf("      ATSAT: initGeoBalance: p_baro (the per-level rest, added to p_metric, frozen) %.6e .. %.6e\n", bmin, bmax);
+    // ATSAT_PBARO=0 (2026-11-07, default 1 = keep; row SAT-SPINUP-DRIFT): drop the frozen per-level
+    // rest, so nothing holds the initial jet's vertical shear. A restart rebuilds p_baro here from the
+    // initial fields before load_state, so the knob acts on a resumed run as well.
+    static const int pbaro_keep = [](){ const char* e = getenv("ATSAT_PBARO"); return e ? atoi(e) : 1; }();
+    if(pbaro_keep == 0){
+        p_baro.clear();
+        computeMetricPressure();
+        cout << "      ATSAT: initGeoBalance: ATSAT_PBARO=0, p_baro dropped (p_metric = the metric / Coriolis integral alone)" << endl;
+    }
 }
 /*
 *
