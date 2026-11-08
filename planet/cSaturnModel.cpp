@@ -1051,6 +1051,38 @@ void cSaturnModel::Run(){
             if(chrom_on()) tracers.push_back({ "chrom", &chrom, 0.0, false, 0.0 });   // ATSAT_CHROM: mixed as ATJUP mixes it
             MoistConvectiveAdjustmentSat(*this, gases, tracers).run();
         }
+        // ATSAT_MCA_SYNC=<0|1> (2026-11-08, DEFAULT 0 = off, byte-identical; row SAT-MCA-RESET): the dry and
+        // moist adjustments above write t and the species AFTER restoreVar, so the n-level copies the next
+        // Runge-Kutta step integrates from do not hold their change. ATSAT_RK_SCALAR_SYNC re-copies t and the
+        // condensables only inside the iter_n % 2 == 0 block, so the adjustment of every EVEN iteration was
+        // discarded by the (odd) step that follows, and chrom, which that sync does not copy, on every
+        // iteration. MEASURED with a single-row ATSAT_TB_DIAG (satchk/hydro_2026-11-07 T30 / T26, HA 500 ->
+        // 800): "RK reset" -0.93 / -0.87 / -0.72 K against the MCA's +2.79 / +2.61 / +2.18 K at 30 N i28-31.
+        // 1 copies every field the adjustments write into its n-level copy right after them.
+        static const int mca_sync = [](){ const char* e = getenv("ATSAT_MCA_SYNC"); return e ? atoi(e) : 0; }();
+        const bool adj_ran_ = conv_adj_enabled() || (mca_stride() > 0 && iter_n % mca_stride() == 0);
+        if(mca_sync >= 1 && adj_ran_){
+            #pragma omp parallel for collapse(2) schedule(static)
+            for(int i = 0; i < im; i++){
+                for(int j = 0; j < jm; j++){
+                    for(int k = 0; k < km; k++){
+                        tn.x[i][j][k]         = t.x[i][j][k];
+                        h2on.x[i][j][k]       = h2o.x[i][j][k];
+                        h2o_cloudn.x[i][j][k] = h2o_cloud.x[i][j][k];
+                        h2o_icen.x[i][j][k]   = h2o_ice.x[i][j][k];
+                        nh3n.x[i][j][k]       = nh3.x[i][j][k];
+                        nh3_cloudn.x[i][j][k] = nh3_cloud.x[i][j][k];
+                        nh3_icen.x[i][j][k]   = nh3_ice.x[i][j][k];
+                        ch4n.x[i][j][k]       = ch4.x[i][j][k];
+                        ch4_cloudn.x[i][j][k] = ch4_cloud.x[i][j][k];
+                        ch4_icen.x[i][j][k]   = ch4_ice.x[i][j][k];
+                        h2sn.x[i][j][k]       = h2s.x[i][j][k];
+                        nh4shn.x[i][j][k]     = nh4sh.x[i][j][k];
+                        chromn.x[i][j][k]     = chrom.x[i][j][k];
+                    }
+                }
+            }
+        }
         tb_mark(TB_AFTER); cwb_mark(TB_AFTER);
         if(tb_on && iter_n % tb_every == 0){
             static const int lv_[] = { 0, 1, 2, 3, 5, 8, 12, 16, 20, 24, 28, 32, 35, 37, 38, 39, 40 };
