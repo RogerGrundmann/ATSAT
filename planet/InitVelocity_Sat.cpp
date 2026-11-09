@@ -852,6 +852,21 @@ void  cSaturnModel::init_v_or_w_above_tropopause(Array &v_or_w, int j, double co
  * (the prescribed state is zonally symmetric). w is untouched. ATSAT_U_INIT_SCALE is overridden (u replaced).
  * Printed: max |u|, max |Delta v| in m/s, and the interior continuity residual before / after.
  */
+void cSaturnModel::smoothCellV(int passes){                  // ATSAT_CELL_SMOOTH, see cSaturnModel.h
+    double mx0 = 0.0, mx1 = 0.0;
+    std::vector<double> a(jm), b(jm);
+    for(int i = 0; i < im; i++) for(int k = 0; k < km; k++){
+        for(int j = 0; j < jm; j++){ a[j] = v.x[i][j][k]; mx0 = std::max(mx0, fabs(a[j])); }
+        for(int p = 0; p < passes; p++){
+            b = a;
+            for(int j = 1; j < jm-1; j++) a[j] = 0.25 * b[j-1] + 0.5 * b[j] + 0.25 * b[j+1];
+        }
+        for(int j = 0; j < jm; j++){ v.x[i][j][k] = a[j]; mx1 = std::max(mx1, fabs(a[j])); }
+    }
+    printf("      ATSAT: ATSAT_CELL_SMOOTH=%d: prescribed v smoothed in theta, max |v| %.3f -> %.3f m/s\n",
+           passes, mx0 * u_0, mx1 * u_0);
+}
+
 double cSaturnModel::continuityResidualMax(int& i_m, int& j_m){
     double mx = 0.0; i_m = j_m = 0;
     const int k = 1;

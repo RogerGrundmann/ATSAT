@@ -473,6 +473,7 @@ void cSaturnModel::Run(){
     AtomUtils::damp_wiggles(v, nullptr, true, true, true);
     AtomUtils::damp_wiggles(w, nullptr, true, true, true);
 
+    if(cell_smooth() > 0) smoothCellV(cell_smooth());   // ATSAT_CELL_SMOOTH (default 0): widen the 1-3 row cells
     if(cell_init()) initCellStreamfunction();          // ATSAT_CELL_INIT (default 1): divergence-free initial cells
 
 //    goto Printout;

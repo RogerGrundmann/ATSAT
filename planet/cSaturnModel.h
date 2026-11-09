@@ -1078,6 +1078,18 @@ private:
         static const int v = [](){ const char* e = getenv("ATSAT_CELL_INIT"); return e ? atoi(e) : 1; }();
         return v;
     }
+    // ATSAT_CELL_SMOOTH=<passes> (2026-11-09, row SAT-SPINUP-DRIFT; default 0 = off): <passes> 1-2-1 filter
+    // passes in theta on the prescribed meridional wind v (every level and longitude, pole rows held), run
+    // before ATSAT_CELL_INIT builds u from it. SaturnCellStructure's anchors put cells only 1-3 rows wide
+    // (v +40 / 0 / -40 / 0 at j 60 / 59 / 58 / 57 = 30-33 N, mirrored), which CELL_INIT turns into a one-row
+    // +3 m/s up branch at 31 N/S; the MCA then mixes that single row deep (satchk/mcaoff_2026-11-09: no row
+    // steps with ATSAT_MCA=0, the up row is there in every arm from it 100). n passes ~ a Gaussian of
+    // sigma sqrt(n/2) rows.
+    static int cell_smooth(){
+        static const int v = [](){ const char* e = getenv("ATSAT_CELL_SMOOTH"); return e ? std::max(0, atoi(e)) : 0; }();
+        return v;
+    }
+    void smoothCellV(int passes);
     void initCellStreamfunction();
     double continuityResidualMax(int& i_m, int& j_m);
     void form_diagonals(Array &a, int start, int end);
