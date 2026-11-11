@@ -1052,7 +1052,7 @@ void cSaturnModel::Run(){
             if(chrom_on()) tracers.push_back({ "chrom", &chrom, 0.0, false, 0.0 });   // ATSAT_CHROM: mixed as ATJUP mixes it
             MoistConvectiveAdjustmentSat(*this, gases, tracers).run();
         }
-        // ATSAT_MCA_SYNC=<0|1> (2026-11-08, DEFAULT 0 = off, byte-identical; row SAT-MCA-RESET): the dry and
+        // ATSAT_MCA_SYNC=<0|1> (2026-11-08; DEFAULT 1 since 2026-11-11, 0 restores; row SAT-MCA-RESET): the dry and
         // moist adjustments above write t and the species AFTER restoreVar, so the n-level copies the next
         // Runge-Kutta step integrates from do not hold their change. ATSAT_RK_SCALAR_SYNC re-copies t and the
         // condensables only inside the iter_n % 2 == 0 block, so the adjustment of every EVEN iteration was
@@ -1060,7 +1060,7 @@ void cSaturnModel::Run(){
         // iteration. MEASURED with a single-row ATSAT_TB_DIAG (satchk/hydro_2026-11-07 T30 / T26, HA 500 ->
         // 800): "RK reset" -0.93 / -0.87 / -0.72 K against the MCA's +2.79 / +2.61 / +2.18 K at 30 N i28-31.
         // 1 copies every field the adjustments write into its n-level copy right after them.
-        static const int mca_sync = [](){ const char* e = getenv("ATSAT_MCA_SYNC"); return e ? atoi(e) : 0; }();
+        static const int mca_sync = [](){ const char* e = getenv("ATSAT_MCA_SYNC"); return e ? atoi(e) : 1; }();
         const bool adj_ran_ = conv_adj_enabled() || (mca_stride() > 0 && iter_n % mca_stride() == 0);
         if(mca_sync >= 1 && adj_ran_){
             #pragma omp parallel for collapse(2) schedule(static)
