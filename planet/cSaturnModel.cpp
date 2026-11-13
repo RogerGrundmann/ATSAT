@@ -1,4 +1,6 @@
 #include <cstdlib>
+#include <algorithm>
+#include <utility>
 /*
  * Saturn Atmosphere Circulation Model (JACM) applied to laminar flow
  * program for the computation of saturn-atmospherical circulating flows in a spherical shell
@@ -632,6 +634,13 @@ void cSaturnModel::Run(){
     static const int tb_every = [](){ const char* e = getenv("ATSAT_TB_DIAG"); return e ? atoi(e) : 0; }();
     const bool tb_on = tb_every > 0 && im <= SatTb::MAXLEV;
     SatTb::st().on = tb_on;
+    // ATSAT_TB_ROWS=<j_lo>,<j_hi> (print-only): the means over these rows only; default all rows
+    static const std::pair<int,int> tb_rows = [&](){ const char* e = getenv("ATSAT_TB_ROWS");
+        int a_ = 0, b_ = jm - 1;
+        if(e && sscanf(e, "%d,%d", &a_, &b_) != 2){ a_ = 0; b_ = jm - 1; }
+        return std::make_pair(std::max(0, a_), std::min(jm - 1, b_)); }();
+    SatTb::st().j_lo = tb_rows.first;
+    SatTb::st().j_hi = tb_rows.second;
     enum { TB_PRE = 0, TB_SATADJ, TB_PRECIP, TB_PHYS, TB_RK_RESET, TB_RK_REST, TB_BC, TB_CLAMP, TB_AFTER, TB_N };
     static const char* tb_name[TB_N] = { "pressure", "sat.adjust", "precip", "chem/latent", "RK reset", "RK rest",
         "BC", "clamp", "turb/conv" };
@@ -645,7 +654,7 @@ void cSaturnModel::Run(){
         #pragma omp parallel for schedule(static)
         for(int i = 0; i < im; i++){
             double s_ = 0.0;
-            for(int j = 0; j < jm; j++){
+            for(int j = tb_rows.first; j <= tb_rows.second; j++){
                 const double sj = std::sin(the.z[j]);
                 for(int k = 0; k < km; k++) s_ += sj * a.x[i][j][k];
             }
@@ -657,7 +666,7 @@ void cSaturnModel::Run(){
         const std::vector<double> w_ = tb_lev(t);
         for(int i = 0; i < im; i++){ tb_sum[stage][i] += w_[i] - tb_last[i]; tb_last[i] = w_[i]; } };
     if(tb_on){
-        for(int j = 0; j < jm; j++) tb_norm += std::sin(the.z[j]) * km;
+        for(int j = tb_rows.first; j <= tb_rows.second; j++) tb_norm += std::sin(the.z[j]) * km;
         tb_last = tb_first = tb_lev(t);
     }
 
@@ -1088,7 +1097,7 @@ void cSaturnModel::Run(){
         if(tb_on && iter_n % tb_every == 0){
             static const int lv_[] = { 0, 1, 2, 3, 5, 8, 12, 16, 20, 24, 28, 32, 35, 37, 38, 39, 40 };
             const int nl_ = (int)(sizeof(lv_) / sizeof(lv_[0]));
-            printf("\n      ATSAT: [TB] level-mean temperature, cumulative over iterations %d..%d, K\n      ATSAT: [TB] %-15s", iter_start, iter_n, "level");
+            printf("\n      ATSAT: [TB] level-mean temperature, rows %d..%d, cumulative over iterations %d..%d, K\n      ATSAT: [TB] %-15s", tb_rows.first, tb_rows.second, iter_start, iter_n, "level");
             for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %8d", lv_[l]);
             printf("\n      ATSAT: [TB] %-15s", "T now");
             for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %8.2f", tb_last[lv_[l]]);

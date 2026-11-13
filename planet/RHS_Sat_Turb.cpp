@@ -753,7 +753,7 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
 
     // ATSAT_TB_DIAG (print-only, see TbSat.h): RK4-weighted level sums of each term of rhs_t, per
     // thread. Nothing here is read by the model.
-    if(SatTb::st().on && i < SatTb::MAXLEV){
+    if(SatTb::st().on && i < SatTb::MAXLEV && j >= SatTb::st().j_lo && j <= SatTb::st().j_hi){
         const double cw = SatTb::st().stage_wgt * std::sin(the.z[j]);
         #ifdef _OPENMP
             const int th_ = omp_get_thread_num();

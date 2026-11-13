@@ -19,6 +19,10 @@
  *   rk_rest    what the step changed beyond reset + terms: the limiter, and the rows and planes
  *              the step does not integrate (they keep t while the mean is over all of them).
  *
+ * ATSAT_TB_ROWS=<j_lo>,<j_hi> (2026-11-13, row SAT-SPINUP-DRIFT): restrict every mean to the rows
+ * j_lo..j_hi (j = 90 - latitude on the 1-degree grid), so the budget of one row on either side of
+ * a row step can be compared. Default: all rows, which is the budget as it was before.
+ *
  * The state lives in a function-local static so that the three translation units share one
  * instance without a model member (C++11 has no inline variables).
  */
@@ -33,6 +37,7 @@ namespace SatTb {
 
     struct State {
         bool   on;                               // ATSAT_TB_DIAG
+        int    j_lo, j_hi;                       // ATSAT_TB_ROWS: the rows the means are over
         double stage_wgt;                        // RK4 weight of the stage being evaluated (1, 2, 2, 1)
         double acc[MAXTHR][NTERM][MAXLEV];       // [thread][term][level], weighted sums of the tendencies
     };
