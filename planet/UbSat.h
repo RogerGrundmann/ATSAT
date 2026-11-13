@@ -11,7 +11,8 @@
  * in m/s) is marked after every stage of the time loop that can write u and the difference is
  * charged to that stage; the Runge-Kutta step is split into the RK4-weighted means of each term
  * of rhs_u, accumulated per thread in RHSSat. Two regions: the whole level, and the equatorial
- * band the residuum sits in.
+ * band the residuum sits in (ATSAT_UB_BAND=<degrees>), or with ATSAT_UB_ROWS=<j_lo>,<j_hi>
+ * (2026-11-13) the rows j_lo..j_hi instead (j = 90 - latitude), e.g. one row of a row step.
  *
  * On this model the loop has no filter on u and no sponge: those two rows stay zero.
  *
@@ -32,7 +33,7 @@ namespace SatUb {
     struct State {
         bool   on;                                   // ATSAT_UB_DIAG
         double stage_wgt;                            // RK4 weight of the stage being evaluated (1, 2, 2, 1)
-        int    j_lo, j_hi;                           // the equatorial band, rows j_lo..j_hi
+        int    j_lo, j_hi;                           // the second region: equatorial band or ATSAT_UB_ROWS, rows j_lo..j_hi
         double acc[MAXTHR][NREG][NTERM][MAXLEV];     // [thread][region][term][level], weighted sums of the tendencies
     };
 

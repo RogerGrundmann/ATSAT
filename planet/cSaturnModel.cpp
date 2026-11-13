@@ -681,11 +681,17 @@ void cSaturnModel::Run(){
     SatUb::st().on = ub_on;
     SatUb::st().j_lo = (jm - 1) / 2 - ub_band;
     SatUb::st().j_hi = (jm - 1) / 2 + ub_band;
+    // ATSAT_UB_ROWS=<j_lo>,<j_hi> (print-only, 2026-11-13): the second region is these rows instead
+    // of the equatorial band, e.g. one row on either side of a row step (row SAT-SPINUP-DRIFT)
+    const char* ub_rows_e = getenv("ATSAT_UB_ROWS");
+    int ub_r0 = 0, ub_r1 = 0;
+    const bool ub_rows = ub_rows_e && sscanf(ub_rows_e, "%d,%d", &ub_r0, &ub_r1) == 2;
+    if(ub_rows){ SatUb::st().j_lo = std::max(1, ub_r0); SatUb::st().j_hi = std::min(jm - 2, ub_r1); }
     enum { UB_RK_RESET = 0, UB_RK_REST, UB_FILTER, UB_BC, UB_N };
     static const char* ub_name[UB_N] = { "RK reset", "RK rest", "filter on u", "BC" };
     static const char* ub_term[SatUb::NTERM] = { "RK -dp/dr", "RK +(v2+w2)/r", "RK -advection", "RK diffusion",
         "RK Coriolis", "RK centrifugal", "RK buoyancy", "RK sponge" };
-    static const char* ub_reg[SatUb::NREG] = { "whole level", "equatorial band" };
+    const char* ub_reg[SatUb::NREG] = { "whole level", ub_rows ? "row band" : "equatorial band" };
     typedef std::vector<std::vector<double>> ub_tab;                       // [region][level]
     std::vector<ub_tab> ub_sum(UB_N, ub_tab(SatUb::NREG, std::vector<double>(im, 0.0)));
     std::vector<ub_tab> ub_tsum(SatUb::NTERM, ub_tab(SatUb::NREG, std::vector<double>(im, 0.0)));
@@ -1123,7 +1129,7 @@ void cSaturnModel::Run(){
                     printf("\n      ATSAT: [UB] %-16s", name);
                     for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(fmt, x_[lv_[l]]); };
                 printf("\n      ATSAT: [UB] radial wind, %s (rows %d..%d), cumulative over iterations %d..%d, m/s\n      ATSAT: [UB] %-16s",
-                       ub_reg[r_], r_ == SatUb::R_ALL ? 1 : SatUb::st().j_lo, r_ == SatUb::R_ALL ? jm-2 : SatUb::st().j_hi, 1, iter_n, "level");
+                       ub_reg[r_], r_ == SatUb::R_ALL ? 1 : SatUb::st().j_lo, r_ == SatUb::R_ALL ? jm-2 : SatUb::st().j_hi, iter_start, iter_n, "level");
                 for(int l = 0; l < nl_; l++) if(lv_[l] < im) printf(" %9d", lv_[l]);
                 row_("u now", ub_last[r_], " %+9.5f");
                 std::vector<double> d_(im, 0.0);
