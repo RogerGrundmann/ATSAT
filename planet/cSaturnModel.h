@@ -1089,7 +1089,19 @@ private:
         static const int v = [](){ const char* e = getenv("ATSAT_CELL_SMOOTH"); return e ? std::max(0, atoi(e)) : 0; }();
         return v;
     }
+    // ATSAT_JET_SMOOTH=<passes> (2026-11-14, row SAT-SPINUP-DRIFT; default 0 = off): <passes> 1-2-1 filter
+    // passes in theta on the prescribed ZONAL wind w (every level and longitude, pole rows held), run before
+    // initGeoBalance builds the frozen geostrophic p_dyn from it. SaturnCellStructure joins its w anchors
+    // linearly (j40 / 42 / 44 = 80 / 140 / 60 m/s, a triangular jet with a kink at 48 N; j57 / 58 / 59 =
+    // 80 / 90 / 80 at 32 N, mirrored); the kink sits in d p_dyn / d theta, and under the lid, where w leaves
+    // the column balance, the rest drives a one-row v spike -> u front -> T step (satchk/vprobe_2026-11-13).
+    // ATSAT_CELL_SMOOTH smooths v only, never w. n passes ~ a Gaussian of sigma sqrt(n/2) rows.
+    static int jet_smooth(){
+        static const int v = [](){ const char* e = getenv("ATSAT_JET_SMOOTH"); return e ? std::max(0, atoi(e)) : 0; }();
+        return v;
+    }
     void smoothCellV(int passes);
+    void smoothCellW(int passes);
     void initCellStreamfunction();
     double continuityResidualMax(int& i_m, int& j_m);
     void form_diagonals(Array &a, int start, int end);

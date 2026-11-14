@@ -476,6 +476,7 @@ void cSaturnModel::Run(){
     AtomUtils::damp_wiggles(w, nullptr, true, true, true);
 
     if(cell_smooth() > 0) smoothCellV(cell_smooth());   // ATSAT_CELL_SMOOTH (default 0): widen the 1-3 row cells
+    if(jet_smooth() > 0) smoothCellW(jet_smooth());     // ATSAT_JET_SMOOTH (default 0): remove the jet kinks before initGeoBalance
     if(cell_init()) initCellStreamfunction();          // ATSAT_CELL_INIT (default 1): divergence-free initial cells
 
 //    goto Printout;
