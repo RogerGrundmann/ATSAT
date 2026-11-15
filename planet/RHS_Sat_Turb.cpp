@@ -358,12 +358,15 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
     // static stability; harmless while the buoyancy is ~1e-5 of physical (ND_BUOY off), fatal once
     // ATSAT_HYDRO_BUOY puts T into the pressure: arm H (satchk/hydro_2026-11-07) grew an overturning
     // cell at 32 deg under the lid, v max 40 -> 97 -> 275 -> 6344 m/s at it 100 / 300 / 500 / 1000.
-    // DEFAULT follows hydro_buoy() (off in every default run, so those stay bit-identical).
+    // DEFAULT 1 since 2026-11-15 (row SAT-SPINUP-DRIFT; before: followed hydro_buoy(), i.e. off):
+    // even with HYDRO_BUOY 0, -u dT/dr on the steady up/down cell pair of CELL_INIT built grid-scale
+    // T steps between rows at 47-48 N (150 jumps > 3 K, max 6.9 K at it 3000, satchk/jetsmooth_2026-11-14 J);
+    // the same run with the compression work has 0 (satchk/scratchE_2026-11-15 E). =0 restores the old default.
     // p_stat is in bar; r_mix*u_0^2*1e-5 converts bar to the nondimensional kinematic pressure
     // (ATSAT's p_dyn_to_bar() returns 1.0 unless ATSAT_PDYN_UNITS, so it is spelled out here).
     // ATSAT_ADIABATIC_RHO (default 1, as ATJUP): divide by the LOCAL density instead of r_mix.
     static const bool adiabatic = [](){
-        const char* e = getenv("ATSAT_ADIABATIC"); return e ? atoi(e) != 0 : hydro_buoy(); }();
+        const char* e = getenv("ATSAT_ADIABATIC"); return e ? atoi(e) != 0 : true; }();
     static const bool adiabatic_rho = [](){
         const char* e = getenv("ATSAT_ADIABATIC_RHO"); return e ? atoi(e) != 0 : true; }();
     double dpstatdr = 0.0;
