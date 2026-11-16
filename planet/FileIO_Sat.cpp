@@ -468,6 +468,8 @@ bool cSaturnModel::nan_watch(int iter){
  * sources are computed before apply_wall_bc / clamp_nue, and the MCA runs after them), so they are
  * stored: magic "SAT2" = the fixed list, then the carried list, then chrom. A "SAT1" file still
  * loads, with the set-up values in the carried arrays as before. ATSAT_RESTART_CARRIED=0 writes SAT1.
+ * Since 2026-11-16 the magic is "SAT3": the carried list plus S_precip_ch4 (see restart_arrays_carried);
+ * a SAT2 file still loads, with S_precip_ch4 at its set-up value and a warning.
  *
  * p_stat is stored although it is quasi-static: the buoyancy term and the whole saturation chain
  * read it, and it has to match the temperature field it was built with.
@@ -499,9 +501,17 @@ std::vector<Array*> cSaturnModel::restart_arrays(){
 }
 
 // Read by the next iteration before it rewrites them (see the note above restart_arrays). Each of
-// them alone breaks the byte match of a resumed run; only in SAT2 files.
-std::vector<Array*> cSaturnModel::restart_arrays_carried(){
-    return { &tke_source, &dis_source,
+// them alone breaks the byte match of a resumed run; only in SAT2 / SAT3 files.
+//
+// SAT3 (2026-11-16, row SAT-RESTART-NH4SH) appends S_precip_ch4, the CH4 VAPOUR precipitation sink:
+// Precipitation.h writes it in the even-iteration physics block and rhs_ch4 reads it on the odd one
+// (RHS_Sat_Turb.cpp, + precip_coupling * S_precip_ch4), exactly like the S_precip_* arrays already
+// listed. The 10-31 leave-one-out could not see it because the sink is zero early in a run (8 -> 16
+// was clean); a resume from HB2 1500 diverged in its FIRST step, ch4 after RungeKuttaSat first, then
+// T / NH3 / CH4 cloud+ice through the MCA (satchk/bisect_2026-11-16, satchk/stagehash_2026-11-16,
+// a hash of every Array member at each stage). sat3 = false gives the SAT2 list, to read old files.
+std::vector<Array*> cSaturnModel::restart_arrays_carried(bool sat3){
+    std::vector<Array*> c_ = { &tke_source, &dis_source,
              &difflux_h2s,  &difflux_nh3,  &difflux_nh4sh,
              &j_h2s,        &j_nh3,        &j_nh4sh,
              &massflux_h2s, &massflux_nh3, &massflux_nh4sh,
@@ -515,6 +525,8 @@ std::vector<Array*> cSaturnModel::restart_arrays_carried(){
              // only the seam meridian k = km-1 on the two radial planes, a copy of k = 0 made before the
              // boundary pass writes k = 0, so it lags one physics call: output-only, but it is in the slices
              &BuoyancyForce, &PresGradForce, &Q_Sensible, &jT_h2s, &jT_nh3, &jT_nh4sh };
+    if(sat3) c_.push_back(&S_precip_ch4);
+    return c_;
 }
 
 // Every array in restart_arrays() must actually own storage. An Array that was declared but
@@ -542,7 +554,7 @@ void cSaturnModel::save_state(int iter){
     // Header: magic, grid dimensions, and the iteration this state belongs to. The grid is
     // checked on load, so a restart written at another resolution is rejected rather than read
     // as garbage.
-    const int32_t hdr[5] = { restart_carried() ? 0x53415432 /*"SAT2"*/ : 0x53415431 /*"SAT1"*/, im, jm, km, iter };
+    const int32_t hdr[5] = { restart_carried() ? 0x53415433 /*"SAT3"*/ : 0x53415431 /*"SAT1"*/, im, jm, km, iter };
     f.write(reinterpret_cast<const char*>(hdr), sizeof(hdr));
 
     std::vector<Array*> arrs = restart_arrays();
@@ -577,16 +589,19 @@ bool cSaturnModel::load_state(int iter){
     }
     int32_t hdr[5];
     f.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
+    const bool sat3 = f && hdr[0] == 0x53415433;
     const bool sat2 = f && hdr[0] == 0x53415432;
-    if(!f || (hdr[0] != 0x53415431 && !sat2) || hdr[1] != im || hdr[2] != jm || hdr[3] != km){
+    if(!f || (hdr[0] != 0x53415431 && !sat2 && !sat3) || hdr[1] != im || hdr[2] != jm || hdr[3] != km){
         cout << "      ATSAT: load_state: bad header / grid mismatch in " << fn
              << " - running from scratch" << endl;
         return false;
     }
 
     std::vector<Array*> arrs = restart_arrays();
-    if(sat2){ std::vector<Array*> c_ = restart_arrays_carried(); arrs.insert(arrs.end(), c_.begin(), c_.end()); }
-    else cout << "      ATSAT: load_state: SAT1 file without the carried arrays - the resumed run will not"
+    if(sat2 || sat3){ std::vector<Array*> c_ = restart_arrays_carried(sat3); arrs.insert(arrs.end(), c_.begin(), c_.end()); }
+    if(sat2) cout << "      ATSAT: load_state: SAT2 file without S_precip_ch4 - it starts from its set-up value and the"
+                     " resumed run will not reproduce the straight one once CH4 precipitates (row SAT-RESTART-NH4SH)" << endl;
+    else if(!sat3) cout << "      ATSAT: load_state: SAT1 file without the carried arrays - the resumed run will not"
                  " reproduce the straight one (row SAT-RESTART-REPRO)" << endl;
     if(!restart_arrays_allocated(arrs, "load_state")) return false;
     for(size_t a = 0; a < arrs.size(); a++)

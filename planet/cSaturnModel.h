@@ -619,7 +619,7 @@ public:
     static int panorama_stride(){
         static const int s_ = [](){ const char* e = getenv("ATSAT_PANORAMA_STRIDE"); return (e && atoi(e) > 0) ? atoi(e) : 0; }();
         return s_; }
-    std::vector<Array*> restart_arrays_carried();   // derived fields the next iteration reads before it rewrites them (SAT2)
+    std::vector<Array*> restart_arrays_carried(bool sat3 = true);   // derived fields the next iteration reads before it rewrites them (SAT3; false = the SAT2 list)
     static bool restart_carried(){          // ATSAT_RESTART_CARRIED=0: write the old SAT1 file without them
         static const bool v = [](){ const char* e = getenv("ATSAT_RESTART_CARRIED"); return e ? atoi(e) != 0 : true; }();
         return v;

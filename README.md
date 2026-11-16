@@ -288,7 +288,7 @@ into `<output_path>-Saturn/`:
 | `Saturn_longal_112_<n>.vtk` | longitudinal slice at j = 112 |
 | `Saturn_panorama_<n>.vts` | the full 3-D volume (~900 MB), needs `paraview_flag`; written with the sphere every 100 iterations on which writeData runs and at `panorama_print`, or with `ATSAT_PANORAMA_STRIDE=<n>` (since 2026-10-31, as ATJUP's) every n instead. With `ATSAT_CHROM` it carries `Chromophore_mgm3` and `ChromUV`, as the slices do. Since 2026-10-31 the panorama and sphere headers name exactly the arrays written, and `P_nh3_graupel` / `P_ch4_graupel` are no longer written (zero in every Saturn output, 16 and 1000 it) |
 | `Saturn_cloudview_<n>.vtk` | the view from above (since 2026-10-30, ported from ATJUP): per layer the column above it of NH3 ice and NH4SH (g/m2; + chromophore mg/m2 with `ATSAT_CHROM`), layer 0 = whole column; since 2026-11-03 drawn as concentric spherical shells, layer 0 outermost, pole rows left out (`ATSAT_CLOUDVIEW_SPHERE=0` = the old flat stack with layer 0 on the top face, `ATSAT_CLOUDVIEW_SHELL` = shell-stack thickness, default 0.05 radius), and `PhotoRGB` (a colour recipe, per-file scale). Written with every panorama by default; `ATSAT_CLOUDVIEW_STRIDE=<n>` every n iterations, 0 = never |
-| `sat_restart_<n>.bin` | binary restart, 38 prognostic + 34 carried arrays (~1.5 GB, magic `"SAT2"`; + chrom / chromn with `ATSAT_CHROM`) |
+| `sat_restart_<n>.bin` | binary restart, 38 prognostic + 35 carried arrays (~1.5 GB, magic `"SAT3"`; + chrom / chromn with `ATSAT_CHROM`) |
 
 Restart is controlled by `checkpoint_save_iter` (explicit dump) and `restart_from_iter`
 (resume), both default −1. The periodic dump is written **only when the state is finite**, so a
@@ -302,6 +302,12 @@ fluxes and sinks of the even-iteration physics block, the turbulence sources, th
 rhs_u / rhs_v, the seam corners of six output fields). Before, a restart differed from the straight
 run (NH4SH in every cell, T up to 0.16 K at 8 -> 16). A `"SAT1"` file still loads, with the old
 behaviour and a warning; `ATSAT_RESTART_CARRIED=0` writes `"SAT1"` (the old bytes).
+
+Since 2026-11-16 (`"SAT3"`, row SAT-RESTART-NH4SH) the carried list also holds `S_precip_ch4`, the
+CH4 vapour precipitation sink that rhs_ch4 reads on the odd iteration. SAT2 missed it because the
+sink is zero early in a run: 8 -> 16 was exact, but a resume from 1500 of a developed run diverged
+in its first step (ch4 first, then T / NH3 through the moist convective adjustment). A `"SAT2"`
+file still loads, with `S_precip_ch4` at its set-up value and a warning.
 
 ---
 
