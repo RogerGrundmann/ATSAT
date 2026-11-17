@@ -20,7 +20,7 @@
         <L_atm>500.0</L_atm>  <!-- extension of the atmosphere shell in km, 120km/40 steps = 3.0km (double) -->
         <tropopause_pole>115.0</tropopause_pole>  <!-- extension of the troposphere at the poles in km (double) -->
         <tropopause_equator>125.0</tropopause_equator>  <!-- extension of the troposphere at the equator in km (double) -->
-        <re>1000.0</re>  <!-- Reynolds number: ratio viscous to inertia forces, Re = u * L/nue (double) -->
+        <re>100000.0</re>  <!-- Reynolds number: ratio viscous to inertia forces, Re = u * L/nue (double); 1e5 since 2026-11-17 (row SAT-SPINUP-DRIFT; 1000 decayed the jet: w 14 N 130 -> 89 m/s by 3000) -->
         <ec>0.00044</ec>  <!-- Eckert number: ratio kinetic energy to enthalpy, Ec = u²/cp T (double) -->
         <ep>0.623</ep>  <!-- ratio of the gas constants of dry air to water vapour [/] (double) -->
         <hp>6.1078</hp>  <!-- water vapour pressure at T = 0°C: E = 6.1 hPa (double) -->

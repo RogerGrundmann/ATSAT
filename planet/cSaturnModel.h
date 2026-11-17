@@ -321,6 +321,9 @@ public:
     // GIANTS-CH4-PHASE): the MCA settles mixed cells with the saturation adjustment's temperature split instead
     // of all ice below t_0, which had removed the liquid the adjustment made. =0 restores.
     static bool mca_default_phase(){ return true; }
+    // <TAG>_MCA_SMOOTH default (shared ConvectiveAdjustment.h, hook 2026-11-17): 2 on ATSAT since 2026-11-17
+    // (row SAT-SPINUP-DRIFT, user: "2."), 0 = off restores.
+    static int mca_default_smooth(){ return 2; }
     // Defaults of ATSAT_SATADJ_NEWTON and ATSAT_SATADJ_CONSERVE (shared SaturationAdjustment.h): ON since
     // 2026-10-09. They act only when the shared routine is selected (ATSAT_SATADJ, this model's
     // default since 2026-10-10). Run for 16 iterations: without them the shared
@@ -1078,7 +1081,7 @@ private:
         static const int v = [](){ const char* e = getenv("ATSAT_CELL_INIT"); return e ? atoi(e) : 1; }();
         return v;
     }
-    // ATSAT_CELL_SMOOTH=<passes> (2026-11-09, row SAT-SPINUP-DRIFT; default 0 = off): <passes> 1-2-1 filter
+    // ATSAT_CELL_SMOOTH=<passes> (2026-11-09, row SAT-SPINUP-DRIFT; DEFAULT 16 since 2026-11-17, 0 = off restores): <passes> 1-2-1 filter
     // passes in theta on the prescribed meridional wind v (every level and longitude, pole rows held), run
     // before ATSAT_CELL_INIT builds u from it. SaturnCellStructure's anchors put cells only 1-3 rows wide
     // (v +40 / 0 / -40 / 0 at j 60 / 59 / 58 / 57 = 30-33 N, mirrored), which CELL_INIT turns into a one-row
@@ -1086,10 +1089,10 @@ private:
     // steps with ATSAT_MCA=0, the up row is there in every arm from it 100). n passes ~ a Gaussian of
     // sigma sqrt(n/2) rows.
     static int cell_smooth(){
-        static const int v = [](){ const char* e = getenv("ATSAT_CELL_SMOOTH"); return e ? std::max(0, atoi(e)) : 0; }();
+        static const int v = [](){ const char* e = getenv("ATSAT_CELL_SMOOTH"); return e ? std::max(0, atoi(e)) : 16; }();
         return v;
     }
-    // ATSAT_JET_SMOOTH=<passes> (2026-11-14, row SAT-SPINUP-DRIFT; default 0 = off): <passes> 1-2-1 filter
+    // ATSAT_JET_SMOOTH=<passes> (2026-11-14, row SAT-SPINUP-DRIFT; DEFAULT 8 since 2026-11-17, 0 = off restores): <passes> 1-2-1 filter
     // passes in theta on the prescribed ZONAL wind w (every level and longitude, pole rows held), run before
     // initGeoBalance builds the frozen geostrophic p_dyn from it. SaturnCellStructure joins its w anchors
     // linearly (j40 / 42 / 44 = 80 / 140 / 60 m/s, a triangular jet with a kink at 48 N; j57 / 58 / 59 =
@@ -1097,7 +1100,7 @@ private:
     // the column balance, the rest drives a one-row v spike -> u front -> T step (satchk/vprobe_2026-11-13).
     // ATSAT_CELL_SMOOTH smooths v only, never w. n passes ~ a Gaussian of sigma sqrt(n/2) rows.
     static int jet_smooth(){
-        static const int v = [](){ const char* e = getenv("ATSAT_JET_SMOOTH"); return e ? std::max(0, atoi(e)) : 0; }();
+        static const int v = [](){ const char* e = getenv("ATSAT_JET_SMOOTH"); return e ? std::max(0, atoi(e)) : 8; }();
         return v;
     }
     void smoothCellV(int passes);
