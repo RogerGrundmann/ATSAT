@@ -34,6 +34,48 @@ void cSaturnModel::printMinMax(){
     // settled. Below is only what is ATSAT's own.
     Reporting<cSaturnModel>(*this).print_minmax_common();
 
+    // ATSAT_RES_LEVELS=1 (2026-11-18, row SAT-SPINUP-DRIFT; print-only, default 0): the continuity
+    // residuum of the line above (same stencil, true sine) as rms / max |.| per level, and split
+    // into the wall rows (i = 1 above the bottom, i = im-2 under the lid), the pole-adjacent rows
+    // (j = 1, jm-2) and the interior (i 2..im-3, j 2..jm-3). The reported maximum is one cell next
+    // to an impermeable wall (u = 0 there, centred du/dr); this shows whether the interior drifts.
+    static const bool res_levels = [](){
+        const char* e = getenv("ATSAT_RES_LEVELS"); return e && atoi(e) != 0; }();
+    if(res_levels){
+        auto res_ = [&](int i, int j, int k){
+            const double sinthe = sin(the.z[j]);
+            double costhe = cos(the.z[j]);
+            if(costhe_abs() && j > 90) costhe = - costhe;
+            const double rm_met = metricRadius(rad.z[i]);
+            const double rmsinthe = rm_met * sinthe;
+            return (u.x[i+1][j][k] - u.x[i-1][j][k])/(2. * dr) + 2. * u.x[i][j][k]/rm_met
+                 + (v.x[i][j+1][k] - v.x[i][j-1][k])/(2. * dthe)/rm_met
+                 + costhe/rmsinthe * v.x[i][j][k]
+                 + (w.x[i][j][k+1] - w.x[i][j][k-1])/(2. * dphi)/rmsinthe; };
+        // groups: 0 interior, 1 bottom row i=1, 2 lid row i=im-2, 3 pole rows j=1 / jm-2 (other i)
+        double s2[4] = {0, 0, 0, 0}, mx[4] = {0, 0, 0, 0}; long n[4] = {0, 0, 0, 0};
+        int mi[4] = {0, 0, 0, 0}, mj[4] = {0, 0, 0, 0};
+        printf("\n      RES_LEVELS: i, rms, max |res| (j, lat) over j 1..jm-2; rms over j 2..jm-3 (no pole rows)\n");
+        for(int i = 1; i < im-1; i++){
+            double ls2 = 0, ls2i = 0, lmx = 0; long ln = 0, lni = 0; int lj = 0;
+            for(int j = 1; j < jm-1; j++)
+                for(int k = 1; k < km-1; k++){
+                    const double r = res_(i, j, k), a = fabs(r);
+                    const int g = (i == 1) ? 1 : (i == im-2) ? 2 : (j == 1 || j == jm-2) ? 3 : 0;
+                    s2[g] += r*r; n[g]++;
+                    if(a > mx[g]){ mx[g] = a; mi[g] = i; mj[g] = j; }
+                    ls2 += r*r; ln++;
+                    if(j > 1 && j < jm-2){ ls2i += r*r; lni++; }
+                    if(a > lmx){ lmx = a; lj = j; }
+                }
+            printf("      %3d %.4e %.4e (j %3d %+3d) %.4e\n", i, sqrt(ls2/ln), lmx, lj, 90 - lj, sqrt(ls2i/lni));
+        }
+        const char* gn[4] = {"interior i2..im-3 j2..jm-3", "bottom row i=1", "lid row i=im-2", "pole rows j=1/jm-2"};
+        for(int g = 0; g < 4; g++)
+            printf("      RES_LEVELS %-27s rms %.4e max %.4e (i %d j %d %+d)\n", gn[g], n[g] ? sqrt(s2[g]/n[g]) : 0.0,
+                   mx[g], mi[g], mj[g], 90 - mj[g]);
+    }
+
     cout << endl;
 
     cout << endl << " Pressures " << endl;
