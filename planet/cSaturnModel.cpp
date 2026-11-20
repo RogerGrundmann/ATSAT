@@ -25,6 +25,7 @@
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
 #include "UbSat.h"           // ATSAT_UB_DIAG, print-only
 #include "KbSat.h"           // ATSAT_KB_DIAG, print-only
+#include "ProcSat.h"         // ATSAT_PROC_DIAG, output-only (process fields)
 #include "ThermalWindDiagSat.h"
 #include "PrecipitationSat.h"
 #include "TurbulenceSat.h"
@@ -797,6 +798,7 @@ void cSaturnModel::Run(){
         }
     }
 
+    SatProc::Diag<cSaturnModel> proc_(*this);       // ATSAT_PROC_DIAG (ProcSat.h), output-only, default off
     for(iter_n = iter_start; iter_n <= nm; iter_n++){
 
         auto begin = std::chrono::high_resolution_clock::now();
@@ -853,6 +855,7 @@ void cSaturnModel::Run(){
             }
             tb_mark(TB_PRE); cwb_mark(TB_PRE);
 
+            proc_.satadj_begin();
             SaturationAdjustmentSat(*this).run("CH4",
                 coeff_ch4_A, coeff_ch4_B, coeff_ch4_A_i, coeff_ch4_B_i,
                 t_0_ch4, t_00_ch4,
@@ -876,12 +879,14 @@ void cSaturnModel::Run(){
 
             // ATSAT_NH4SH_EQ (default 1): the NH4SH equilibrium adjustment on the adjusted NH3. Counted in
             // the TB / CWB stage "SaturationAdjustment" (the mark follows).
+            proc_.satadj_end(); proc_.chem_begin();
             if(ChemistrySat::nh4sh_eq()) ChemistrySat(*this).EquilibriumNH4SH("loop");
+            proc_.chem_end();
 
             // After the saturation adjustments, whose condensate it consumes; before the
             // chemistry, as in ATJUP.
             tb_mark(TB_SATADJ); cwb_mark(TB_SATADJ);
-            if(precip_enabled()) PrecipitationSat(*this).run();
+            if(precip_enabled()){ proc_.precip_begin(); PrecipitationSat(*this).run(); proc_.precip_end(); }
             tb_mark(TB_PRECIP); cwb_mark(TB_PRECIP);
 
             // ATSAT_RK_SCALAR_SYNC=<0|1|2> (2026-10-11; DEFAULT 2 on the user's word, 0 restores):
@@ -1066,7 +1071,9 @@ void cSaturnModel::Run(){
             const double L_nh4sh_ = ChemistrySat::nh4sh_eq() ? ChemistrySat::nh4sh_formation_heat() : 0.0;
             std::vector<Tr_> tracers = { { "H2S", &h2s, ep_h2s, false, 0.0 }, { "NH4SH", &nh4sh, 0.0, true, L_nh4sh_ } };
             if(chrom_on()) tracers.push_back({ "chrom", &chrom, 0.0, false, 0.0 });   // ATSAT_CHROM: mixed as ATJUP mixes it
+            proc_.mca_begin();
             MoistConvectiveAdjustmentSat(*this, gases, tracers).run();
+            proc_.mca_end();
         }
         // ATSAT_MCA_SYNC=<0|1> (2026-11-08; DEFAULT 1 since 2026-11-11, 0 restores; row SAT-MCA-RESET): the dry and
         // moist adjustments above write t and the species AFTER restoreVar, so the n-level copies the next
@@ -1184,6 +1191,7 @@ void cSaturnModel::Run(){
         if(vtk_stride > 0 ? (iter_n % vtk_stride == 0) : (iter_n % checkpoint == 0)) writeData();
         // ATSAT_CLOUDVIEW_STRIDE=<n> > 0 (cSaturnModel.h): the cloudview on its own cadence; unset rides with the panorama in writeData.
         if(cloudview_stride() > 0 && iter_n % cloudview_stride() == 0) paraview_cloudview(iter_n);
+        proc_.iteration_done(iter_n);                    // ATSAT_PROC_DIAG: write + reset at its stride
 
         // Shapiro filter on the velocities, opt-in. ATJUP applies one at initialisation and
         // optionally n passes per iteration; ATSAT already filters p_dyn and the mass fluxes
