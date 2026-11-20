@@ -29,7 +29,7 @@
  *
  * Output: <output_path>/Saturn_proczm_0_<iter>.vtk, legacy ASCII structured grid with the geometry of the
  * zonal slice (DIMENSIONS jm im 1, x = 0.1 i, y = 0.05 j), plus 'height' (km) and 'PressureStat' (bar,
- * zonal mean at the write), so ParaView and satchk/tools/render.py read it as a zonal slice. ~2 MB per file.
+ * zonal mean at the write), so ParaView and tools/render.py read it as a zonal slice. ~2 MB per file.
  *
  * Cost when off: one branch per call. When on: 5 full-field snapshots (~110 MB at 41 x 181 x 361) and one
  * pass per stage. It only READS the model, so the prognostic fields are byte-identical with and without it.
