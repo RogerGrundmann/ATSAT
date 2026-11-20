@@ -3,6 +3,12 @@
 
 Usage:
   python3 -I tools/render.py RUN [RUN_B] [--out DIR] [--kinds zonal,radial] [--ranges FILE] [--every N] [--jobs N]
+                              [--levels I,I,...] [--zoom LAT0,LAT1,LON0,LON1]
+
+--levels: panorama levels (i, 0 = bottom) for the wind / temperature maps (zonal wind w, meridional wind v,
+  the departure from the zonal mean -- speed with arrows -- and T minus its zonal mean); default the middle level.
+--zoom: crop the lat x lon maps (radial slices, panorama) to the window, e.g. --zoom=-40,0,150,210 for the GRS (with "=", a leading minus would read as an option)
+  at 22 S 180 E; the colour ranges are then taken inside the window. Output goes to png_zoom/ by default.
 
 RUN is an arm directory (the one holding output*/) or the output directory itself.
 With RUN_B the same panels are drawn for B and as A-B differences at matching iterations.
@@ -150,7 +156,20 @@ def list_files(outdir, kinds):
 # ------------------------------------------------------------------ panorama -> lat x lon maps
 PANO_NEED = ["Temperature", "H2OCloud", "H2OIce", "NH3Cloud", "NH3Ice", "CH4Cloud", "CH4Ice", "NH4SH", "Chromophore_mgm3",
              "P_rain_mmd", "P_snow_mmd", "P_graupel_mmd", "P_nh3_rain_mmd", "P_nh3_snow_mmd", "P_ch4_rain_mmd", "P_ch4_snow_mmd",
-             "P_nh4sh_mmd", "Radiation", "Q_Latent"]
+             "P_nh4sh_mmd", "Radiation", "Q_Latent", "u-component", "v-component", "w-component"]
+LEVELS = []                # panorama levels for the wind / T maps (set in main)
+ZOOM = None                # (lat0, lat1, lon0, lon1) or None (set in main)
+QUIVER = {}                # map name -> function(d) -> (U, V) arrows, for the eddy-wind maps
+
+def zoom_idx(nj, nk):
+    """row / column indices of the zoom window on a lat x lon map (j = 0 at 90 N, k = 0 at 0 E)."""
+    lat = 90.0 - np.arange(nj) * 180.0 / (nj - 1); lon = np.arange(nk) * 360.0 / (nk - 1)
+    la0, la1, lo0, lo1 = ZOOM
+    return (np.where((lat >= min(la0, la1)) & (lat <= max(la0, la1)))[0],
+            np.where((lon >= min(lo0, lo1)) & (lon <= max(lo0, lo1)))[0])
+def crop(Z):
+    if ZOOM is None or Z is None: return Z
+    jj, kk = zoom_idx(*Z.shape); return Z[np.ix_(jj, kk)]
 def read_pano(path):
     """{name: array (j, k, i)} -- the panorama is i-fastest, extent (im, jm, km); j = 0 at 90 N."""
     import vtk
@@ -175,7 +194,7 @@ def level_heights_km(outdir, im):
                 print(f"  level heights: uniform over L_atm = {m[1]} km from {c} (no zonal slice)"); return np.linspace(0, float(m[1]), im)
     return None
 
-def pano_maps(d, hkm):
+def pano_maps(d, hkm, planet=""):
     """lat x lon maps: (name, title, unit, array, scale)."""
     dz = np.gradient(hkm) * 1e3 if hkm is not None else None      # m per level
     def col(*ns, f=1.0):
@@ -204,6 +223,20 @@ def pano_maps(d, hkm):
          ("PNH4SH",   "NH4SH settling, column max",  "mm/d", pmax("P_nh4sh_mmd"), "lin"),
          ("QLatcol",  "Latent heating, column max",  "W/m3", None if "Q_Latent" not in d else d["Q_Latent"].max(axis=2), "lin"),
          ("Rlid",     "Radiation at the lid (log's OLR quantity)", "as written", None if "Radiation" not in d else d["Radiation"][:, :, -1], "lin")]
+    im = next(iter(d.values())).shape[2]
+    for L in LEVELS:
+        if not 0 <= L < im: continue
+        hl = f" level {L}" + (f" ({hkm[L]:.0f} km)" if hkm is not None else "")
+        if "w-component" in d and "v-component" in d:
+            w = d["w-component"][:, :, L]; v = d["v-component"][:, :, L]
+            we = w - w.mean(axis=1, keepdims=True); ve = v - v.mean(axis=1, keepdims=True)
+            M.append((f"w_L{L}", "zonal wind w," + hl, "m/s", w, "sym"))
+            M.append((f"v_L{L}", "meridional wind v (+ = southward)," + hl, "m/s", v, "sym"))
+            M.append((f"eddy_L{L}", "wind minus its zonal mean (speed, arrows)," + hl, "m/s", np.hypot(we, ve), "lin"))
+            QUIVER[f"eddy_L{L}"] = (we, -ve)      # arrow east = +w, north = -v (v points to growing colatitude)
+        if "Temperature" in d:
+            t = temp_K(planet, d["Temperature"][:, :, L])      # Saturn's panorama writes K/10, the others C
+            M.append((f"Teddy_L{L}", "T minus its zonal mean," + hl, "K", t - t.mean(axis=1, keepdims=True), "sym"))
     return [m for m in M if m[3] is not None]
 
 # ------------------------------------------------------------------ geometry
@@ -225,7 +258,7 @@ def draw(job):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm, Normalize
-    (png, kind, title, unit, Z, scale, rng, X, Y, P, overlays) = job
+    (png, kind, title, unit, Z, scale, rng, X, Y, P, overlays, quiv) = job
     if kind == "panorama":
         fig, (ax, axp) = plt.subplots(1, 2, figsize=(9.6, 3.6), dpi=110, constrained_layout=True,
                                       gridspec_kw={"width_ratios": [3, 1]})
@@ -246,6 +279,11 @@ def draw(job):
             ax.plot([], [], color=col, lw=0.9, label=lab)
     if overlays and any(o[0] is not None and np.nanmax(o[0]) > 0 for o in overlays):
         ax.legend(loc="upper right", fontsize=7, framealpha=0.7)
+    if quiv is not None:
+        U, V = quiv; sj = max(1, len(Y) // 14); sk = max(1, len(X) // 20)
+        smax = float(np.nanmax(np.hypot(U, V))) or 1.0
+        ax.quiver(X[::sk], Y[::sj], U[::sj, ::sk], V[::sj, ::sk], color="#222", width=0.003, pivot="mid",
+                  scale=smax * 14, scale_units="width")      # the longest arrow ~ 1/14 of the plot width
     cb = fig.colorbar(im, ax=ax, pad=0.01); cb.set_label(unit, fontsize=8); cb.ax.tick_params(labelsize=7)
     if kind in ("zonal", "proczm"):
         ax.set_xlim(90, -90); ax.set_xlabel("latitude [deg]", fontsize=8); ax.set_ylabel("height [km]", fontsize=8)
@@ -255,12 +293,14 @@ def draw(job):
             sec.set_yticks(Y[idx]); sec.set_yticklabels([f"{P[i]:.3g}" for i in idx], fontsize=7)
             sec.set_ylabel("level-mean p [bar]", fontsize=8)
     else:
-        ax.set_xlabel("longitude [deg]", fontsize=8); ax.set_ylabel("latitude [deg]", fontsize=8); ax.set_ylim(-90, 90)
+        ax.set_xlabel("longitude [deg]", fontsize=8); ax.set_ylabel("latitude [deg]", fontsize=8)
+        ax.set_ylim(Y.min(), Y.max()) if ZOOM is not None else ax.set_ylim(-90, 90)
     ax.tick_params(labelsize=7); ax.set_title(title, fontsize=9)
     if kind == "panorama":       # zonal mean with the longitude min / max as a band (the model runs zonally symmetric)
         zm = np.nanmean(Z, axis=1); lo_, hi_ = np.nanmin(Z, axis=1), np.nanmax(Z, axis=1)
         axp.fill_betweenx(Y, lo_, hi_, color="#9ab", alpha=0.5, lw=0); axp.plot(zm, Y, color="#123", lw=1.2)
-        axp.set_ylim(-90, 90); axp.set_xlim(rng[0], rng[1]); axp.set_xlabel(unit, fontsize=8)
+        axp.set_ylim(Y.min(), Y.max()) if ZOOM is not None else axp.set_ylim(-90, 90)
+        axp.set_xlim(rng[0], rng[1]); axp.set_xlabel(unit, fontsize=8)
         axp.set_title("zonal mean (band: lon min-max)", fontsize=8); axp.tick_params(labelsize=7); axp.grid(alpha=0.3)
     fig.savefig(png); plt.close(fig)
     return png
@@ -284,29 +324,36 @@ def main():
     ap.add_argument("--out"); ap.add_argument("--kinds", default="zonal,radial,panorama,proczm")
     ap.add_argument("--ranges"); ap.add_argument("--every", type=int, default=1, help="keep iterations that are multiples of N")
     ap.add_argument("--jobs", type=int, default=6)
+    ap.add_argument("--levels", help="panorama levels for wind / T maps, e.g. 20,28 (default: the middle level)")
+    ap.add_argument("--zoom", help="LAT0,LAT1,LON0,LON1: crop the lat x lon maps to this window")
     a = ap.parse_args()
+    global ZOOM
+    if a.zoom: ZOOM = tuple(float(x) for x in a.zoom.split(","))
+    if a.levels: LEVELS.extend(int(x) for x in a.levels.split(","))
     kinds = a.kinds.split(",")
     oa = find_output(a.run); fa = list_files(oa, kinds)
     fb = list_files(find_output(a.run_b), kinds) if a.run_b else {}
     keys = sorted(k for k in fa if k[2] % a.every == 0 and (not a.run_b or k in fb))
     if not keys: sys.exit("no matching files")
-    out = a.out or os.path.join(a.run, "png" if not a.run_b else "png_vs_" + os.path.basename(os.path.normpath(a.run_b)))
+    out = a.out or os.path.join(a.run, ("png" if not a.run_b else "png_vs_" + os.path.basename(os.path.normpath(a.run_b))) + ("_zoom" if ZOOM else ""))
     os.makedirs(out, exist_ok=True)
     ranges = json.load(open(a.ranges)) if a.ranges else {}
 
     # pass 1: build every panel array (A, B, D) and collect joint ranges
-    data = {}; built = {}; pmeta = {}
+    data = {}; built = {}; pmeta = {}; quivers = {}
     hA = hB = None
     for k in keys:
         f, planet = fa[k]
         if k[0] == "panorama":
             pA = read_pano(f); pB = read_pano(fb[k][0]) if a.run_b else None
+            if not LEVELS: LEVELS.append(next(iter(pA.values())).shape[2] // 2)
             if hA is None: hA = level_heights_km(oa, next(iter(pA.values())).shape[2])
             if a.run_b and hB is None: hB = level_heights_km(find_output(a.run_b), next(iter(pB.values())).shape[2])
-            mB = {m[0]: m for m in pano_maps(pB, hB)} if pB is not None else {}
-            for (name, title, unit, A, scale) in pano_maps(pA, hA):
+            mB = {m[0]: m for m in pano_maps(pB, hB, planet)} if pB is not None else {}
+            for (name, title, unit, A, scale) in pano_maps(pA, hA, planet):
                 pmeta[name] = (name, title, unit, None, scale, None)
-                built[(k, name)] = (A, mB[name][3] if name in mB else None)
+                built[(k, name)] = (crop(A), crop(mB[name][3]) if name in mB else None)
+                if name in QUIVER: quivers[(k, name)] = tuple(crop(x) for x in QUIVER[name])
             j_, k_ = next(iter(pA.values())).shape[:2]
             data[k] = (planet, {"_shape": np.zeros((j_, k_))}, None); del pA, pB
             continue
@@ -320,6 +367,7 @@ def main():
             if (kind == "proczm") != (name in PROC_KEYS): continue
             A = fn(dA, planet); B = fn(dB, planet) if dB is not None else None
             if A is None: continue
+            if kind == "radial": A, B = crop(A), crop(B)
             built[(k, name)] = (A, B)
     for (name, title, unit, fn, scale, ov) in PANELS + list(pmeta.values()):
         for kind in kinds:
@@ -342,6 +390,8 @@ def main():
         _, title, unit, _, scale, ov = meta[name]
         if f"{kind}:{name}" not in ranges: continue
         X, Y, P = axes_for(kind, dA)
+        if ZOOM is not None and kind in ("radial", "panorama"):
+            jj, kk = zoom_idx(len(Y), len(X)); X, Y = X[kk], Y[jj]
         os.makedirs(os.path.join(out, kind), exist_ok=True)
         def overlays(d):
             if not ov or kind != "zonal": return None
@@ -354,7 +404,8 @@ def main():
                 variants.append(("D_", A - B, None, "A-B", "sym", ranges[f"{kind}:D_{name}"]))
         for (pre, Z, d, lab, sc, rng) in variants:
             png = os.path.join(out, kind, f"{pre}{name}_{pos}_{it:06d}.png")
-            jobs.append((png, kind, f"{title}  [{lab}]  {tag}", unit, Z, sc, rng, X, Y, P, overlays(d) if d is not None else None))
+            jobs.append((png, kind, f"{title}  [{lab}]  {tag}", unit, Z, sc, rng, X, Y, P, overlays(d) if d is not None else None,
+                         quivers.get((k, name)) if pre in ("", "A_") else None))
             sheet.setdefault((pre, kind, pos), {}).setdefault(it, {})[name] = os.path.relpath(png, out)
     with ProcessPoolExecutor(a.jobs) as ex:
         for _ in ex.map(draw, jobs, chunksize=4): pass
