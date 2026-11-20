@@ -72,7 +72,7 @@ PANELS = [
   ("Buoy",     "Buoyancy force",              "N/m3",   lambda d, p: g(d, "BuoyancyForce"), "sym", None),
   ("nuet",     "Eddy viscosity nu_t",         "m2/s",   lambda d, p: g(d, "nue_t"), "log", None),
 ]
-# process fields (ATSAT_PROC_DIAG, ProcSat.h): zonal + time means written by the model as Saturn_proczm_0_<it>.vtk
+# process fields (ATSAT_PROC_DIAG, ProcSat.h): zonal + time means written by the model as <Planet>_proczm_<it>.vtk (until 2026-11-20 <Planet>_proczm_0_<it>.vtk; both are read)
 def _pg(*n):
     return lambda d, p: g(d, *n)
 PROC_PANELS = [
@@ -121,11 +121,14 @@ def find_output(run):
 
 PAT = re.compile(r"(?P<planet>[A-Za-z]+)_(?P<kind>zonal|radial|longal|proczm)_(?P<pos>\d+)_(?P<it>\d+)\.vtk$")
 PANO = re.compile(r"(?P<planet>[A-Za-z]+)_panorama_(?P<it>\d+)\.vts$")
+PROCZ = re.compile(r"(?P<planet>[A-Za-z]+)_proczm_(?P<it>\d+)\.vtk$")          # <Planet>_proczm_<it>.vtk (since 2026-11-20)
 def list_files(outdir, kinds):
     fs = {}
     for f in glob.glob(os.path.join(outdir, "*.vtk")):
         m = PAT.search(os.path.basename(f))
-        if m and m["kind"] in kinds: fs[(m["kind"], int(m["pos"]), int(m["it"]))] = (f, m["planet"])
+        if m and m["kind"] in kinds: fs[(m["kind"], int(m["pos"]), int(m["it"]))] = (f, m["planet"]); continue
+        m = PROCZ.search(os.path.basename(f))
+        if m and "proczm" in kinds: fs[("proczm", 0, int(m["it"]))] = (f, m["planet"])
     if "panorama" in kinds:
         for f in glob.glob(os.path.join(outdir, "*_panorama_*.vts")):
             m = PANO.search(os.path.basename(f))
