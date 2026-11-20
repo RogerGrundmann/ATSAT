@@ -57,7 +57,7 @@ namespace{
 // so it cannot be forward-declared as one. The template is declared here and the alias formed
 // below; a pointer to a specialization needs neither complete.
 template<class M> class PressureSolver;
-namespace SatProc { template<class M> class Diag; }   // ATSAT_PROC_DIAG (ProcSat.h)
+template<class M> class ProcessDiag;               // ATSAT_PROC_DIAG (shared ProcessDiag.h)
 class cSaturnModel;
 typedef PressureSolver<cSaturnModel> PressureSolverSat;
 
@@ -79,7 +79,7 @@ class cSaturnModel{
     template<class M> friend class Radiation;
     template<class M> friend class Precipitation;
     template<class M> friend class Turbulence;
-    template<class M> friend class SatProc::Diag;
+    template<class M> friend class ProcessDiag;
 
 public:
 

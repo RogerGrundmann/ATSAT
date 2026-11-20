@@ -25,7 +25,7 @@
 #include "CwbSat.h"         // ATSAT_CWB_DIAG, print-only
 #include "UbSat.h"           // ATSAT_UB_DIAG, print-only
 #include "KbSat.h"           // ATSAT_KB_DIAG, print-only
-#include "ProcSat.h"         // ATSAT_PROC_DIAG, output-only (process fields)
+#include "ProcessDiag.h"     // ATSAT_PROC_DIAG, output-only (process fields), SHARED
 #include "ThermalWindDiagSat.h"
 #include "PrecipitationSat.h"
 #include "TurbulenceSat.h"
@@ -798,7 +798,13 @@ void cSaturnModel::Run(){
         }
     }
 
-    SatProc::Diag<cSaturnModel> proc_(*this);       // ATSAT_PROC_DIAG (ProcSat.h), output-only, default off
+    // ATSAT_PROC_DIAG (shared ProcessDiag.h), output-only, default off. The condensable gases with their
+    // precipitation arrays, and the density rhs_t divides Q_precip by (r_mix on ATSAT).
+    ProcessDiag<cSaturnModel> proc_(*this, {
+        { "H2O", &h2o, &h2o_cloud, &h2o_ice, &P_rain, &P_snow, &P_graupel, &S_precip_h2o, &S_precip_h2o_cloud, &S_precip_h2o_ice },
+        { "NH3", &nh3, &nh3_cloud, &nh3_ice, &P_nh3_rain, &P_nh3_snow, &P_nh3_graupel, &S_precip_nh3, &S_precip_nh3_cloud, &S_precip_nh3_ice },
+        { "CH4", &ch4, &ch4_cloud, &ch4_ice, &P_ch4_rain, &P_ch4_snow, &P_ch4_graupel, &S_precip_ch4, &S_precip_ch4_cloud, &S_precip_ch4_ice } },
+        [this](int, int, int) -> double { return r_mix; });
     for(iter_n = iter_start; iter_n <= nm; iter_n++){
 
         auto begin = std::chrono::high_resolution_clock::now();
