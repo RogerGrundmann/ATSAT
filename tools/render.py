@@ -43,6 +43,18 @@ def temp_K(planet, x):
     return x * 10.0 if planet == "Saturn" else x + 273.15
 
 # ------------------------------------------------------------------ panels
+_KIND = ["zonal"]          # kind of the slice being built (set in main), for builders that depend on it
+
+def t_anomaly(t):
+    """T minus the level mean. Zonal slices (rows = levels, cols = latitudes, j = 0 at 90 N): the
+    AREA mean of the level, weighted by cos(latitude) as TB_DIAG weights it (sin(colatitude)), so the
+    zero is the planet's average at that height (2026-11-20; a plain mean over the rows before).
+    Radial slices (rows = latitudes, cols = longitudes): the mean along the latitude circle, unweighted."""
+    if _KIND[0] in ("zonal", "proczm"):
+        w = np.cos(np.radians(90.0 - np.arange(t.shape[1]) * 180.0 / (t.shape[1] - 1)))
+        return t - (t * w).sum(axis=1, keepdims=True) / w.sum()
+    return t - t.mean(axis=1, keepdims=True)
+
 # name, title, unit, builder(d, planet) -> 2D array or None, scale ('lin' | 'sym' | 'log'), overlay contours
 def g(d, *names, f=1.0):
     if not all(n in d for n in names): return None
@@ -50,7 +62,7 @@ def g(d, *names, f=1.0):
 
 PANELS = [
   ("T",        "Temperature",                 "K",      lambda d, p: None if "Temperature" not in d else temp_K(p, d["Temperature"]), "lin", None),
-  ("Tanom",    "T minus level mean",          "K",      lambda d, p: None if "Temperature" not in d else (lambda t: t - t.mean(axis=1, keepdims=True))(temp_K(p, d["Temperature"])), "sym", None),
+  ("Tanom",    "T minus level mean",          "K",      lambda d, p: None if "Temperature" not in d else t_anomaly(temp_K(p, d["Temperature"])), "sym", None),
   ("v",        "v (meridional)",              "m/s",    lambda d, p: g(d, "v-Component"), "sym", None),
   ("w",        "w (zonal)",                   "m/s",    lambda d, p: g(d, "w-Component"), "sym", None),
   ("u",        "u (radial)",                  "m/s",    lambda d, p: g(d, "u-Component"), "sym", None),
@@ -301,7 +313,7 @@ def main():
         dA = read_slice(f); dB = read_slice(fb[k][0]) if a.run_b else None
         data[k] = (planet, dA, dB)
     for k, (planet, dA, dB) in data.items():
-        kind = k[0]
+        kind = k[0]; _KIND[0] = kind
         if kind == "panorama": continue
         for (name, title, unit, fn, scale, ov) in PANELS:
             if kind == "radial" and name not in RADIAL_KEYS: continue
