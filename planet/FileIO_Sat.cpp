@@ -390,6 +390,31 @@ void cSaturnModel::trace_line(int iter){
  * ATJUP/ATSAT gap list), so the list is written out here — the prognostic fields plus the two
  * pressures, which is what determines whether the next iteration is meaningful.
  */
+// ATSAT_CH4_WARN (cSaturnModel.h, row SAT-TOP-COLD): print-only alarm for CH4 condensate on Saturn.
+void cSaturnModel::ch4_watch(const char* where){
+    if(!ch4_warn_on()) return;
+    long n = 0; double cmax = 0.0;
+    #pragma omp parallel for collapse(2) schedule(static) reduction(+:n) reduction(max:cmax)
+    for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++) for(int i = 0; i < im; i++){
+        const double c = ch4_cloud.x[i][j][k] + ch4_ice.x[i][j][k];
+        if(c > 0.0){ n++; cmax = std::max(cmax, c); }
+    }
+    if(n == 0) return;
+    int im_ = -1, jm_ = -1, km_ = -1, ic = -1, jc = -1, kc = -1; double tcold = 1e30;
+    for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++) for(int i = 0; i < im; i++){     // serial: fixed order, thread-count independent
+        const double c = ch4_cloud.x[i][j][k] + ch4_ice.x[i][j][k];
+        if(c <= 0.0) continue;
+        if(im_ < 0 && c == cmax){ im_ = i; jm_ = j; km_ = k; }
+        if(t.x[i][j][k] * t_ref < tcold){ tcold = t.x[i][j][k] * t_ref; ic = i; jc = j; kc = k; }
+    }
+    const double rad2deg = 180.0 / M_PI;
+    printf("      ATSAT: WARNING (ATSAT_CH4_WARN, %s): CH4 condensate in %ld cells -- the top is too cold for Saturn"
+           " (CH4 needs < ~63 K to condense, observed minimum ~82 K). Max %.4g g/m3 (cloud %.4g, ice %.4g) at level %d, lat %+.0f,"
+           " lon %.0f, %.1f K, %.4g bar; coldest condensate cell %.1f K at level %d, lat %+.0f, lon %.0f\n",
+           where, n, 1e3 * cmax, 1e3 * ch4_cloud.x[im_][jm_][km_], 1e3 * ch4_ice.x[im_][jm_][km_], im_, 90.0 - the.z[jm_] * rad2deg,
+           phi.z[km_] * rad2deg, t.x[im_][jm_][km_] * t_ref, p_stat.x[im_][jm_][km_], tcold, ic, 90.0 - the.z[jc] * rad2deg, phi.z[kc] * rad2deg);
+}
+
 bool cSaturnModel::nan_watch(int iter){
     struct Named { const char* name; Array* a; };
     Named fields[] = {

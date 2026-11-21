@@ -601,6 +601,14 @@ public:
     // ---- Numerical safety nets, ported from ATJUP. All off by default. ----
     // ATSAT_NANCHECK: census of non-finite cells, per field, with the index extent.
     bool nan_watch(int iter);
+    // ATSAT_CH4_WARN (2026-11-21, DEFAULT 1 = on, print-only; 0 = silent; row SAT-TOP-COLD): CH4 never condenses on the
+    // real Saturn (it saturates only below ~63 K near 80 mbar; the observed minimum is ~82 K), so any CH4 cloud or ice
+    // means the model top is too cold. At the end of the set-up and at every checkpoint: one WARNING line with the
+    // number of cells, the largest condensate, where it sits, and the coldest condensate cell. Fields untouched.
+    static bool ch4_warn_on(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_CH4_WARN"); return e ? atoi(e) != 0 : true; }();
+        return v; }
+    void ch4_watch(const char* where);
     // ATSAT_TRACE: one read-only line per iteration, for dating the onset of things the
     // checkpoint-cadence printMinMax is too coarse to see. See FileIO_Sat.cpp.
     void trace_line(int iter);

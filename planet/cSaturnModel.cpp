@@ -575,6 +575,7 @@ void cSaturnModel::Run(){
     // ran in iteration 2: the MCA's first call read mass fractions that high and missed the deck's
     // instability (satchk/mcagiants_2026-10-28 dbg / dbg2). Only where the set-up fill ran
     // (init_species_local_rho()), so ATSAT_LOCAL_RHO=0 keeps rho_mix = 0 until iteration 2 as before.
+    ch4_watch("set-up");                                            // ATSAT_CH4_WARN: CH4 condensate means a too-cold top
     static const bool rho_refresh_init = [](){ const char* e = getenv("ATSAT_RHO_REFRESH_INIT"); return e ? atoi(e) != 0 : true; }();
     if(rho_refresh_init && init_species_local_rho()) computeMixtureDensity();
 
@@ -1218,6 +1219,7 @@ void cSaturnModel::Run(){
         // watchdog_2026-11-02, arm N1): 1 cell after it 1, 491 after it 2, nothing else in the
         // census non-finite; only the mean OLR line printed nan. Exit code 3, not 1, so a script
         // can tell the census stop from an ordinary failure.
+        if(iter_n % checkpoint == 0) ch4_watch(("iteration " + std::to_string(iter_n)).c_str());   // ATSAT_CH4_WARN (print-only)
         if(nancheck_on() && iter_n % checkpoint == 0 && !nan_watch(iter_n) && nancheck_on() >= 2){
             printf("      ATSAT: ATSAT_NANCHECK=2 -- stopping at iteration %d on a non-finite state"
                    " (exit code 3; ATSAT_NANCHECK=1 reports and goes on, =0 no census)\n", iter_n);

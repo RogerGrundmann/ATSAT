@@ -107,6 +107,7 @@ baseline.
 | | knob | default |
 |---|---|---|
 | Non-finite census, per field, with index extent (=0 off, =1 report, =2 report and stop with exit code 3) | `ATSAT_NANCHECK` | 2 (since 2026-11-02) |
+| CH4 condensate alarm (print-only): CH4 never condenses on the real Saturn (needs < ~63 K near 80 mbar, observed minimum ~82 K), so CH4 cloud / ice means the model top is too cold (row SAT-TOP-COLD); one WARNING line at the end of the set-up and at every checkpoint with the cell count, the largest condensate and where it sits, and the coldest condensate cell | `ATSAT_CH4_WARN` | 1 (since 2026-11-21; 0 = silent) |
 | SIGFPE on the first invalid operation | `ATSAT_FPE` | off |
 | Temperature limiter (clip to the neighbour range) | `ATSAT_T_LIMITER` | off |
 | Shapiro filter on u, v, w | `ATSAT_VEL_SHAPIRO_INLOOP` | 0 passes |
