@@ -18,7 +18,15 @@
  *     A_uv     exp(-N_above / N_uv): the UV left after the NH3 VAPOUR column N_above [kg/m2] above the
  *              cell (from the cell's upper face to the lid) has absorbed it -- NH3 shields itself.
  *              N_uv = ATSAT_CHROM_NUV [kg/m2], default 3e-4 (ATJUP's: tau = 1 at ~1e22 molecules/m2,
- *              the NH3 cross-section ~1e-18 cm2 at 190-220 nm). No haze absorption.
+ *              the NH3 cross-section ~1e-18 cm2 at 190-220 nm).
+ *              ATSAT_CHROM_HAZE_P1=<bar> (2026-11-21, default 0 = off, byte-identical): times exp(-tau_haze),
+ *              the UV optical depth of a photochemical HAZE with a uniform mixing ratio, so tau_haze grows
+ *              linearly in pressure: tau_haze = min(p_up, p_base) / p1, p_up the static pressure at the cell's
+ *              upper face (p_stat of the cell above; the lid's own), p1 the pressure where tau_haze = 1.
+ *              ATSAT_CHROM_HAZE_PBASE=<bar> (default 0 = no base) ends the haze there (Saturn's upper-
+ *              tropospheric haze sits over the NH3 cloud at ~0.1-0.3 bar, Sromovsky et al. arXiv 2108.00322).
+ *              The haze above the lid only adds a column-uniform factor exp(-p_lid/p1), as J does, except
+ *              that p_lid varies with latitude. Not modelled: haze that depends on latitude or season.
  *     J        ATSAT_CHROM_J, effective production rate [1/s], default 1e-6 (ATJUP's)
  *     tau      ATSAT_CHROM_TAU [days of 86400 s], default 30 (ATJUP's)
  *
@@ -38,24 +46,27 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 namespace SatChrom {
-    struct Par { double J, N_uv, tau_s; int src; };
+    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase; };
     inline const Par& par(){
         static const Par p = [](){
             auto d = [](const char* n, double v){ const char* e = getenv(n); return e ? atof(e) : v; };
             return Par{ d("ATSAT_CHROM_J", 1.0e-6), d("ATSAT_CHROM_NUV", 3.0e-4), d("ATSAT_CHROM_TAU", 30.0) * 86400.0,
-                        (int)d("ATSAT_CHROM_SRC", 1.0) };
+                        (int)d("ATSAT_CHROM_SRC", 1.0), d("ATSAT_CHROM_HAZE_P1", 0.0), d("ATSAT_CHROM_HAZE_PBASE", 0.0) };
         }();
         return p;
     }
 }
 
 // chrom_uv = exp(-N_above / N_uv), N_above the NH3 vapour column from the upper face of the cell to the lid
-// (the lid layer im-1 has no thickness, as in every column sum here).
+// (the lid layer im-1 has no thickness, as in every column sum here); with ATSAT_CHROM_HAZE_P1 > 0 also
+// times exp(-min(p_up, p_base) / p1), p_up = p_stat of the cell above (bar).
 inline void cSaturnModel::chromUV(){
     if(!chrom_on()) return;
     const double n_uv = SatChrom::par().N_uv;
+    const double p1 = SatChrom::par().haze_p1, pb = SatChrom::par().haze_pbase;
     #pragma omp parallel for collapse(2) schedule(static)
     for(int j = 0; j < jm; j++){
         for(int k = 0; k < km; k++){
@@ -63,6 +74,11 @@ inline void cSaturnModel::chromUV(){
             chrom_uv.x[im-1][j][k] = 1.0;
             for(int i = im - 2; i >= 0; i--){
                 chrom_uv.x[i][j][k] = n_uv > 0.0 ? std::exp(-n_above / n_uv) : 1.0;
+                if(p1 > 0.0){
+                    double p_up = std::max(0.0, p_stat.x[i+1][j][k]);
+                    if(pb > 0.0) p_up = std::min(p_up, pb);
+                    chrom_uv.x[i][j][k] *= std::exp(-p_up / p1);
+                }
                 n_above += std::max(0.0, nh3.x[i][j][k]) * layer_thickness_m(i);
             }
         }
@@ -83,4 +99,7 @@ inline void cSaturnModel::chromInfo(){
     const SatChrom::Par& p = SatChrom::par();
     printf("      ATSAT: ATSAT_CHROM on -- chromophore tracer: J %.3e 1/s, N_uv %.3e kg/m2 (NH3 vapour self-shielding), tau %.1f d, source %s\n",
            p.J, p.N_uv, p.tau_s / 86400.0, p.src ? "NH3 vapour + cloud + ice" : "NH3 vapour");
+    if(p.haze_p1 > 0.0)
+        printf("      ATSAT: ATSAT_CHROM_HAZE_P1 %.3f bar -- UV haze tau = min(p, %s) / p1 in A_uv\n",
+               p.haze_p1, p.haze_pbase > 0.0 ? (std::to_string(p.haze_pbase) + " bar").c_str() : "no base");
 }
