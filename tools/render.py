@@ -5,6 +5,10 @@ Usage:
   python3 -I tools/render.py RUN [RUN_B] [--out DIR] [--kinds zonal,radial] [--ranges FILE] [--every N] [--jobs N]
                               [--levels I,I,...] [--zoom LAT0,LAT1,LON0,LON1]
 
+Kinds: zonal, radial, panorama, proczm, cloudview (default all that are present).
+cloudview (2026-11-21): <Planet>_cloudview_<it>.vtk -- every column array (X_above, the column above a layer) as a lat x lon map
+  for layer 0 (= the whole column) and for each --levels layer, plus PhotoRGB (the writer's colour recipe, per-file scale) as an image.
+
 --levels: panorama levels (i, 0 = bottom) for the wind / temperature maps (zonal wind w, meridional wind v,
   the departure from the zonal mean -- speed with arrows -- and T minus its zonal mean); default the middle level.
 --zoom: crop the lat x lon maps (radial slices, panorama) to the window, e.g. --zoom=-40,0,150,210 for the GRS (with "=", a leading minus would read as an option)
@@ -130,7 +134,7 @@ PROC_KEYS = {p[0] for p in PROC_PANELS}
 RADIAL_KEYS = ["T", "Tanom", "v", "w", "u", "H2Ocond", "NH3cond", "NH4SH", "QLat", "Ph2o", "Pnh3"]
 
 # ------------------------------------------------------------------ files
-def _has(o): return any(glob.glob(os.path.join(o, p)) for p in ("*_zonal_*.vtk", "*_radial_*.vtk", "*_panorama_*.vts", "*_proczm_*.vtk"))
+def _has(o): return any(glob.glob(os.path.join(o, p)) for p in ("*_zonal_*.vtk", "*_radial_*.vtk", "*_panorama_*.vts", "*_proczm_*.vtk", "*_cloudview_*.vtk"))
 def find_output(run):
     if _has(run): return run
     for o in sorted(glob.glob(os.path.join(run, "output*"))):
@@ -140,13 +144,16 @@ def find_output(run):
 PAT = re.compile(r"(?P<planet>[A-Za-z]+)_(?P<kind>zonal|radial|longal|proczm)_(?P<pos>\d+)_(?P<it>\d+)\.vtk$")
 PANO = re.compile(r"(?P<planet>[A-Za-z]+)_panorama_(?P<it>\d+)\.vts$")
 PROCZ = re.compile(r"(?P<planet>[A-Za-z]+)_proczm_(?P<it>\d+)\.vtk$")          # <Planet>_proczm_<it>.vtk (since 2026-11-20)
+CLOUDV = re.compile(r"(?P<planet>[A-Za-z]+)_cloudview_(?P<it>\d+)\.vtk$")      # <Planet>_cloudview_<it>.vtk
 def list_files(outdir, kinds):
     fs = {}
     for f in glob.glob(os.path.join(outdir, "*.vtk")):
         m = PAT.search(os.path.basename(f))
         if m and m["kind"] in kinds: fs[(m["kind"], int(m["pos"]), int(m["it"]))] = (f, m["planet"]); continue
         m = PROCZ.search(os.path.basename(f))
-        if m and "proczm" in kinds: fs[("proczm", 0, int(m["it"]))] = (f, m["planet"])
+        if m and "proczm" in kinds: fs[("proczm", 0, int(m["it"]))] = (f, m["planet"]); continue
+        m = CLOUDV.search(os.path.basename(f))
+        if m and "cloudview" in kinds: fs[("cloudview", 0, int(m["it"]))] = (f, m["planet"])
     if "panorama" in kinds:
         for f in glob.glob(os.path.join(outdir, "*_panorama_*.vts")):
             m = PANO.search(os.path.basename(f))
@@ -161,15 +168,16 @@ LEVELS = []                # panorama levels for the wind / T maps (set in main)
 ZOOM = None                # (lat0, lat1, lon0, lon1) or None (set in main)
 QUIVER = {}                # map name -> function(d) -> (U, V) arrows, for the eddy-wind maps
 
-def zoom_idx(nj, nk):
-    """row / column indices of the zoom window on a lat x lon map (j = 0 at 90 N, k = 0 at 0 E)."""
-    lat = 90.0 - np.arange(nj) * 180.0 / (nj - 1); lon = np.arange(nk) * 360.0 / (nk - 1)
+def zoom_idx(nj, nk, lat=None):
+    """row / column indices of the zoom window on a lat x lon map (j = 0 at 90 N, k = 0 at 0 E; lat given for the cloudview)."""
+    if lat is None: lat = 90.0 - np.arange(nj) * 180.0 / (nj - 1)
+    lon = np.arange(nk) * 360.0 / (nk - 1)
     la0, la1, lo0, lo1 = ZOOM
     return (np.where((lat >= min(la0, la1)) & (lat <= max(la0, la1)))[0],
             np.where((lon >= min(lo0, lo1)) & (lon <= max(lo0, lo1)))[0])
-def crop(Z):
+def crop(Z, lat=None):
     if ZOOM is None or Z is None: return Z
-    jj, kk = zoom_idx(*Z.shape); return Z[np.ix_(jj, kk)]
+    jj, kk = zoom_idx(Z.shape[0], Z.shape[1], lat); return Z[np.ix_(jj, kk)]
 def read_pano(path):
     """{name: array (j, k, i)} -- the panorama is i-fastest, extent (im, jm, km); j = 0 at 90 N."""
     import vtk
@@ -180,6 +188,40 @@ def read_pano(path):
         a = pd.GetArray(n)
         if a is not None: d[n] = v2n(a).reshape(km, jm, im).transpose(1, 0, 2).astype(np.float64)
     return d
+
+def read_cloudview(path):
+    """<Planet>_cloudview_<it>.vtk -> ({name: array (i, j, k)}, rgb (i, j, k, 3) or None, lat [deg] per row).
+    Point order i, j, k (k fastest), DIMENSIONS km nj im; the spherical default leaves the pole rows out, so the
+    latitude is taken from the points (shells: asin(z / |p|); flat stack: x = 0.1 j over the full 90 N..90 S)."""
+    import vtk
+    from vtk.util.numpy_support import vtk_to_numpy as v2n
+    r = vtk.vtkStructuredGridReader(); r.SetFileName(path)
+    r.ReadAllScalarsOn(); r.ReadAllColorScalarsOn(); r.Update()
+    g = r.GetOutput(); km, nj, im = g.GetDimensions(); pd = g.GetPointData(); d = {}; rgb = None
+    for a in range(pd.GetNumberOfArrays()):
+        arr = pd.GetArray(a); x = v2n(arr)
+        if arr.GetName() == "PhotoRGB":
+            x = x.astype(np.float64); rgb = (x / 255.0 if x.max() > 1.0 else x).reshape(im, nj, km, 3)
+        elif x.ndim == 1: d[arr.GetName()] = x.reshape(im, nj, km).astype(np.float64)
+    pts = v2n(g.GetPoints().GetData()).reshape(im, nj, km, 3)[0, :, 0, :]
+    rr = np.linalg.norm(pts, axis=1)
+    if rr.min() > 0.5 and np.ptp(rr) < 1e-3: lat = np.degrees(np.arcsin(np.clip(pts[:, 2] / rr, -1, 1)))
+    else: lat = 90.0 - np.round(pts[:, 0] / 0.1) * 180.0 / (nj - 1)
+    return d, rgb, lat
+
+def cv_maps(d, rgb, hkm):
+    """cloudview lat x lon maps: (name, title, unit, array, scale); layer 0 and the LEVELS layers."""
+    M = []; im = next(iter(d.values())).shape[0]
+    for L in [0] + [l for l in LEVELS if l != 0]:
+        if not 0 <= L < im - 1: continue
+        hl = "whole column (layer 0)" if L == 0 else f"above layer {L}" + (f" ({hkm[L]:.0f} km)" if hkm is not None else "")
+        sfx = "" if L == 0 else f"_L{L}"
+        if rgb is not None: M.append((f"cvPhoto{sfx}", "PhotoRGB (writer's recipe, per-file scale), " + hl, "", rgb[L], "rgb"))
+        for n, x in d.items():
+            unit = n.rsplit("_", 1)[-1].replace("gm2", "g/m2").replace("mgm2", "mg/m2") if "_" in n else "as written"
+            unit = "mg/m2" if n.endswith("mgm2") else unit
+            M.append((f"cv{n.split('_')[0]}{sfx}", f"{n}, " + hl, unit, x[L], "lin"))
+    return M
 
 def level_heights_km(outdir, im):
     """level heights from any zonal slice in the same output directory ('height' field), else None."""
@@ -247,9 +289,9 @@ def axes_for(kind, d):
         h = d["height"][:, 0] if "height" in d else np.arange(ns, dtype=float)
         p = d["PressureStat"].mean(axis=1) if "PressureStat" in d else None
         return lat, h, p
-    if kind in ("radial", "panorama"):      # rows = j, cols = k
+    if kind in ("radial", "panorama", "cloudview"):      # rows = j, cols = k
         lon = np.arange(nf) * 360.0 / (nf - 1)
-        lat = 90.0 - np.arange(ns) * 180.0 / (ns - 1)
+        lat = d["_lat"] if "_lat" in d else 90.0 - np.arange(ns) * 180.0 / (ns - 1)
         return lon, lat, None
     return None
 
@@ -259,7 +301,13 @@ def draw(job):
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm, Normalize
     (png, kind, title, unit, Z, scale, rng, X, Y, P, overlays, quiv) = job
-    if kind == "panorama":
+    if scale == "rgb":           # cloudview PhotoRGB: an image, no colour bar
+        fig, ax = plt.subplots(figsize=(7.2, 3.6), dpi=110, constrained_layout=True)
+        ax.imshow(np.clip(Z, 0, 1), extent=[X.min(), X.max(), Y.min(), Y.max()], origin="upper", aspect="auto", interpolation="nearest")
+        ax.set_xlabel("longitude [deg]", fontsize=8); ax.set_ylabel("latitude [deg]", fontsize=8)
+        ax.tick_params(labelsize=7); ax.set_title(title, fontsize=9); fig.savefig(png); plt.close(fig)
+        return png
+    if kind in ("panorama", "cloudview"):
         fig, (ax, axp) = plt.subplots(1, 2, figsize=(9.6, 3.6), dpi=110, constrained_layout=True,
                                       gridspec_kw={"width_ratios": [3, 1]})
     else:
@@ -296,7 +344,7 @@ def draw(job):
         ax.set_xlabel("longitude [deg]", fontsize=8); ax.set_ylabel("latitude [deg]", fontsize=8)
         ax.set_ylim(Y.min(), Y.max()) if ZOOM is not None else ax.set_ylim(-90, 90)
     ax.tick_params(labelsize=7); ax.set_title(title, fontsize=9)
-    if kind == "panorama":       # zonal mean with the longitude min / max as a band (the model runs zonally symmetric)
+    if kind in ("panorama", "cloudview"):       # zonal mean with the longitude min / max as a band (the model runs zonally symmetric)
         zm = np.nanmean(Z, axis=1); lo_, hi_ = np.nanmin(Z, axis=1), np.nanmax(Z, axis=1)
         axp.fill_betweenx(Y, lo_, hi_, color="#9ab", alpha=0.5, lw=0); axp.plot(zm, Y, color="#123", lw=1.2)
         axp.set_ylim(Y.min(), Y.max()) if ZOOM is not None else axp.set_ylim(-90, 90)
@@ -321,7 +369,7 @@ def joint_range(arrs, scale):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run"); ap.add_argument("run_b", nargs="?")
-    ap.add_argument("--out"); ap.add_argument("--kinds", default="zonal,radial,panorama,proczm")
+    ap.add_argument("--out"); ap.add_argument("--kinds", default="zonal,radial,panorama,proczm,cloudview")
     ap.add_argument("--ranges"); ap.add_argument("--every", type=int, default=1, help="keep iterations that are multiples of N")
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--levels", help="panorama levels for wind / T maps, e.g. 20,28 (default: the middle level)")
@@ -344,6 +392,18 @@ def main():
     hA = hB = None
     for k in keys:
         f, planet = fa[k]
+        if k[0] == "cloudview":
+            cA, rA, latA = read_cloudview(f)
+            cB, rB, latB = read_cloudview(fb[k][0]) if a.run_b else (None, None, None)
+            imc = next(iter(cA.values())).shape[0]
+            if hA is None: hA = level_heights_km(oa, imc)
+            mB = {m[0]: m for m in cv_maps(cB, rB, hA)} if cB is not None else {}
+            for (name, title, unit, A, scale) in cv_maps(cA, rA, hA):
+                pmeta[name] = (name, title, unit, None, scale, None)
+                built[(k, name)] = (crop(A, latA), crop(mB[name][3], latA) if name in mB else None)
+            j_, k_ = next(iter(cA.values())).shape[1:]
+            data[k] = (planet, {"_shape": np.zeros((j_, k_)), "_lat": latA}, None); del cA, cB, rA, rB
+            continue
         if k[0] == "panorama":
             pA = read_pano(f); pB = read_pano(fb[k][0]) if a.run_b else None
             if not LEVELS: LEVELS.append(next(iter(pA.values())).shape[2] // 2)
@@ -361,7 +421,7 @@ def main():
         data[k] = (planet, dA, dB)
     for k, (planet, dA, dB) in data.items():
         kind = k[0]; _KIND[0] = kind
-        if kind == "panorama": continue
+        if kind in ("panorama", "cloudview"): continue
         for (name, title, unit, fn, scale, ov) in PANELS:
             if kind == "radial" and name not in RADIAL_KEYS: continue
             if (kind == "proczm") != (name in PROC_KEYS): continue
@@ -374,6 +434,7 @@ def main():
             key = f"{kind}:{name}"
             vals = [x for (k, n), x in built.items() if n == name and k[0] == kind]
             if not vals: continue
+            if scale == "rgb": ranges[key] = [0.0, 1.0]; continue
             if key not in ranges:
                 r = joint_range([v[0] for v in vals] + [v[1] for v in vals if v[1] is not None], scale)
                 if r: ranges[key] = r
@@ -390,8 +451,8 @@ def main():
         _, title, unit, _, scale, ov = meta[name]
         if f"{kind}:{name}" not in ranges: continue
         X, Y, P = axes_for(kind, dA)
-        if ZOOM is not None and kind in ("radial", "panorama"):
-            jj, kk = zoom_idx(len(Y), len(X)); X, Y = X[kk], Y[jj]
+        if ZOOM is not None and kind in ("radial", "panorama", "cloudview"):
+            jj, kk = zoom_idx(len(Y), len(X), Y if kind == "cloudview" else None); X, Y = X[kk], Y[jj]
         os.makedirs(os.path.join(out, kind), exist_ok=True)
         def overlays(d):
             if not ov or kind != "zonal": return None
