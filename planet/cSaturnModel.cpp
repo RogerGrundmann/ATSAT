@@ -575,6 +575,7 @@ void cSaturnModel::Run(){
     // ran in iteration 2: the MCA's first call read mass fractions that high and missed the deck's
     // instability (satchk/mcagiants_2026-10-28 dbg / dbg2). Only where the set-up fill ran
     // (init_species_local_rho()), so ATSAT_LOCAL_RHO=0 keeps rho_mix = 0 until iteration 2 as before.
+    if(pstat_hydro()) rebuildPstatHydro("set-up adjustments");      // ATSAT_PSTAT_HYDRO: the columns, after the per-cell rewrite stopped
     ch4_watch("set-up");                                            // ATSAT_CH4_WARN: CH4 condensate means a too-cold top
     static const bool rho_refresh_init = [](){ const char* e = getenv("ATSAT_RHO_REFRESH_INIT"); return e ? atoi(e) != 0 : true; }();
     if(rho_refresh_init && init_species_local_rho()) computeMixtureDensity();
@@ -883,6 +884,7 @@ void cSaturnModel::Run(){
                 ep_nh3, lv_nh3, ls_nh3, cp_nh3, r_nh3,
                 C_nh3, L0_nh3, R_nh3, del_alf_nh3, del_bet_nh3, m_nh3,
                 nh3, nh3_cloud, nh3_ice);
+            if(pstat_hydro()) rebuildPstatHydro("loop");    // ATSAT_PSTAT_HYDRO: where the per-cell polytrope rewrite was
 
             // ATSAT_NH4SH_EQ (default 1): the NH4SH equilibrium adjustment on the adjusted NH3. Counted in
             // the TB / CWB stage "SaturationAdjustment" (the mark follows).

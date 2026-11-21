@@ -54,6 +54,23 @@ void cSaturnModel::init_temperature(){
         }
     }
 
+    // ATSAT_INIT_TTROP=<K> (cSaturnModel.h, row SAT-TOP-COLD): tropopause minimum + stratospheric rise, per column
+    if(init_ttrop() > 0.0){
+        const double t_tp = init_ttrop(), dtdz = init_tstrat();
+        long n_mod = 0; double t_lid_min = 1e30, t_lid_max = 0.0;
+        for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+            const double t0 = t.x[0][j][k] * t_ref;                    // K
+            const double z_tp = (t0 - t_tp) / gam;                     // km, where the linear decay reaches T_trop
+            for(int i = 0; i < im; i++){
+                const double z = get_layer_height(i);
+                if(z > z_tp){ t.x[i][j][k] = (t_tp + dtdz * (z - z_tp)) / t_ref; n_mod++; }
+            }
+            t_lid_min = std::min(t_lid_min, t.x[im-1][j][k] * t_ref); t_lid_max = std::max(t_lid_max, t.x[im-1][j][k] * t_ref);
+        }
+        printf("      ATSAT: ATSAT_INIT_TTROP %.1f K, ATSAT_INIT_TSTRAT %.3f K/km: %ld cells above the tropopause, lid T %.1f .. %.1f K%s\n",
+               t_tp, dtdz, n_mod, t_lid_min, t_lid_max, pstat_hydro() ? "" : "  -- WARNING: without ATSAT_PSTAT_HYDRO=1 the polytrope makes p rise with height there");
+    }
+
     // ATSAT_HYDRO_INIT_T (cSaturnModel.h): the horizontal structure per level from the jets' thermal wind
     if(hydro_init_t()) initThermalWindT();
 
@@ -475,8 +492,36 @@ void cSaturnModel::init_PressureStatic(){
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     printf(" time measured: %.3f seconds for init_PressureStatic\n", elapsed.count() * 1e-9);
 
+    if(pstat_hydro()) rebuildPstatHydro("set-up");                     // ATSAT_PSTAT_HYDRO (cSaturnModel.h)
+
     cout << "      ATSAT: init_PressureStatic ended" << endl;
     return;
+}
+
+// ATSAT_PSTAT_HYDRO (cSaturnModel.h, row SAT-TOP-COLD): p_stat integrated up each column, exact for T linear in z
+// between two levels; p_0 = the polytrope of the bottom plane. At "set-up" it prints the largest relative difference
+// to the polytrope it replaces (rounding for the linear set-up profile).
+void cSaturnModel::rebuildPstatHydro(const char* where){
+    const double exp_pressure = g / (gam * R_ref);
+    const bool report = std::string(where) == "set-up";
+    double dmax = 0.0;
+    #pragma omp parallel for collapse(2) schedule(static) reduction(max:dmax)
+    for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+        double p = p_ref * std::pow(t.x[0][j][k], exp_pressure);
+        if(report && p_stat.x[0][j][k] > 0.0) dmax = std::max(dmax, std::fabs(p / p_stat.x[0][j][k] - 1.0));
+        p_stat.x[0][j][k] = p;
+        for(int i = 1; i < im; i++){
+            const double T0 = t.x[i-1][j][k] * t_ref, T1 = t.x[i][j][k] * t_ref;
+            const double a = exp_pressure * gam * (double)(get_layer_height(i) - get_layer_height(i-1));   // g dz / R_ref, in K
+            if(T0 > 0.0 && T1 > 0.0){
+                const double dT = T0 - T1;
+                p *= (std::fabs(dT) > 1.0e-9 * T0) ? std::pow(T1 / T0, a / dT) : std::exp(-a / T0);
+            } else p = p_ref * std::pow(std::max(0.0, t.x[i][j][k]), exp_pressure);
+            if(report && p_stat.x[i][j][k] > 0.0) dmax = std::max(dmax, std::fabs(p / p_stat.x[i][j][k] - 1.0));
+            p_stat.x[i][j][k] = p;
+        }
+    }
+    if(report) printf("      ATSAT: ATSAT_PSTAT_HYDRO on -- p_stat integrated up each column (%s); largest relative difference to the polytrope %.3e\n", where, dmax);
 }
 /*
 *

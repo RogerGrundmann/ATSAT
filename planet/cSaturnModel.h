@@ -313,7 +313,32 @@ public:
     // where the hydrostatic pressure may respond to latent heating, it was flagged and left
     // unsettled when the mirrored routine was written, and sharing the file was not the moment to
     // settle it. Answering true here keeps ATSAT doing exactly what it did.
-    static bool satadj_updates_pstat(){ return true; }
+    // ATSAT_PSTAT_HYDRO=1 (2026-11-21, row SAT-TOP-COLD) answers false: the per-cell polytrope rewrite stops and
+    // rebuildPstatHydro() rebuilds whole columns after the three adjustments instead.
+    static bool satadj_updates_pstat(){ return !pstat_hydro(); }
+    // ATSAT_PSTAT_HYDRO=1 (2026-11-21, default 0 = off, row SAT-TOP-COLD): p_stat INTEGRATED up each column instead of the
+    // polytrope p = p_ref (T/t_ref)^(g/(gam R_ref)) of the local T, which is hydrostatic only for the constant lapse
+    // rate gam and makes p RISE with height wherever T does (a stratosphere). Layer by layer, exact for T linear in z:
+    //     p_i = p_{i-1} (T_i / T_{i-1})^(a / (T_{i-1} - T_i)),  a = g dz / R_ref (= exp_pressure gam dz_km),
+    // isothermal limit p_{i-1} exp(-a / T); bottom plane p_0 = the polytrope of T_0. For the set-up's linear profile
+    // this IS the polytrope (to rounding; the set-up prints the largest relative difference). Applied after
+    // init_PressureStatic, after the set-up adjustments and after the three adjustments of every physics step
+    // (where the polytrope was rewritten cell by cell before). InitVariables_Sat.cpp.
+    static bool pstat_hydro(){
+        static const bool v = [](){ const char* e = getenv("ATSAT_PSTAT_HYDRO"); return e ? atoi(e) != 0 : false; }();
+        return v; }
+    void rebuildPstatHydro(const char* where);
+    // ATSAT_INIT_TTROP=<K> (2026-11-21, default 0 = off, row SAT-TOP-COLD): the set-up T stops falling at the tropopause
+    // minimum T_trop and rises above it at ATSAT_INIT_TSTRAT K/km (default 0.4: Saturn ~82 K near 80-100 mbar ->
+    // ~140 K near 1 mbar over ~4.5 scale heights); the linear 0.7 K/km decay otherwise runs through the whole 500 km
+    // (lid ~30 K at the pole, ~60 K at the equator). Per column, before ATSAT_HYDRO_INIT_T. Use with ATSAT_PSTAT_HYDRO=1:
+    // the polytrope cannot carry a stratosphere (the set-up says so).
+    static double init_ttrop(){
+        static const double v = [](){ const char* e = getenv("ATSAT_INIT_TTROP"); return e ? atof(e) : 0.0; }();
+        return v; }
+    static double init_tstrat(){
+        static const double v = [](){ const char* e = getenv("ATSAT_INIT_TSTRAT"); return e ? atof(e) : 0.4; }();
+        return v; }
     // <TAG>_MCA_INTERIOR default (shared ConvectiveAdjustment.h): leave the radial boundary planes out of the MCA column.
     // true since 2026-10-30 (user: "MCA_INTERIOR should go on for ATJUP, ATSAT and ATNEPT"), as on ATURAN: bcRadius writes the
     // radial boundary planes from the interior and RK does not integrate them, so mixing them is undone every iteration.
