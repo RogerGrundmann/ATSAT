@@ -812,7 +812,7 @@ void cSaturnModel::init_vapour_cloud_ice(std::string gas,
                 if(c.x[i][j][k] >= fr * r_max[j])  c.x[i][j][k] = fr * r_max[j];
 
                 if((gas == "NH3")&&(p_u >= p_00_nh3))  c.x[i][j][k] = fr * r_max[j];
-                if((gas == "H2O")&&(p_u >= p_0_h2o))  c.x[i][j][k] = fr * r_max[j];
+                if((gas == "H2O")&&(init_p0_h2o() > 0.0)&&(p_u >= init_p0_h2o()))  c.x[i][j][k] = fr * r_max[j];   // ATSAT_INIT_P0_H2O (cSaturnModel.h)
                 if((gas == "CH4")&&(p_u >= p_0_ch4))  c.x[i][j][k] = fr * r_max[j];
 
             }

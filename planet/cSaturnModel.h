@@ -316,7 +316,8 @@ public:
     // ATSAT_PSTAT_HYDRO=1 (2026-11-21, row SAT-TOP-COLD) answers false: the per-cell polytrope rewrite stops and
     // rebuildPstatHydro() rebuilds whole columns after the three adjustments instead.
     static bool satadj_updates_pstat(){ return !pstat_hydro(); }
-    // ATSAT_PSTAT_HYDRO=1 (2026-11-21, default 0 = off, row SAT-TOP-COLD): p_stat INTEGRATED up each column instead of the
+    // ATSAT_PSTAT_HYDRO (2026-11-21, row SAT-TOP-COLD; DEFAULT 1 since 2026-11-21, user: "make its three settings the default", arm
+    // satchk/defaultsD_2026-11-21/D; =0 restores the polytrope): p_stat INTEGRATED up each column instead of the
     // polytrope p = p_ref (T/t_ref)^(g/(gam R_ref)) of the local T, which is hydrostatic only for the constant lapse
     // rate gam and makes p RISE with height wherever T does (a stratosphere). Layer by layer, exact for T linear in z:
     //     p_i = p_{i-1} (T_i / T_{i-1})^(a / (T_{i-1} - T_i)),  a = g dz / R_ref (= exp_pressure gam dz_km),
@@ -325,16 +326,16 @@ public:
     // init_PressureStatic, after the set-up adjustments and after the three adjustments of every physics step
     // (where the polytrope was rewritten cell by cell before). InitVariables_Sat.cpp.
     static bool pstat_hydro(){
-        static const bool v = [](){ const char* e = getenv("ATSAT_PSTAT_HYDRO"); return e ? atoi(e) != 0 : false; }();
+        static const bool v = [](){ const char* e = getenv("ATSAT_PSTAT_HYDRO"); return e ? atoi(e) != 0 : true; }();
         return v; }
     void rebuildPstatHydro(const char* where);
-    // ATSAT_INIT_TTROP=<K> (2026-11-21, default 0 = off, row SAT-TOP-COLD): the set-up T stops falling at the tropopause
+    // ATSAT_INIT_TTROP=<K> (2026-11-21, row SAT-TOP-COLD; DEFAULT 82 since 2026-11-21 with PSTAT_HYDRO 1 and INIT_P0_H2O 0, arm D; =0 = off): the set-up T stops falling at the tropopause
     // minimum T_trop and rises above it at ATSAT_INIT_TSTRAT K/km (default 0.4: Saturn ~82 K near 80-100 mbar ->
     // ~140 K near 1 mbar over ~4.5 scale heights); the linear 0.7 K/km decay otherwise runs through the whole 500 km
     // (lid ~30 K at the pole, ~60 K at the equator). Per column, before ATSAT_HYDRO_INIT_T. Use with ATSAT_PSTAT_HYDRO=1:
     // the polytrope cannot carry a stratosphere (the set-up says so).
     static double init_ttrop(){
-        static const double v = [](){ const char* e = getenv("ATSAT_INIT_TTROP"); return e ? atof(e) : 0.0; }();
+        static const double v = [](){ const char* e = getenv("ATSAT_INIT_TTROP"); return e ? atof(e) : 82.0; }();
         return v; }
     static double init_tstrat(){
         static const double v = [](){ const char* e = getenv("ATSAT_INIT_TSTRAT"); return e ? atof(e) : 0.4; }();
@@ -732,7 +733,14 @@ private:
     double p_0_ch4 = 0.1;  // in bar
     double p_00_ch4 = 1.1;  // in bar
 
-    double p_0_h2o = 2.0;  // in bar
+    double p_0_h2o = 2.0;  // in bar -- NOT used since 2026-11-21: the set-up reads init_p0_h2o() (default 0 = no override; ATSAT_INIT_P0_H2O=2 = this old value)
+    // ATSAT_INIT_P0_H2O=<bar> (2026-11-21, row SAT-H2O-ICE-ALOFT): the set-up gives every p >= p_0_h2o the FULL deep H2O abundance
+    // r_max whatever T is; at 2.0 bar that loads ~90 g/m3 into Saturn's 164-250 K range (2-10 bar), which the set-up adjustment turns
+    // into a ~50 g/m3 ice deck. DEFAULT 0 since 2026-11-21 (arm D, with PSTAT_HYDRO 1 / INIT_TTROP 82); =2 restores p_0_h2o; <= 0 = no override: H2O follows magnus x saturation capped
+    // at r_max everywhere, so the deep abundance holds only where saturation exceeds it (below the natural cloud base).
+    double init_p0_h2o() const {
+        static const double v = [](){ const char* e = getenv("ATSAT_INIT_P0_H2O"); return e ? atof(e) : 0.0; }();
+        return v; }
     double p_00_h2o = 5.1;  // in bar
 
     double p_0_h2s = 1.3;  // in bar
