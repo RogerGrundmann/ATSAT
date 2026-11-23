@@ -1,5 +1,6 @@
 #include "cSaturnModel.h"
 #include "VelocityInitializerSat.h"
+#include "JetRef.h"   // ATSAT_JET_REF (shared)
 #include <vector>
 #include <cmath>
 #include <cstdio>
@@ -537,6 +538,20 @@ void cSaturnModel::SaturnCellStructure(){
                 w.x[i][j_max-j][k] = w_trans[j];
             }
         }
+    }
+
+    // <TAG>_JET_REF=1 (2026-11-23, row GIANTS-ZONAL-WIND; default 0 = the node table above, unchanged): every latitude row
+    // rebuilt from the reference profile in the SHARED JetRef.h, through this model's own init_v_or_w (tropopause value =
+    // table value, bottom 0, the model's vertical shape). Before the u_0 division, like the node table.
+    if(JetRef::on<cSaturnModel>()){
+        double wmin_ = 1e30, wmax_ = -1e30;
+        for(int j_ = 0; j_ < jm; j_++){
+            const double lat_ = 90.0 - the.z[j_] * 180.0 / M_PI;
+            const double u_ = JetRef::u_ref<cSaturnModel>(lat_);
+            wmin_ = std::min(wmin_, u_); wmax_ = std::max(wmax_, u_);
+            init_v_or_w(w, j_, u_, 0.0);
+        }
+        printf("      ATSAT: ATSAT_JET_REF = 1: zonal wind w prescribed from JetRef.h (tropopause %.1f .. %.1f m/s)\n", wmin_, wmax_);
     }
 
     // non dimensionalization by u_0
