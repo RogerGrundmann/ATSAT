@@ -366,8 +366,14 @@ public:
     // NH3 liquid in the mixed band 0.018x -> 0.38x of the temperature split; CH4 condensate cells 1419 -> 715,
     // the mixed-band CH4 sublimated (row SAT-CH4-ICE); H2O unchanged (0.67x); exit 0, no NaN.
     static bool satadj_default_evap(){ return true; }
-    // <TAG>_SATADJ_BERGERON of the shared SaturationAdjustment.h (2026-10-25): off here -- measured on ATJUP only.
-    static int satadj_default_bergeron(){ return 0; }
+    // <TAG>_SATADJ_BERGERON: 2 since 2026-11-24 (was 0; =0 restores), together with <TAG>_SATADJ_FREEZE 1 (user: "choose
+    // Saturn's default FREEZE plus BERGERON 2"; row GIANTS-PHASE-OUTSIDE). MEASURED satchk/phaseout_2026-11-24 F0 / F2, DL 5000 -> 5500:
+    // liquid colder than t_00 H2O 3738 / NH3 10953 g/m2 (growing) -> ~0; NH3 all ice; H2O ice in its band, liquid from ~273 K
+    // (Atreya & Wong 2005 Fig. 3's phase structure); ice above t_0 0.5 -> 23 g/m2 (melted at each call); T, u, v, w, OLR,
+    // NH4SH, residuum unchanged. FREEZE 1 alone (F1) leaves 2-4 g/m2 and liquid + ice side by side in the bands.
+    static int satadj_default_bergeron(){ return 2; }
+    // <TAG>_SATADJ_FREEZE of the shared SaturationAdjustment.h (2026-11-24): ON here (=0 restores), see above.
+    static bool satadj_default_freeze(){ return true; }
     // Shared Precipitation.h: the factor on its five rate coefficients. RECALIBRATED 2026-10-09
     // by the rule the Jovian set was made with: the latent-heat flux of the precipitation,
     // Lv * (mean over the columns of the column's largest flux), summed over H2O, NH3 and CH4,
