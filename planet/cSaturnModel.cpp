@@ -786,14 +786,55 @@ void cSaturnModel::Run(){
             }
         }
         return s_ * 1.0e3 / cw_norm; };
+    // ATSAT_PHASE_DIAG=<n> (print-only, row GIANTS-PHASE-OUTSIDE): condensate OUTSIDE its phase's band, per
+    // gas -- liquid in cells with T < t_00 and ice in cells with T > t_0 -- in g/m2 (the CWB weight), marked
+    // at the CWB stage points and charged to the stage; a stage moves it by moving condensate OR by moving
+    // T across the band edge. Printed every n iterations with the cell counts.
+    static const int pob_every = [](){ const char* e = getenv("ATSAT_PHASE_DIAG"); return e ? atoi(e) : 0; }();
+    const bool pob_on = pob_every > 0;
+    const double pob_t0[SatCwb::NGAS]  = { t_0_h2o,  t_0_nh3,  t_0_ch4 };
+    const double pob_t00[SatCwb::NGAS] = { t_00_h2o, t_00_nh3, t_00_ch4 };
+    double pob_sum[SatCwb::NGAS][2][TB_N] = {{{0.0}}}, pob_last[SatCwb::NGAS][2] = {{0.0}}, pob_first[SatCwb::NGAS][2] = {{0.0}};
+    long   pob_cnt[SatCwb::NGAS][2] = {{0}};
+    if(pob_on && cw_norm == 0.0) for(int j = 0; j < jm; j++) cw_norm += std::sin(the.z[j]) * km;
+    // [gas][0] liquid below t_00, [gas][1] ice above t_0; reads (f, temperature) = the current or the n-level set
+    auto pob_val = [&](Array* f[3], Array& tt, int g_, double out[2], long cnt[2]){
+        double l_ = 0.0, s_ = 0.0; long nl_ = 0, ns_ = 0;
+        const double tl_ = pob_t00[g_], th_ = pob_t0[g_];
+        #pragma omp parallel for collapse(2) schedule(static) reduction(+:l_,s_,nl_,ns_)
+        for(int k = 0; k < km; k++){
+            for(int j = 0; j < jm; j++){
+                const double sj = std::sin(the.z[j]);
+                for(int i = 0; i < im; i++){
+                    const double dz = layer_thickness_m(i);
+                    if(!(dz > 0.0)) continue;
+                    const double T_ = tt.x[i][j][k] * t_ref;
+                    if(T_ < tl_ && f[1]->x[i][j][k] > 0.0){ l_ += sj * dz * f[1]->x[i][j][k]; nl_++; }
+                    if(T_ > th_ && f[2]->x[i][j][k] > 0.0){ s_ += sj * dz * f[2]->x[i][j][k]; ns_++; }
+                }
+            }
+        }
+        out[0] = l_ * 1.0e3 / cw_norm; out[1] = s_ * 1.0e3 / cw_norm;
+        if(cnt){ cnt[0] = nl_; cnt[1] = ns_; } };
+    auto pob_mark = [&](int stage){
+        if(!pob_on) return;
+        for(int g_ = 0; g_ < SatCwb::NGAS; g_++){
+            double v_[2]; pob_val(cw_f[g_], t, g_, v_, pob_cnt[g_]);
+            for(int p_ = 0; p_ < 2; p_++){ pob_sum[g_][p_][stage] += v_[p_] - pob_last[g_][p_]; pob_last[g_][p_] = v_[p_]; }
+        } };
+    if(pob_on) for(int g_ = 0; g_ < SatCwb::NGAS; g_++){
+        pob_val(cw_f[g_], t, g_, pob_last[g_], pob_cnt[g_]);
+        pob_first[g_][0] = pob_last[g_][0]; pob_first[g_][1] = pob_last[g_][1];
+    }
     auto cwb_mark = [&](int stage){
+        pob_mark(stage);
         if(!cwb_on) return;
         for(int g_ = 0; g_ < SatCwb::NGAS; g_++){
             const double w_ = cwb_col(cw_f[g_], 0);
             cw_sum[g_][stage] += w_ - cw_last[g_]; cw_last[g_] = w_;
         } };
     if(cwb_on){
-        for(int j = 0; j < jm; j++) cw_norm += std::sin(the.z[j]) * km;
+        if(cw_norm == 0.0) for(int j = 0; j < jm; j++) cw_norm += std::sin(the.z[j]) * km;   // ATSAT_PHASE_DIAG may have set it
         for(int g_ = 0; g_ < SatCwb::NGAS; g_++){
             cw_last[g_] = cw_first[g_] = cwb_col(cw_f[g_], 0);
             cw_first0[g_] = cwb_col(cw_f[g_], 1);
@@ -975,6 +1016,9 @@ void cSaturnModel::Run(){
                 for(int q_ = 0; q_ < 8; q_++) SatCwb::st().acc[t_][g_][q_] = 0.0;
         }
 
+        double pob_n[SatCwb::NGAS][2] = {{0.0}};                         // ATSAT_PHASE_DIAG: what the step starts from
+        if(pob_on) for(int g_ = 0; g_ < SatCwb::NGAS; g_++) pob_val(cw_fn[g_], tn, g_, pob_n[g_], nullptr);
+
         ub_tab ub_n;
         if(ub_on){
             ub_n = ub_lev(un);                                          // what the step starts from
@@ -1016,6 +1060,15 @@ void cSaturnModel::Run(){
                 cw_sum[g_][TB_RK_RESET] += cw_n[g_] - cw_last[g_];
                 cw_sum[g_][TB_RK_REST]  += w_ - cw_n[g_] - step_terms;
                 cw_last[g_] = w_;
+            }
+        }
+
+        if(pob_on) for(int g_ = 0; g_ < SatCwb::NGAS; g_++){
+            double v_[2]; pob_val(cw_f[g_], t, g_, v_, pob_cnt[g_]);
+            for(int p_ = 0; p_ < 2; p_++){
+                pob_sum[g_][p_][TB_RK_RESET] += pob_n[g_][p_] - pob_last[g_][p_];
+                pob_sum[g_][p_][TB_RK_REST]  += v_[p_] - pob_n[g_][p_];     // the whole step (transport + terms)
+                pob_last[g_][p_] = v_[p_];
             }
         }
 
@@ -1186,6 +1239,22 @@ void cSaturnModel::Run(){
                         }
                 }
                 printf("      ATSAT: [CWB] %s   %-46s %+.6e\n", cw_gas[g_], "unattributed", cw_last[g_] - cw_first[g_] - sum_);
+            }
+        }
+
+        if(pob_on && iter_n % pob_every == 0){
+            static const char* pob_ph[2] = { "liquid below t_00", "ice above t_0" };
+            for(int g_ = 0; g_ < SatCwb::NGAS; g_++) for(int p_ = 0; p_ < 2; p_++){
+                printf("\n      ATSAT: [PHASE] %s %s, cumulative over iterations %d..%d, g/m2:  start %.6e  now %.6e (%ld cells)\n",
+                       cw_gas[g_], pob_ph[p_], iter_start, iter_n, pob_first[g_][p_], pob_last[g_][p_], pob_cnt[g_][p_]);
+                double sum_ = 0.0;
+                for(int q_ = 0; q_ < TB_N; q_++){
+                    printf("      ATSAT: [PHASE] %s %-18s %-46s %+.6e\n", cw_gas[g_], pob_ph[p_],
+                           q_ == TB_RK_REST ? "RungeKutta: the whole step" : cw_name[q_], pob_sum[g_][p_][q_]);
+                    sum_ += pob_sum[g_][p_][q_];
+                }
+                printf("      ATSAT: [PHASE] %s %-18s %-46s %+.6e\n", cw_gas[g_], pob_ph[p_], "unattributed",
+                       pob_last[g_][p_] - pob_first[g_][p_] - sum_);
             }
         }
 
