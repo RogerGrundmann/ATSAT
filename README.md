@@ -83,6 +83,7 @@ baseline.
 | └ coupling into rhs_t and the moisture RHS | `RHS_Sat_Turb.cpp` | `ATSAT_PRECIP_COUPLING` | **1.0** |
 | Shared saturation adjustment (0 = the inherited routine) | `SaturationAdjustmentSat.*` | `ATSAT_SATADJ` | **on** |
 | └ condensate re-evaporation in the shared adjustment (sub-saturated cells take cloud / ice back to vapour) | shared `SaturationAdjustment.h` | `ATSAT_SATADJ_EVAP` | **1** since 2026-11-03 (0 restores; ATJUP's setting; measured 200 it: NH3 liquid share 0.018x -> 0.38x of the temperature split, CH4 condensate cells 1419 -> 715) |
+| └ freezing of liquid below t_00 in the shared adjustment: liquid colder than t_00 freezes at entry (liquid -> ice, warmed by the latent heat of fusion, at most up to t_00; needs CONSERVE; gases without a t_00..t_0 band untouched); row GIANTS-PHASE-OUTSIDE: the adjustment only moved the vapour, so liquid carried below t_00 by transport was never frozen (ATSAT, DL 5000 -> 5100: H2O +203 / NH3 +349 g/m2 per 100 it, nothing removing it) | shared `SaturationAdjustment.h` | `ATSAT_SATADJ_FREEZE` | 0 (2026-11-24; unset byte-identical to before on all four giants) |
 | Grey multi-layer radiation | `RadiationSat.h` | `ATSAT_RADIATION` | **on** since 2026-10-11 (0 = off) |
 | └ coupling into rhs_t | | `ATSAT_RAD_COUPLING` | 0.0 |
 | └ deep boundary: no radiative divergence in the bottom layer (removes the level-0 jump in Radiation / Q_rad; 0 = the old F_int bottom; the bottom is opaque, so only level 0 changes) | `Radiation.h` | `ATSAT_RAD_BOTTOM` | **1** since 2026-11-01 (`rad_default_bottom()`) |
