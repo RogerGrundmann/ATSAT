@@ -382,6 +382,9 @@ void cSaturnModel::RHSSat(int i, int j, int k, const CellGeometry& geo){
         + v_ijk * dpdthe * inv_rm
         + w_ijk * dpdphi * inv_rmsinthe);
 
+    // ATSAT_CP_H2 / ATSAT_CP_GAS (CpH2.h, default off): the compression work heats with the local cp(T), not cp_mix
+    if(CpH2::dyn_on<cSaturnModel>() && t.x[i][j][k] > 0.0) pressure_t *= cp_mix / CpH2::cp_lapse(*this, t.x[i][j][k] * t_ref);
+
     double transport_t = u_ijk * dtdr + v_ijk * dtdthe * inv_rm
         + w_ijk * dtdphi * inv_rmsinthe;
 

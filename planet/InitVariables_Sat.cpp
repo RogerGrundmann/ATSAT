@@ -54,13 +54,65 @@ void cSaturnModel::init_temperature(){
         }
     }
 
+    // ATSAT_CP_H2 / ATSAT_CP_GAS (CpH2.h, cSaturnModel.h; default off): each column becomes the cp(T) adiabat through the
+    // 1-bar T of the linear profile above. The linear profile with the constant gam = g/cp_mix is the polytrope
+    // p = p_ref (T/t_ref)^E, E = g/(gam R_ref), so its bottom pressure is p_b = p_ref (T_0/t_ref)^E and its 1-bar T is
+    // T_0 p_b^(-1/E). From (1 bar, T1) dlnT/dlnp = R / cp(T) (R = R_ref in J/(kg K)) down to p_b gives the new T_0; then dT/dz = -g / cp(T)
+    // up the column (RK2, 20 substeps per layer) -- the same hydrostatics with R_ref, so p = 1 bar stays at T1.
+    // Design (A) (2026-11-24, user: "yes, take (A)"): the set-up's cp is ITS OWN effective cp_eff = g/gam (config gam
+    // 0.7 K/km -> 14286 J/(kg K)), scaled by H2's cp_h2(T)/cp_h2 (ATSAT_CP_H2 1 normal / 2 equilibrium); ATSAT_CP_GAS is
+    // not used by the set-up. The dynamics keep cp_mix (cp_lapse_in_dynamics false). Offline with R_ref 3890 from 134.8 K
+    // at 1 bar vs Voyager / Atreya & Wong Fig. 3 at 0.5 / 2 / 5 / 10 bar: today +4 / -7 / -16 / -22 K, normal -0.5 / -2 / -6 / -8,
+    // equilibrium +3 / -4 / -9 / -12 (literature/cp_h2).
+    if(CpH2::on<cSaturnModel>()){
+        if(!pstat_hydro()) printf("      ATSAT: WARNING -- ATSAT_CP_H2 / _CP_GAS without ATSAT_PSTAT_HYDRO=1: the polytrope p_stat does not follow the cp(T) profile\n");
+        const double E = g / (gam * R_ref);
+        const double Rk = R_ref * 1.0e3;                          // R_ref is in J/(g K) (paired with gam in K/km): J/(kg K)
+        const double cp_eff = g * 1.0e3 / gam;                    // J/(kg K): the cp the config gam stands for
+        auto cps = [&](double TT){ return cp_eff * CpH2::cp_h2(TT, CpH2::mode<cSaturnModel>(), cp_h2) / cp_h2; };
+        pstat_bottom_fix.assign((size_t)jm * km, 0.0);
+        double t1_lo = 1e30, t1_hi = 0.0, db_lo = 1e30, db_hi = -1e30, tt_lo = 1e30, tt_hi = 0.0;
+        for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
+            const double Tb0 = t.x[0][j][k] * t_ref, pb = p_ref * std::pow(Tb0 / t_ref, E), T1 = Tb0 * std::pow(1.0 / pb, 1.0 / E);
+            double T = T1; const int n = 2000; const double h = std::log(pb) / n;
+            for(int s_ = 0; s_ < n; s_++){
+                const double k1 = T * Rk / cps(T), Tm = T + 0.5 * h * k1;
+                T += h * Tm * Rk / cps(Tm);
+            }
+            pstat_bottom_fix[(size_t)j * km + k] = pb;
+            t.x[0][j][k] = T / t_ref;
+            for(int i = 1; i < im; i++){
+                const double dz = (double)(get_layer_height(i) - get_layer_height(i-1)) * 1.0e3, hz = dz / 20.0;
+                for(int s_ = 0; s_ < 20; s_++){
+                    const double Tm = T - 0.5 * hz * g / cps(T);
+                    T = std::max(10.0, T - hz * g / cps(Tm));
+                }
+                t.x[i][j][k] = T / t_ref;
+            }
+            t1_lo = std::min(t1_lo, T1); t1_hi = std::max(t1_hi, T1);
+            db_lo = std::min(db_lo, t.x[0][j][k] * t_ref - Tb0); db_hi = std::max(db_hi, t.x[0][j][k] * t_ref - Tb0);
+            tt_lo = std::min(tt_lo, T); tt_hi = std::max(tt_hi, T);
+        }
+        printf("      ATSAT: ATSAT_CP_H2 %d, ATSAT_CP_GAS %d (CpH2.h): set-up = the cp(T) adiabat through the 1-bar T %.1f .. %.1f K; bottom T changed by %+.1f .. %+.1f K, lid before the tropopause %.1f .. %.1f K; set-up cp(80 / 150 / 300 K) = %.0f / %.0f / %.0f J/(kg K) (g/gam %.0f; the dynamics keep cp_mix)\n",
+               CpH2::mode<cSaturnModel>(), (int)CpH2::gas<cSaturnModel>(), t1_lo, t1_hi, db_lo, db_hi, tt_lo, tt_hi,
+               cps(80.0), cps(150.0), cps(300.0), cp_eff);
+    }
+
     // ATSAT_INIT_TTROP=<K> (cSaturnModel.h, row SAT-TOP-COLD): tropopause minimum + stratospheric rise, per column
     if(init_ttrop() > 0.0){
         const double t_tp = init_ttrop(), dtdz = init_tstrat();
         long n_mod = 0; double t_lid_min = 1e30, t_lid_max = 0.0;
         for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
             const double t0 = t.x[0][j][k] * t_ref;                    // K
-            const double z_tp = (t0 - t_tp) / gam;                     // km, where the linear decay reaches T_trop
+            double z_tp = (t0 - t_tp) / gam;                           // km, where the linear decay reaches T_trop
+            if(CpH2::on<cSaturnModel>()){                             // the cp(T) profile is not linear: its crossing
+                z_tp = 1.0e30;
+                for(int i = 1; i < im; i++){
+                    const double Ta = t.x[i-1][j][k] * t_ref, Tb = t.x[i][j][k] * t_ref;
+                    if(Tb <= t_tp){ const double za = get_layer_height(i-1), zb = get_layer_height(i);
+                        z_tp = (Ta > Tb) ? za + (zb - za) * (Ta - t_tp) / (Ta - Tb) : za; break; }
+                }
+            }
             for(int i = 0; i < im; i++){
                 const double z = get_layer_height(i);
                 if(z > z_tp){ t.x[i][j][k] = (t_tp + dtdz * (z - z_tp)) / t_ref; n_mod++; }
@@ -507,7 +559,8 @@ void cSaturnModel::rebuildPstatHydro(const char* where){
     double dmax = 0.0;
     #pragma omp parallel for collapse(2) schedule(static) reduction(max:dmax)
     for(int j = 0; j < jm; j++) for(int k = 0; k < km; k++){
-        double p = p_ref * std::pow(t.x[0][j][k], exp_pressure);
+        double p = pstat_bottom_fix.empty() ? p_ref * std::pow(t.x[0][j][k], exp_pressure)
+                                            : pstat_bottom_fix[(size_t)j * km + k];      // ATSAT_CP_H2 / _CP_GAS: the set-up's bottom p
         if(report && p_stat.x[0][j][k] > 0.0) dmax = std::max(dmax, std::fabs(p / p_stat.x[0][j][k] - 1.0));
         p_stat.x[0][j][k] = p;
         for(int i = 1; i < im; i++){

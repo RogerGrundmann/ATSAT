@@ -40,6 +40,7 @@ class VelocityInitializerSat;
 #include "Utils.h"
 #include "Config.h"
 #include "BoundaryConditions.h"   // BCForm, and the shared BC template
+#include "CpH2.h"                // ATSAT_CP_H2 / ATSAT_CP_GAS: cp(T) for the lapse rate (shared)
 
 
 #ifdef _OPENMP
@@ -80,6 +81,7 @@ class cSaturnModel{
     template<class M> friend class Precipitation;
     template<class M> friend class Turbulence;
     template<class M> friend class ProcessDiag;
+    template<class M> friend struct CpH2::Lapse;      // ATSAT_CP_H2 / _CP_GAS (shared CpH2.h)
 
 public:
 
@@ -329,6 +331,14 @@ public:
         static const bool v = [](){ const char* e = getenv("ATSAT_PSTAT_HYDRO"); return e ? atoi(e) != 0 : true; }();
         return v; }
     void rebuildPstatHydro(const char* where);
+    // ATSAT_CP_H2 = 0 | 1 normal | 2 equilibrium H2 and ATSAT_CP_GAS = 0 | 1 (shared CpH2.h, 2026-11-24, row GIANTS-ICE-TP;
+    // default 0 / 0 = the constant cp_mix). ATSAT has ported the set-up: init_temperature() rebuilds each column as the
+    // cp(T) adiabat through the column's 1-bar T of the linear profile (dlnT/dlnp = R_ref / cp(T), down to the bottom
+    // pressure p_ref (T_0/t_ref)^(g/(gam R_ref)) of that profile, then dT/dz = -g / cp(T) up the column), and
+    // rebuildPstatHydro() keeps that bottom pressure (pstat_bottom_fix) instead of the polytrope of T_0. Needs PSTAT_HYDRO 1.
+    static bool cp_lapse_supported(){ return true; }
+    static bool cp_lapse_in_dynamics(){ return false; }   // design (A): RHS / MCA / turbulence keep cp_mix (CpH2.h)
+    std::vector<double> pstat_bottom_fix;            // [j*km+k] bar; empty unless CP_H2 / CP_GAS
     // ATSAT_INIT_TTROP=<K> (2026-11-21, row SAT-TOP-COLD; DEFAULT 82 since 2026-11-21 with PSTAT_HYDRO 1 and INIT_P0_H2O 0, arm D; =0 = off): the set-up T stops falling at the tropopause
     // minimum T_trop and rises above it at ATSAT_INIT_TSTRAT K/km (default 0.4: Saturn ~82 K near 80-100 mbar ->
     // ~140 K near 1 mbar over ~4.5 scale heights); the linear 0.7 K/km decay otherwise runs through the whole 500 km
