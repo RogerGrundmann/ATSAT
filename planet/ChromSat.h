@@ -14,6 +14,13 @@
  *
  *     c_NH3    NH3 vapour + cloud + ice (ATSAT_CHROM_SRC=1, default) or vapour alone (0)
  *     F_sun    sin(colatitude): the diurnal-mean insolation shape, no season (1 at the equator). Saturn's
+ *              ATSAT_CHROM_DECL=<deg> (2026-11-25, row SAT-CHROM-REALISM step (4); unset = the line above, byte-identical):
+ *              the SEASON -- the exact diurnal mean of max(0, cos zenith) for a sub-solar latitude delta (Saturn +-26.7
+ *              at solstice), times pi so that delta = 0 gives sin(colatitude) again: polar day / night. ATSAT_CHROM_RINGS=1
+ *              (needs DECL != 0) adds the RING SHADOW: per latitude and hour angle the sun ray is followed to the
+ *              ring plane and dimmed by exp(-tau / |sin delta|) of the ring it crosses (radii in Saturn radii, normal
+ *              tau: C 1.239-1.527 0.1, B 1.527-1.951 2.0, Cassini Division 1.951-2.027 0.1, A 2.027-2.269 0.5);
+ *              360 x 48 hour angles, built once per row.
  *              26.7 deg obliquity and its ring shadow are NOT in it.
  *     A_uv     exp(-N_above / N_uv): the UV left after the NH3 VAPOUR column N_above [kg/m2] above the
  *              cell (from the cell's upper face to the lid) has absorbed it -- NH3 shields itself.
@@ -59,16 +66,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 namespace SatChrom {
-    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase, aur, aur_lat, aur_w, aur_p; int aur_cap; };
+    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase, aur, aur_lat, aur_w, aur_p; int aur_cap; bool season; double decl; int rings; };
     inline const Par& par(){
         static const Par p = [](){
             auto d = [](const char* n, double v){ const char* e = getenv(n); return e ? atof(e) : v; };
             return Par{ d("ATSAT_CHROM_J", 1.0e-6), d("ATSAT_CHROM_NUV", 3.0e-4), d("ATSAT_CHROM_TAU", 30.0) * 86400.0,
                         (int)d("ATSAT_CHROM_SRC", 1.0), d("ATSAT_CHROM_HAZE_P1", 0.0), d("ATSAT_CHROM_HAZE_PBASE", 0.0),
                         d("ATSAT_CHROM_AURORA", 0.0), d("ATSAT_CHROM_AURORA_LAT", 75.0), d("ATSAT_CHROM_AURORA_W", 5.0),
-                        d("ATSAT_CHROM_AURORA_P", 0.1), (int)d("ATSAT_CHROM_AURORA_CAP", 0.0) };
+                        d("ATSAT_CHROM_AURORA_P", 0.1), (int)d("ATSAT_CHROM_AURORA_CAP", 0.0),
+                        getenv("ATSAT_CHROM_DECL") != nullptr, d("ATSAT_CHROM_DECL", 0.0), (int)d("ATSAT_CHROM_RINGS", 0.0) };
         }();
         return p;
     }
@@ -102,7 +111,34 @@ inline void cSaturnModel::chromUV(){
 inline double cSaturnModel::chromSource(int i, int j, int k){
     const SatChrom::Par& p = SatChrom::par();
     const double c = nh3.x[i][j][k] + (p.src ? nh3_cloud.x[i][j][k] + nh3_ice.x[i][j][k] : 0.0);
-    const double f_sun = std::max(0.0, std::sin(the.z[j]));
+    double f_sun;
+    if(!p.season) f_sun = std::max(0.0, std::sin(the.z[j]));
+    else {                                                                      // ATSAT_CHROM_DECL / _RINGS, built once
+        static const std::vector<double> F = [&](){
+            std::vector<double> v(jm, 0.0);
+            const double d = p.decl * M_PI / 180.0, sd = std::sin(d), cd = std::cos(d);
+            const double R[5] = { 1.239, 1.527, 1.951, 2.027, 2.269 }, tau[4] = { 0.1, 2.0, 0.1, 0.5 };
+            const int nh = 360 * 48;
+            for(int jj = 0; jj < jm; jj++){
+                const double lat = M_PI / 2.0 - the.z[jj], sl = std::sin(lat), cl = std::cos(lat);
+                double s = 0.0;
+                for(int n = 0; n < nh; n++){
+                    const double h = -M_PI + (n + 0.5) * 2.0 * M_PI / nh, ch = std::cos(h);
+                    const double mu = cl * cd * ch + sl * sd;                   // cos zenith
+                    if(mu <= 0.0) continue;
+                    double tr = 1.0;
+                    if(p.rings && sd != 0.0 && sl * sd < 0.0){                  // sun on the other side of the ring plane
+                        const double t = -sl / sd;                              // ray P + t S reaches z = 0
+                        const double x = cl * ch + t * cd, y = cl * std::sin(h), r = std::sqrt(x * x + y * y);
+                        for(int q = 0; q < 4; q++) if(r >= R[q] && r < R[q+1]) tr = std::exp(-tau[q] / std::abs(sd));
+                    }
+                    s += mu * tr;
+                }
+                v[jj] = M_PI * s / nh;                                          // pi x diurnal mean: = sin(colat) at delta 0
+            }
+            return v; }();
+        f_sun = F[j];
+    }
     double rate = p.J * std::max(0.0, c) * f_sun * chrom_uv.x[i][j][k]
                       - (p.tau_s > 0.0 ? chrom.x[i][j][k] / p.tau_s : 0.0);     // kg/m3/s
     if(p.aur > 0.0){                                                            // ATSAT_CHROM_AURORA
@@ -125,6 +161,9 @@ inline void cSaturnModel::chromInfo(){
     if(p.aur > 0.0)
         printf("      ATSAT: ATSAT_CHROM_AURORA %.3e kg/m3/s -- auroral source at +-%.1f deg (w %.1f deg), exp(-p / %.3f bar)\n",
                p.aur, p.aur_lat, p.aur_w, p.aur_p);
+    if(p.season)
+        printf("      ATSAT: ATSAT_CHROM_DECL %.2f deg -- seasonal diurnal-mean insolation in the chromophore source%s\n",
+               p.decl, p.rings ? ", with the ring shadow (ATSAT_CHROM_RINGS 1)" : "");
     if(p.aur > 0.0 && p.aur_cap)
         printf("      ATSAT: ATSAT_CHROM_AURORA_CAP 1 -- polar cap: full rate poleward of +-%.1f deg\n", p.aur_lat);
 }
