@@ -131,7 +131,7 @@ baseline.
 | └ MCA mixed-phase split (the MCA's re-equilibrated cells partitioned by the adjustment's t_00..t_0 split instead of all ice below t_0; only where `SATADJ_BERGERON` = 0) | shared `ConvectiveAdjustment.h` | `ATSAT_MCA_PHASE` | 0 (2026-11-03; unset byte-identical to before on all four giants) |
 | Fitted NH3 liquid / NH3 ice / H2O ice vapour pressures (NIST Antoine, Fray & Schmitt 2009, Murphy & Koop 2005) | shared `ATPhys.h` | `ATSAT_SVP_FIT` | off |
 | Thermal-wind residual (diagnostic only) | `ThermalWindDiagSat.h` | `ATSAT_TW_DIAG` | off |
-| Chromophore tracer (the colouring agent: J c_NH3 sin(colat) A_uv - chrom/tau, A_uv = exp(-N_NH3 vapour above / N_uv); passive, uncalibrated = relative colour intensity; knobs `ATSAT_CHROM_J` 1e-6 1/s, `_NUV` 3e-4 kg/m2, `_TAU` 30 d, `_SRC` 1; ported from ATJUP_CHROM 2026-10-30; `ATSAT_CHROM_HAZE_P1=<bar>` (2026-11-21, default 0 = off) multiplies A_uv by a UV haze exp(-min(p, `_HAZE_PBASE`)/p1), tau = 1 at p1) | `ChromSat.h` | `ATSAT_CHROM` | off |
+| Chromophore tracer (the colouring agent: J c_NH3 sin(colat) A_uv - chrom/tau, A_uv = exp(-N_NH3 vapour above / N_uv); passive, uncalibrated = relative colour intensity; knobs `ATSAT_CHROM_J` 1e-6 1/s, `_NUV` 3e-4 kg/m2, `_TAU` 30 d, `_SRC` 1; ported from ATJUP_CHROM 2026-10-30; `ATSAT_CHROM_HAZE_P1=<bar>` (2026-11-21, default 0 = off) multiplies A_uv by a UV haze exp(-min(p, `_HAZE_PBASE`)/p1), tau = 1 at p1; `ATSAT_CHROM_AURORA=<A>` (2026-11-25, default 0 = off) adds an auroral source A exp(-((lat-`_AURORA_LAT` 75)/`_AURORA_W` 5)^2/2) exp(-p/`_AURORA_P` 0.1 bar) kg/m3/s that needs no NH3) | `ChromSat.h` | `ATSAT_CHROM` | off |
 
 ### Numerical safety nets
 

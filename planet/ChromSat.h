@@ -28,6 +28,15 @@
  *              The haze above the lid only adds a column-uniform factor exp(-p_lid/p1), as J does, except
  *              that p_lid varies with latitude. Not modelled: haze that depends on latitude or season.
  *     J        ATSAT_CHROM_J, effective production rate [1/s], default 1e-6 (ATJUP's)
+ *
+ *     ATSAT_CHROM_AURORA=<A> (2026-11-25, row SAT-CHROM-REALISM step (3); default 0 = off, byte-identical): a second
+ *     source that does NOT need NH3, the AURORAL one -- Saturn's poles are UV-dark from aerosol made by auroral
+ *     particle precipitation (Pryor et al. 2019), which the NH3 source (max at +-45 deg / eq, poles 30-40x weaker)
+ *     cannot give. It adds
+ *         + A * exp(-((|lat| - lat_a) / w)^2 / 2) * exp(-p / p_a)        [kg/m3/s]
+ *     lat_a = ATSAT_CHROM_AURORA_LAT [deg], default 75 (the main oval, ~70-80 deg in both hemispheres); w =
+ *     ATSAT_CHROM_AURORA_W [deg], default 5; p_a = ATSAT_CHROM_AURORA_P [bar], default 0.1, p = p_stat of the cell:
+ *     largest at the lid, standing in for aerosol made far above the model top and settling in. Uncalibrated like J.
  *     tau      ATSAT_CHROM_TAU [days of 86400 s], default 30 (ATJUP's)
  *
  * A_uv is built once per iteration (chromUV(), before RungeKuttaSat) into chrom_uv.
@@ -49,12 +58,14 @@
 #include <string>
 
 namespace SatChrom {
-    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase; };
+    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase, aur, aur_lat, aur_w, aur_p; };
     inline const Par& par(){
         static const Par p = [](){
             auto d = [](const char* n, double v){ const char* e = getenv(n); return e ? atof(e) : v; };
             return Par{ d("ATSAT_CHROM_J", 1.0e-6), d("ATSAT_CHROM_NUV", 3.0e-4), d("ATSAT_CHROM_TAU", 30.0) * 86400.0,
-                        (int)d("ATSAT_CHROM_SRC", 1.0), d("ATSAT_CHROM_HAZE_P1", 0.0), d("ATSAT_CHROM_HAZE_PBASE", 0.0) };
+                        (int)d("ATSAT_CHROM_SRC", 1.0), d("ATSAT_CHROM_HAZE_P1", 0.0), d("ATSAT_CHROM_HAZE_PBASE", 0.0),
+                        d("ATSAT_CHROM_AURORA", 0.0), d("ATSAT_CHROM_AURORA_LAT", 75.0), d("ATSAT_CHROM_AURORA_W", 5.0),
+                        d("ATSAT_CHROM_AURORA_P", 0.1) };
         }();
         return p;
     }
@@ -89,8 +100,13 @@ inline double cSaturnModel::chromSource(int i, int j, int k){
     const SatChrom::Par& p = SatChrom::par();
     const double c = nh3.x[i][j][k] + (p.src ? nh3_cloud.x[i][j][k] + nh3_ice.x[i][j][k] : 0.0);
     const double f_sun = std::max(0.0, std::sin(the.z[j]));
-    const double rate = p.J * std::max(0.0, c) * f_sun * chrom_uv.x[i][j][k]
+    double rate = p.J * std::max(0.0, c) * f_sun * chrom_uv.x[i][j][k]
                       - (p.tau_s > 0.0 ? chrom.x[i][j][k] / p.tau_s : 0.0);     // kg/m3/s
+    if(p.aur > 0.0){                                                            // ATSAT_CHROM_AURORA
+        const double lat = 90.0 - the.z[j] * 180.0 / M_PI, x = (std::abs(lat) - p.aur_lat) / p.aur_w;
+        const double pb = std::max(0.0, p_stat.x[i][j][k]);
+        rate += p.aur * std::exp(-0.5 * x * x) * (p.aur_p > 0.0 ? std::exp(-pb / p.aur_p) : 1.0);
+    }
     return rate * (L_atm * 1.0e3 / u_0);                                          // per nondimensional time
 }
 
@@ -102,4 +118,7 @@ inline void cSaturnModel::chromInfo(){
     if(p.haze_p1 > 0.0)
         printf("      ATSAT: ATSAT_CHROM_HAZE_P1 %.3f bar -- UV haze tau = min(p, %s) / p1 in A_uv\n",
                p.haze_p1, p.haze_pbase > 0.0 ? (std::to_string(p.haze_pbase) + " bar").c_str() : "no base");
+    if(p.aur > 0.0)
+        printf("      ATSAT: ATSAT_CHROM_AURORA %.3e kg/m3/s -- auroral source at +-%.1f deg (w %.1f deg), exp(-p / %.3f bar)\n",
+               p.aur, p.aur_lat, p.aur_w, p.aur_p);
 }
