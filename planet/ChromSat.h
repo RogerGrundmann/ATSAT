@@ -37,6 +37,9 @@
  *     lat_a = ATSAT_CHROM_AURORA_LAT [deg], default 75 (the main oval, ~70-80 deg in both hemispheres); w =
  *     ATSAT_CHROM_AURORA_W [deg], default 5; p_a = ATSAT_CHROM_AURORA_P [bar], default 0.1, p = p_stat of the cell:
  *     largest at the lid, standing in for aerosol made far above the model top and settling in. Uncalibrated like J.
+ *     ATSAT_CHROM_AURORA_CAP=1 (2026-11-25, step (3b); default 0 = the band above): a polar CAP instead of a ring --
+ *     full production everywhere poleward of lat_a, the Gaussian edge only on the equator side (A2 with the band gave
+ *     a ring at 70-80 deg with the pole at half the equator's column; the observed dark caps cover the pole).
  *     tau      ATSAT_CHROM_TAU [days of 86400 s], default 30 (ATJUP's)
  *
  * A_uv is built once per iteration (chromUV(), before RungeKuttaSat) into chrom_uv.
@@ -58,14 +61,14 @@
 #include <string>
 
 namespace SatChrom {
-    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase, aur, aur_lat, aur_w, aur_p; };
+    struct Par { double J, N_uv, tau_s; int src; double haze_p1, haze_pbase, aur, aur_lat, aur_w, aur_p; int aur_cap; };
     inline const Par& par(){
         static const Par p = [](){
             auto d = [](const char* n, double v){ const char* e = getenv(n); return e ? atof(e) : v; };
             return Par{ d("ATSAT_CHROM_J", 1.0e-6), d("ATSAT_CHROM_NUV", 3.0e-4), d("ATSAT_CHROM_TAU", 30.0) * 86400.0,
                         (int)d("ATSAT_CHROM_SRC", 1.0), d("ATSAT_CHROM_HAZE_P1", 0.0), d("ATSAT_CHROM_HAZE_PBASE", 0.0),
                         d("ATSAT_CHROM_AURORA", 0.0), d("ATSAT_CHROM_AURORA_LAT", 75.0), d("ATSAT_CHROM_AURORA_W", 5.0),
-                        d("ATSAT_CHROM_AURORA_P", 0.1) };
+                        d("ATSAT_CHROM_AURORA_P", 0.1), (int)d("ATSAT_CHROM_AURORA_CAP", 0.0) };
         }();
         return p;
     }
@@ -103,7 +106,8 @@ inline double cSaturnModel::chromSource(int i, int j, int k){
     double rate = p.J * std::max(0.0, c) * f_sun * chrom_uv.x[i][j][k]
                       - (p.tau_s > 0.0 ? chrom.x[i][j][k] / p.tau_s : 0.0);     // kg/m3/s
     if(p.aur > 0.0){                                                            // ATSAT_CHROM_AURORA
-        const double lat = 90.0 - the.z[j] * 180.0 / M_PI, x = (std::abs(lat) - p.aur_lat) / p.aur_w;
+        const double lat = 90.0 - the.z[j] * 180.0 / M_PI;
+        const double x = (p.aur_cap && std::abs(lat) > p.aur_lat) ? 0.0 : (std::abs(lat) - p.aur_lat) / p.aur_w;
         const double pb = std::max(0.0, p_stat.x[i][j][k]);
         rate += p.aur * std::exp(-0.5 * x * x) * (p.aur_p > 0.0 ? std::exp(-pb / p.aur_p) : 1.0);
     }
@@ -121,4 +125,6 @@ inline void cSaturnModel::chromInfo(){
     if(p.aur > 0.0)
         printf("      ATSAT: ATSAT_CHROM_AURORA %.3e kg/m3/s -- auroral source at +-%.1f deg (w %.1f deg), exp(-p / %.3f bar)\n",
                p.aur, p.aur_lat, p.aur_w, p.aur_p);
+    if(p.aur > 0.0 && p.aur_cap)
+        printf("      ATSAT: ATSAT_CHROM_AURORA_CAP 1 -- polar cap: full rate poleward of +-%.1f deg\n", p.aur_lat);
 }
