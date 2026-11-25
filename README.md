@@ -15,11 +15,11 @@ A 3-D circulation model of **Saturn's** atmosphere with moist convection, clouds
 | Uranus | [ATURAN](https://github.com/RogerGrundmann/ATURAN) | 225 km, ~17 bar to 0.10-0.14 bar | CH₄, H₂S, NH₄SH, H₂O | the 98° tilt and the equator-to-pole temperature puzzle |
 | Neptune | [ATNEPT](https://github.com/RogerGrundmann/ATNEPT) | 200 km, ~32 bar to 0.03-0.05 bar | CH₄, H₂S, NH₄SH, H₂O | the fastest winds in the Solar System, driven by internal heat |
 
-Saturn atmospheric general circulation model based on the numerical framework of the ATOM
-climate model. Solves the 3-D Navier-Stokes equations in a spherical shell extending from
+Saturn atmospheric general circulation model based on the numerical framework of the [ATOM
+climate model](https://github.com/atom-model/ATOM). Solves the 3-D Navier-Stokes equations in a spherical shell extending from
 below the water-cloud base (~55 bar at the bottom; the H₂O deck forms near 20 bar) up to the
 upper troposphere (~0.04-0.07 bar at the lid, below the stratospheric hydrocarbon hazes),
-including full cloud microphysics and chemistry for the H₂/He atmosphere of Saturn.
+including full cloud microphysics and chemistry for the H₂/He atmosphere of Saturn. Its precipitation scheme -- the COSMO three-category rain / snow / graupel scheme in the shared `Precipitation.h` -- comes from [ATOM_Precipitation](https://github.com/RogerGrundmann/ATOM_Precipitation), a development version of ATOM.
 
 Saturn presents two phenomena that motivated this work. The first is the persistent
 hexagonal polar vortex observed in Saturn's northern hemisphere by Voyager and Cassini —
