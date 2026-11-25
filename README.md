@@ -17,8 +17,9 @@ A 3-D circulation model of **Saturn's** atmosphere with moist convection, clouds
 
 Saturn atmospheric general circulation model based on the numerical framework of the ATOM
 climate model. Solves the 3-D Navier-Stokes equations in a spherical shell extending from
-the deep water-cloud level (~10 bar) up through the hydrocarbon haze layers, including full
-cloud microphysics and chemistry for the H₂/He atmosphere of Saturn.
+below the water-cloud base (~55 bar at the bottom; the H₂O deck forms near 20 bar) up to the
+upper troposphere (~0.04-0.07 bar at the lid, below the stratospheric hydrocarbon hazes),
+including full cloud microphysics and chemistry for the H₂/He atmosphere of Saturn.
 
 Saturn presents two phenomena that motivated this work. The first is the persistent
 hexagonal polar vortex observed in Saturn's northern hemisphere by Voyager and Cassini —
