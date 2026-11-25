@@ -1059,7 +1059,14 @@ private:
     bool has_welcome_msg_printed;
 
     void init_layer_heights(){
-        float h = L_atm/(im-1);
+        // Called twice: by the constructor with the compiled L_atm (500) and by the set-up with the
+        // config's. Without the clear the second call only APPENDED, so get_layer_height() and
+        // layer_thickness_m() kept 500 km whatever the config said, while the dynamics took
+        // dr x L_atm from it: two inconsistent grids (row SAT-LATM-CONFIG, 2026-11-25; ATNEPT /
+        // ATURAN fixed the same append in 2026-10-12). The spacing is L_atm * dr, the one the
+        // dynamics use; it equals L_atm/(im-1) while dr (im-1) = 1 (im 41), byte for byte.
+        m_layer_heights.clear();
+        float h = L_atm * dr;
         for(int i=0; i<im; i++){
             m_layer_heights.push_back(i * h);
         } 

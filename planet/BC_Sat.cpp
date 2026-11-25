@@ -184,7 +184,6 @@ void cSaturnModel::init_tropopause_layers(){
     tropopause_layers = std::vector<double>(jm, tropopause_pole);
     cout << endl << "      ATSAT: init_tropopause_layers" << endl;
 // Versiera di Agnesi approach, two inflection points
-    int i_max = im-1;
     int j_max = jm-1;
     int j_half = j_max/2;
 //    double coeff_pole = 280.0;
@@ -195,9 +194,9 @@ void cSaturnModel::init_tropopause_layers(){
         double x = coeff_pole * (1.0 - (double)(j_half-j)/(double)j_half);
         tropopause_layers[j] = AtomUtils::Agnesi(tropopause_equator, x);
         tropopause_layers[j] = round(tropopause_layers[j]
-           /L_atm * (double)i_max);
+           /(L_atm * dr));            // km -> levels at the spacing L_atm * dr (row SAT-LATM-CONFIG; = L_atm/i_max at im 41)
 
-        tropopause_layers[j] = tropopause_equator/L_atm * (double)i_max;
+        tropopause_layers[j] = tropopause_equator/(L_atm * dr);   // row SAT-LATM-CONFIG, as above
 
 /*
     cout << "   j = " << j << "   x = " << x

@@ -196,7 +196,7 @@ void cSaturnModel::writeResults(){
             for(int i = 0; i < im; i++){
                 e = h2o.x[i][j][k] * p_stat.x[i][j][k]/ep_h2o;  // water vapour pressure in hPa
                 a = 216.6 * e /(t.x[i][j][k] * t_0);  // absolute humidity in kg/m3
-                precipitable_water.y[j][k] += a * L_atm /(double)(im - 1);  // kg/m³ * m
+                precipitable_water.y[j][k] += a * L_atm * dr;  // kg/m³ * m (layer L_atm * dr, row SAT-LATM-CONFIG)
             }
         }
     }
