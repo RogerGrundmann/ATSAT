@@ -69,6 +69,12 @@ process at Saturn's lower temperatures: the model reaches 61 K at the top of the
 well below methane's 90.69 K triple point, and produces a genuine CH₄ ice deck and methane
 precipitation reaching the ground.
 
+### Cloud profiles vs Atreya
+
+![Cloud and ice densities vs Atreya's equilibrium cloud model](doc/overlay_Saturn_S1_1000.png)
+
+Saturn, arm S1 (the defaults of 2026-11-24 incl. `ATSAT_CP_H2` 1, `satchk/cph2_2026-11-24`) at iteration 1000, against Atreya & Wong 2005 Fig. 3 (5x solar): NH3 ice base ~2.3 bar (Atreya ~1.7), H2O liquid base ~21 bar (20.4), NH4SH on Atreya's curve. Condensate densities against temperature (left axis) and pressure (right axis) at three latitudes; liquid solid, ice dashed, NH4SH dotted; Atreya's ECCM shaded by pressure (bar = base) and as long dashes by temperature (x = base). Made with `python3 -I tools/cloudprofile_pv.py <zonal.vtk> --out <file.png>` (`--atreya <case>|none`, `--lat 0,45,75`); the set for all four giants is in `literature/cloudprofile_compare/` (outside the repo).
+
 ---
 
 ## Modules
