@@ -338,6 +338,9 @@ public:
     // rebuildPstatHydro() keeps that bottom pressure (pstat_bottom_fix) instead of the polytrope of T_0. Needs PSTAT_HYDRO 1.
     static bool cp_lapse_supported(){ return true; }
     static bool cp_lapse_in_dynamics(){ return false; }   // design (A): RHS / MCA / turbulence keep cp_mix (CpH2.h)
+    // defaults of <TAG>_CP_H2 / <TAG>_CP_GAS (CpH2.h; 2026-11-24, user: "make the cp(T) knobs default on all four"; =0 restores)
+    static int cp_h2_default(){ return 1; }
+    static bool cp_gas_default(){ return false; }
     std::vector<double> pstat_bottom_fix;            // [j*km+k] bar; empty unless CP_H2 / CP_GAS
     // ATSAT_INIT_TTROP=<K> (2026-11-21, row SAT-TOP-COLD; DEFAULT 82 since 2026-11-21 with PSTAT_HYDRO 1 and INIT_P0_H2O 0, arm D; =0 = off): the set-up T stops falling at the tropopause
     // minimum T_trop and rises above it at ATSAT_INIT_TSTRAT K/km (default 0.4: Saturn ~82 K near 80-100 mbar ->
