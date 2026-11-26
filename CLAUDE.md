@@ -90,3 +90,80 @@ baseline.
 | Shapiro pass on p_dyn after the solver | `ATSAT_DAMP_PDYN` | **3 under `ATSAT_GEO_BALANCE` since 2026-11-02** (before: 0; without GEO_BALANCE 1). 1 = along r, theta, phi (halved the balancing meridional gradient on ATNEPT in 224 it, hence off); **2 = along r only** (2026-11-02, row SAT-U-ODDEVEN): removes the odd-even split of the radial levels of p_dyn, which makes -dp_dyn/dr alternate level to level and drives the 2-cell zig-zag of u (satchk/zzstage_2026-11-02). 1000 it from scratch (satchk/pdynlong_2026-11-02 N0 vs N2): u radial sign changes 74 → 9 %, u radial saw 0.0029 → 0.0003 m/s, u max / min 0.077 / −0.156 → 0.045 / −0.089 m/s; p_dyn latitude saw, v, w, T, OLR 1.422, residuum 0.0261 unchanged to 3–4 digits. **3 = along r and phi** (2026-11-02, the default): the shared solver does one red-black (i+j+k) sweep per call, so its two colours end up different and every solve stamps a checkerboard into p_dyn; after the radial pass the (j+k) part is left and -dp_dyn/dr drives it into u as vertical stripes (99 % of the checkerboard in du, satchk/cbdiag_2026-11-02). p_dyn is zonally symmetric, so the phi pass cannot touch the balancing meridional gradient. 1000 it from scratch (satchk/pdynphi_2026-11-02 A3 vs pdynlong N2): every field zonally symmetric to the last digit at 1000 (u longitude sign changes 100 → 0 %), u latitude sign changes 55 → 21 %, u max / min 0.045 / −0.089 → 0.038 / −0.075 m/s; v, w, T, OLR, residuum unchanged |
 | Radial-wind budget | `ATSAT_UB_DIAG=<n>` | off; print-only (2026-10-13, `planet/UbSat.h`, ported from ATNEPT): every n iterations, which stage of the loop and which term of `rhs_u` changed the level-mean radial wind, for the whole level and for the equatorial band (`ATSAT_UB_BAND=<degrees>`, default 5; `ATSAT_UB_ROWS=<j_lo>,<j_hi>` (2026-11-13) replaces the band by rows j_lo..j_hi, j = 90 − latitude), with the radial pressure force and what the pressure solver and the filter on `p_dyn` did to it. This model has no filter on u in the loop and no sponge, so those two rows stay zero. Unset and set both leave every output file identical (16 iterations) |
 | Precipitation rate scale | `ATSAT_PRECIP_SCALE` | 0.0045 since 2026-10-12 (0.006 before, calibrated on 10-09 on a model that discarded the condensate; on today's defaults it read 6.00 W/m² of latent flux against 4.45 emitted at 224 iterations, 0.0045 reads 4.45) |
+
+## Diagnostics
+
+Moved verbatim from README.md on 2026-11-26 (the README keeps a short summary).
+
+Printed at the `checkpoint` cadence:
+
+- **Equatorial column profile** — `i`, `p[bar]`, `T[K]`, `eps`, `netRad`, `Q_rad` from the model top
+  down to the deep boundary. ATSAT was the last model to gain it. It is the diagnostic that
+  localises profile faults where a column *mean* cannot, and it bears directly on Saturn's open
+  under-emission below: `eps` against `p[bar]` down the column is the direct view of the opacity that
+  question is about.
+- **Photosphere line** (printed unless `ATSAT_RADIATION=0`) — mean OLR against the input budget, the τ=1 level
+  in bar, and the temperature there beside the blackbody flux it implies. `T(τ=1) − T_eff(OLR)` is
+  the *scheme's* excess; `T(τ=1) − T_eff(in)` is how far the *column* sits from the energy budget.
+- **ParaView** — `Radiation`, `Q_rad_mW_m3` and `Emissivity` alongside the turbulence six and the
+  precipitation eleven, in all four views.
+
+- **printMinMax** — max/min with location for every prognostic and diagnostic field.
+- **steadyQuery** (`ATSAT_STEADY`, default on) — for each prognostic field, max|f − f_n| over
+  the grid with the cell it occurs in, i.e. the largest change that field underwent in one
+  iteration, plus the largest residual of the continuity equation. The "how far from steady,
+  and where" measurement. It runs *before* `restoreVar`, which is what makes the differences
+  non-zero.
+- **negative-value clamp budget** — gross mass clipped per species as a percentage of that
+  field's own mass, **split by whether it occurred on the two radial boundary planes**. That
+  split matters: `bcRadius` sets those planes by f = (4/3)f[a] − (1/3)f[b], which returns a
+  negative value wherever a field decays steeply towards the boundary. That is extrapolation
+  overshoot, not transport undershoot, and reading one for the other is expensive — `ch4_ice`
+  once appeared to clip 1848 % of its own mass when 100 % of it sat on one plane the equations
+  never touch.
+
+## Known limitations
+
+Moved verbatim from README.md on 2026-11-26 (the README keeps a short summary).
+
+None of these stops a run; all of them affect what a result means.
+
+0. **`ATSAT_THERMAL_MASSFLUX` defaults to 0.0 since 2026-10-11: the diffusive-enthalpy term is out of the temperature equation**, as on ATJUP (1.0 restores it). With it the column drifted — over 224 iterations the level-mean temperature changed by +1.5 K at the bottom, −3.4 K at level 20 and +8.2 K under the lid, and the term itself supplied +1.5 / −2.5 / +7.9 of that; without it the changes are −0.06 / −1.05 / +0.17 K and max T stays at its initial value. `ATSAT_TB_DIAG` is the instrument that showed it. What follows describes the knob as it was introduced (default 1.0, inert). It scales the
+   diffusive-enthalpy sink in `rhs_t`. On this model that term is well-behaved — it *balances* the
+   transport term (+0.163 against +0.158) and switching it off moves the photosphere by 0.24 K and
+   the emitted flux by 0.6 % (1.234 → 1.226 W/m²). That is not true of the ice giants, where the same term dominates
+   `rhs_t` by three to six orders of magnitude; ATSAT escapes because it builds its species
+   diffusivities from per-species `mue_nh3/rg_nh3` and never consumes `mue_mix`. Worth knowing before
+   the formula is "harmonised" across models.
+
+1. **The microphysics rate coefficients are not calibrated to Saturn.** They are ATOM's
+   terrestrial values rescaled *once* to **Jupiter's** energy budget and carried here unchanged,
+   against a condensate loading ~4× higher. Where `P_snow` reads 8.6400 mm/day it is
+   `P_max_flux`, the safety clamp, not the microphysics — at 250 km that is 65 337 of 65 341
+   cells. Read those cells as an upper bound and the rest as physics. **This is the
+   highest-value open item**, since the moist physics is the reason for the code; the observable
+   is Lv·P against Saturn's emitted flux, the same one ATJUP used.
+2. **The shared saturation adjustment is the default since 2026-10-10** (`ATSAT_SATADJ`, 0 =
+   the inherited routine). It carries a genuine repair — the legacy routine's saturation target
+   was frozen — and real ice pairs for H₂O and NH₃. Over 224 iterations against the inherited
+   routine: temperature, velocity and pressure extrema identical, max `h2o_cloud` −6.7 %, max
+   `nh3_ice` +26 %, max `ch4_ice` −23 %; it deletes no ice and leaves no cell unconverged.
+   Which of the two cloud amounts is right is not settled by a measurement.
+3. **`t_00_ch4` = 67.36 K is a borrowed proportion, not a measurement** — `t_0_ch4` scaled by
+   the mean of the H₂O and NH₃ ratios (0.7427). It was 190.56 K, methane's *critical*
+   temperature, which made the ice-autoconversion band `(T < 90.69 && T ≥ 190.56)` empty by
+   construction and left methane ice with no sink at all.
+4. **The timestep was tiny until 2026-10-09** (3.01e-5, i.e. 0.032 s of Saturn time per
+   iteration). What limited it was the unit sphere the model ran on: the zonal spacing next to
+   the poles was ~116 times too small, so `ATSAT_DT=0.001` went non-finite at iteration 3, first
+   at 88–90° in the lowest levels. With Saturn's radius in the metric (`ATSAT_METRIC_RADIUS`) and
+   the pole copied instead of extrapolated (`ATSAT_BC_POLE_COPY`) — both defaults now — a step of
+   0.001 and of 0.005 runs 224 iterations clean; 0.025 does not. The default is 0.001: 1.06 s
+   per iteration, 224 iterations = 4 minutes. That is still far from anything climatic.
+5. **`nh3_ice` clips 11.1 % of its own mass per 100 iterations with 0.0 % of it on the
+   boundary** — genuine interior transport undershoot, the largest real one in either model.
+6. **Not mirrored from ATJUP:** the per-level momentum census (`ATJUP_WPROFILE`), the
+   single-cell term probes (`ATJUP_PROBE*`), and roughly 25 further knobs. Some are
+   inapplicable — ATSAT has no obstacle, so the whole SeaMount family is meaningless here — but
+   the momentum census in particular has repeatedly been the thing that settled an argument in
+   ATJUP.
